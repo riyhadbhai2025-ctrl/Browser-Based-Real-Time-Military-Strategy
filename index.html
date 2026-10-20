@@ -3,25 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script>
-      (function() {
-        try {
-          var _fetch = window.fetch;
-          Object.defineProperty(window, 'fetch', {
-            get: function() {
-              return _fetch;
-            },
-            set: function(val) {
-              _fetch = val;
-            },
-            configurable: true,
-            enumerable: true
-          });
-        } catch (e) {
-          // Ignore
-        }
-      })();
-    </script>
+
     <title>Frontline Dominion - Real-Time Military RTS</title>
     <meta name="description" content="Browser-based persistent real-time military strategy game with tactical maps, base building, authentic combat, alliance warfare, and real-time multiplayer." />
     <meta property="og:title" content="Frontline Dominion - Real-Time Military RTS" />

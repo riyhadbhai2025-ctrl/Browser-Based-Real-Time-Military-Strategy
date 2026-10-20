@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { Alliance, Base, ChatMessage, GameNotification, PlayerProfile, Unit } from '../src/types/game';
+import { Alliance, Base, ChatMessage, EnvironmentObject, GameNotification, PlayerProfile, Unit } from '../src/types/game';
 import { generateWorld } from '../src/game/mapGenerator';
 
 export interface PersistentData {
@@ -10,6 +10,7 @@ export interface PersistentData {
   alliances: Alliance[];
   chat: ChatMessage[];
   notifications: GameNotification[];
+  envObjects: EnvironmentObject[];
   worldSeed: number;
   lastTickTime: number;
 }
@@ -33,6 +34,10 @@ export class GameStore {
       try {
         const raw = fs.readFileSync(DATA_FILE, 'utf-8');
         const parsed = JSON.parse(raw);
+        if (!parsed.envObjects || parsed.envObjects.length === 0) {
+          const gen = generateWorld({ width: 100, height: 75, tileSize: 44, seed: parsed.worldSeed || 202610 });
+          parsed.envObjects = gen.envObjects;
+        }
         console.log(`[Store] Loaded persistent game state with ${parsed.bases?.length || 0} bases and ${parsed.units?.length || 0} units.`);
         return parsed;
       } catch (e) {
@@ -44,7 +49,7 @@ export class GameStore {
   }
 
   public createNewWorld(seed: number = 202610): PersistentData {
-    const { bases } = generateWorld({ width: 100, height: 75, tileSize: 40, seed });
+    const { bases, envObjects } = generateWorld({ width: 100, height: 75, tileSize: 40, seed });
 
     // Starter units for initial player
     const initialUnits: Unit[] = [
@@ -247,6 +252,7 @@ export class GameStore {
       alliances: initialAlliances,
       chat: initialChat,
       notifications: initialNotifications,
+      envObjects,
       worldSeed: seed,
       lastTickTime: Date.now(),
     };

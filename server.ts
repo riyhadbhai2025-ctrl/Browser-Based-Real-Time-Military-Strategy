@@ -200,11 +200,13 @@ app.get('/api/auth/me', (req, res) => {
 
 // 4. World: Get Terrain
 app.get('/api/world/terrain', (_req, res) => {
+  const data = gameStore.getData();
   res.json({
     terrain: gameSimulation.getTerrain(),
+    envObjects: data.envObjects || [],
     width: 100,
     height: 75,
-    tileSize: 40,
+    tileSize: 44,
   });
 });
 
@@ -265,6 +267,7 @@ io.on('connection', (socket) => {
       bases: state.bases,
       units: state.units,
       alliances: state.alliances,
+      envObjects: state.envObjects || [],
       chat: state.chat.slice(-50),
       notifications: state.notifications.filter((n) => n.userId === authenticatedUserId).slice(-20),
       timestamp: Date.now(),
@@ -404,6 +407,30 @@ io.on('connection', (socket) => {
       gameStore.saveData();
       io.emit('alliance:update', alliance);
       if (callback) callback({ success: true });
+    }
+  });
+
+  // Map Editor: Paint Terrain
+  socket.on('editor:paint_terrain', (payload: { x: number; y: number; terrain: any }) => {
+    const success = gameSimulation.updateCellTerrain(payload.x, payload.y, payload.terrain);
+    if (success) {
+      io.emit('terrain:cell_update', { x: payload.x, y: payload.y, terrain: payload.terrain });
+    }
+  });
+
+  // Map Editor: Place / Remove Environment Objects
+  socket.on('editor:place_object', (payload: { object: any }) => {
+    const data = gameStore.getData();
+    if (!data.envObjects) data.envObjects = [];
+    data.envObjects.push(payload.object);
+    io.emit('editor:object_placed', payload.object);
+  });
+
+  socket.on('editor:remove_object', (payload: { objectId: string }) => {
+    const data = gameStore.getData();
+    if (data.envObjects) {
+      data.envObjects = data.envObjects.filter((o) => o.id !== payload.objectId);
+      io.emit('editor:object_removed', { objectId: payload.objectId });
     }
   });
 });

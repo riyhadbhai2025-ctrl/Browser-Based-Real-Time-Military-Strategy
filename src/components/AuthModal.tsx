@@ -60,17 +60,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md select-none">
       <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl overflow-hidden">
-        {/* Header Hero */}
-        <div className="p-6 bg-gradient-to-b from-slate-800/80 to-slate-900 border-b border-slate-800 text-center">
-          <div className="w-12 h-12 mx-auto rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center mb-3 text-blue-400 shadow-inner">
-            <Shield className="w-6 h-6" />
+        {/* Header Hero with Tactical Battlefield Banner */}
+        <div className="relative overflow-hidden border-b border-slate-800 text-center">
+          <img
+            src="/assets/aistudio/Fw5BLLDDwLESOCprFgjWyOrO3iW7ODA4kBiqrcvvpEa-sfZcdyOSvpUqb0Oztv21RjeTVt8uAymaAR7vKCAnjBGdYi0Lqbc_DgjMmIH_b0h4Q0pt5PH9dLMC4QhO_-PbUi98d2ZT4RbY-qrmJxHDCphLhadzqPlNG_93CCJvbFVqHNMkZ2cpaFhY_jLvtcSS_2ef97afb.jfif"
+            alt="Frontline Dominion Theater"
+            referrerPolicy="no-referrer"
+            className="w-full h-32 object-cover brightness-75 contrast-125"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/60 to-transparent flex flex-col items-center justify-end p-4">
+            <h1 className="text-xl font-bold font-mono tracking-wider text-slate-100 uppercase drop-shadow-md">
+              Frontline Dominion
+            </h1>
+            <p className="text-[11px] text-cyan-400 font-mono tracking-wide">
+              Persistent Real-Time Strategy Theater
+            </p>
           </div>
-          <h1 className="text-xl font-bold font-mono tracking-wider text-slate-100 uppercase">
-            Frontline Dominion
-          </h1>
-          <p className="text-xs text-slate-400 mt-1 font-sans">
-            Real-Time Persistent Browser RTS Theater
-          </p>
         </div>
 
         <div className="p-6 space-y-4">

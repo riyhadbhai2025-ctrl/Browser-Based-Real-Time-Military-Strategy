@@ -26,14 +26,14 @@ export function isCellPassable(
       return true; // Air units fly freely over all terrain
 
     case 'naval':
-      return cell === 'water' || cell === 'deep_water';
+      return cell === 'water' || cell === 'deep_water' || cell === 'swamp';
 
     case 'rail':
       return cell === 'railway' || cell === 'bridge_rail';
 
     case 'ground':
     default:
-      if (cell === 'mountain' || cell === 'water' || cell === 'deep_water') {
+      if (cell === 'mountain' || cell === 'snow' || cell === 'water' || cell === 'deep_water') {
         return false;
       }
       return true;
@@ -166,8 +166,17 @@ export function findPath(
       // Terrain speed factor
       let terrainCost = dir.cost;
       const cellType = terrain[ny][nx];
-      if (cellType === 'road' || cellType === 'bridge_road') terrainCost *= 0.75;
-      if (cellType === 'forest') terrainCost *= 1.3;
+      if (cellType === 'highway') terrainCost *= 0.55;
+      else if (cellType === 'road' || cellType === 'bridge_road') terrainCost *= 0.65;
+      else if (cellType === 'rural_road') terrainCost *= 0.72;
+      else if (cellType === 'damaged_road') terrainCost *= 0.85;
+      else if (cellType === 'dirt_road') terrainCost *= 0.8;
+      else if (cellType === 'mud_track' || cellType === 'mud') terrainCost *= 1.4;
+      else if (cellType === 'forest' || cellType === 'pine_forest' || cellType === 'forest_floor') terrainCost *= 1.35;
+      else if (cellType === 'swamp' || cellType === 'marsh') terrainCost *= 1.8;
+      else if (cellType === 'sand') terrainCost *= 1.2;
+      else if (cellType === 'hills') terrainCost *= 1.2;
+      else if (cellType === 'rock') terrainCost *= 1.25;
 
       const tentativeG = current.g + terrainCost;
       const existing = openSet.find((n) => n.x === nx && n.y === ny);

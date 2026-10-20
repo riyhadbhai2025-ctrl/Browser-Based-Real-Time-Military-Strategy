@@ -37,6 +37,14 @@ export class GameSimulation {
     return this.terrain;
   }
 
+  public updateCellTerrain(x: number, y: number, type: TerrainType) {
+    if (y >= 0 && y < this.terrain.length && x >= 0 && x < (this.terrain[0]?.length || 0)) {
+      this.terrain[y][x] = type;
+      return true;
+    }
+    return false;
+  }
+
   public start() {
     if (this.intervalId) return;
 

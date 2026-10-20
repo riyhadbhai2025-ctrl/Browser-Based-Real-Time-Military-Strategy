@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Battery, Box, Droplets, Volume2, VolumeX, Maximize2, Terminal, Users, Flag } from 'lucide-react';
+import { Shield, Battery, Box, Droplets, Volume2, VolumeX, Maximize2, Terminal, Users, Flag, Paintbrush } from 'lucide-react';
 import { Base, PlayerProfile } from '../types/game';
 
 interface TopBarProps {
@@ -12,6 +12,8 @@ interface TopBarProps {
   onOpenAlliance: () => void;
   onOpenIntel: () => void;
   onOpenTutorial: () => void;
+  onToggleMapEditor?: () => void;
+  isMapEditorOpen?: boolean;
   alliedTag?: string | null;
   totalUnitsCount: number;
 }
@@ -26,6 +28,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenAlliance,
   onOpenIntel,
   onOpenTutorial,
+  onToggleMapEditor,
+  isMapEditorOpen,
   alliedTag,
   totalUnitsCount,
 }) => {
@@ -163,6 +167,21 @@ export const TopBar: React.FC<TopBarProps> = ({
           <Terminal className="w-3.5 h-3.5" />
           <span className="hidden md:inline">Sandbox</span>
         </button>
+
+        {onToggleMapEditor && (
+          <button
+            onClick={onToggleMapEditor}
+            className={`px-2 py-1 text-xs rounded border transition flex items-center gap-1 ${
+              isMapEditorOpen
+                ? 'bg-amber-600 text-white border-amber-400 font-bold shadow-sm'
+                : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-amber-300'
+            }`}
+            title="Toggle Tactical World Map Designer"
+          >
+            <Paintbrush className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">Map Designer</span>
+          </button>
+        )}
 
         <button
           onClick={onToggleMute}

@@ -13,6 +13,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ onClose, onDeploy 
     {
       title: 'OPERATIONAL BRIEFING: WELCOME TO FRONTLINE DOMINION',
       icon: <Flag className="w-6 h-6 text-blue-400" />,
+      image: '/assets/aistudio/Fw5BLLDDwLESOCprFgjWyOrO3iW7ODA4kBiqrcvvpEa-sfZcdyOSvpUqb0Oztv21RjeTVt8uAymaAR7vKCAnjBGdYi0Lqbc_DgjMmIH_b0h4Q0pt5PH9dLMC4QhO_-PbUi98d2ZT4RbY-qrmJxHDCphLhadzqPlNG_93CCJvbFVqHNMkZ2cpaFhY_jLvtcSS_2ef97afb.jfif',
       content: (
         <div className="space-y-3 text-xs leading-relaxed text-slate-300">
           <p>
@@ -33,6 +34,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ onClose, onDeploy 
     {
       title: 'TACTICAL CONTROLS & CAMERA NAVIGATION',
       icon: <Navigation className="w-6 h-6 text-cyan-400" />,
+      image: '/assets/aistudio/cI6wQTlzfGZXAIf5dpnk13jWyN3OpURvwt1DEq8v-GpgYo0AvbfjJTLBjh5eR1snAYDAeq8I12dkh3SAJq5b_9EwyPg2qWOpknxasVnVhIJqCEmBfKSLTY6WT9ySYLCR-8EWn7XhUJ1O2pKlXWraXQtH-GB3TkZzNgO947NAXicxEipj__DbRwcLlqghOmsX_04e15e49.jfif',
       content: (
         <div className="space-y-3 text-xs leading-relaxed text-slate-300">
           <p>Control the battlefield using standard real-time strategy controls:</p>
@@ -60,6 +62,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ onClose, onDeploy 
     {
       title: 'BASE LOGISTICS & INDUSTRIAL PRODUCTION',
       icon: <Hammer className="w-6 h-6 text-amber-400" />,
+      image: '/assets/aistudio/7kxgVxTj12aaGQnz6Di07mv5tlqjfNQXjYBNzUd-UvDem-SyyNXis7yU3Du970X-dKtQWAnOnsbfXX40lRwqhdezZdYLDS-Qe6Yn7HNpL5ok7Yyj2tY9qpVa-fZzZweKvmdvGD0lRBLwe080CIaqBxVwiV5JA05gslWLYZg8fi-0SjlUyxWpoIHos2VzZ9Gi_24db5c9a.jfif',
       content: (
         <div className="space-y-3 text-xs leading-relaxed text-slate-300">
           <p>
@@ -88,6 +91,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ onClose, onDeploy 
     {
       title: 'UNIT COUNTERS & AIR-GROUND-NAVAL DOCTRINE',
       icon: <Crosshair className="w-6 h-6 text-rose-400" />,
+      image: '/assets/aistudio/fCepRZYn_2xfC_oeZGl3DbmG6Jc3nbWZ2vPUo8iLMCzWT-HmucP9eU-1_Y4dqPOIvQRHPLPTb42TH8O_8chE27y_sw1grBsWTmRM1UcPI7nW9c1gW1xQvyHfwnDyXkMWCrRBXFKrwiA5dB-2N-K3lLvgHtQ3catcXnSHnmDlVj8a3f16gpHddgBpOzWBMvnH_6e199dd8.jfif',
       content: (
         <div className="space-y-2.5 text-xs leading-relaxed text-slate-300">
           <p>Every combat unit fills a specialized tactical role:</p>
@@ -115,6 +119,7 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ onClose, onDeploy 
     {
       title: 'TERRITORIAL CONQUEST & BASE CAPTURE',
       icon: <Shield className="w-6 h-6 text-emerald-400" />,
+      image: '/assets/aistudio/tXNaVJSFm6tq5eH0LOMsca9t3UCFb09TGtuIxw9HSBmOYvkcBdJoO9pvGRot5OpMjRuJSuLuEHZ2csSAgz7tSu-f27vNq-s-H1C2EdeolyCYJQCYO6UAxjBplGDIKi3LSqJmwJDiAD8mJP88GFYJiAhdMNkaBeep4lDDUfkg2tbJZW4kt6Mtu35w5FPPkT1n_6230bc6d.jfif',
       content: (
         <div className="space-y-3 text-xs leading-relaxed text-slate-300">
           <p>
@@ -148,6 +153,17 @@ export const TutorialModal: React.FC<TutorialModalProps> = ({ onClose, onDeploy 
           <button onClick={onClose} className="p-1 rounded hover:bg-slate-800 text-slate-400">
             <X className="w-4 h-4" />
           </button>
+        </div>
+
+        {/* Step Tactical Visual Asset */}
+        <div className="relative h-32 overflow-hidden border-b border-slate-800 bg-slate-900">
+          <img
+            src={current.image}
+            alt={current.title}
+            referrerPolicy="no-referrer"
+            className="w-full h-full object-cover brightness-85 contrast-110"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/30 to-transparent" />
         </div>
 
         {/* Body */}

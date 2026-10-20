@@ -168,15 +168,68 @@ export interface Unit {
 
 export type TerrainType =
   | 'grass'
+  | 'light_grass'
   | 'plains'
   | 'forest'
+  | 'forest_floor'
+  | 'pine_forest'
+  | 'dirt'
+  | 'mud'
+  | 'sand'
+  | 'rock'
   | 'mountain'
+  | 'hills'
+  | 'snow'
   | 'water'
   | 'deep_water'
+  | 'swamp'
+  | 'marsh'
+  | 'farmland'
+  | 'highway'
   | 'road'
+  | 'rural_road'
+  | 'dirt_road'
+  | 'mud_track'
+  | 'damaged_road'
   | 'railway'
   | 'bridge_road'
   | 'bridge_rail';
+
+export type EnvObjectType =
+  | 'tree_oak'
+  | 'tree_pine'
+  | 'tree_birch'
+  | 'tree_cedar'
+  | 'tree_dead'
+  | 'bush'
+  | 'fern_cluster'
+  | 'boulder'
+  | 'cliff_rock'
+  | 'fallen_log'
+  | 'crater_small'
+  | 'crater_large'
+  | 'tank_tracks'
+  | 'bunker'
+  | 'watchtower'
+  | 'sandbags'
+  | 'barricade'
+  | 'ruined_tank'
+  | 'crate_stack'
+  | 'fuel_drums'
+  | 'field_tent'
+  | 'camo_tent'
+  | 'radar_dish';
+
+export interface EnvironmentObject {
+  id: string;
+  type: EnvObjectType;
+  x: number; // grid coordinate (float)
+  y: number; // grid coordinate (float)
+  scale?: number;
+  rotation?: number;
+  variant?: number;
+  blocksMovement?: boolean;
+}
 
 export interface WorldMapConfig {
   width: number;
@@ -262,5 +315,6 @@ export interface FullWorldState {
   units: Unit[];
   alliances: Alliance[];
   onlineUserIds: string[];
+  envObjects: EnvironmentObject[];
   timestamp: number;
 }

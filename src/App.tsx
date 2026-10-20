@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { TacticalRenderer } from './game/renderer';
 import { soundEngine } from './game/audio';
-import { Base, ChatMessage, CombatEvent, PlayerProfile, TerrainType, Unit, UnitType, BuildingType } from './types/game';
+import { Base, ChatMessage, CombatEvent, EnvironmentObject, PlayerProfile, TerrainType, Unit, UnitType, BuildingType } from './types/game';
 import { TopBar } from './components/TopBar';
 import { Minimap } from './components/Minimap';
 import { CommandBar } from './components/CommandBar';
@@ -29,6 +29,7 @@ export default function App() {
   const [terrain, setTerrain] = useState<TerrainType[][]>([]);
   const [bases, setBases] = useState<Base[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
+  const [envObjects, setEnvObjects] = useState<EnvironmentObject[]>([]);
   const [alliances, setAlliances] = useState<any[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [combatLogs, setCombatLogs] = useState<CombatEvent[]>([]);
@@ -79,6 +80,12 @@ export default function App() {
             rendererRef.current.setTerrain(data.terrain);
           }
         }
+        if (data.envObjects) {
+          setEnvObjects(data.envObjects);
+          if (rendererRef.current) {
+            rendererRef.current.envObjects = data.envObjects;
+          }
+        }
       })
       .catch((err) => console.error('Failed to fetch terrain:', err));
   }, []);
@@ -104,6 +111,7 @@ export default function App() {
     socket.on('world:state', (state) => {
       setBases(state.bases || []);
       setUnits(state.units || []);
+      if (state.envObjects) setEnvObjects(state.envObjects);
       setAlliances(state.alliances || []);
       setChatMessages(state.chat || []);
     });
@@ -198,19 +206,20 @@ export default function App() {
     };
   }, []);
 
-  // Update renderer state when bases/units/profile change
+  // Update renderer state when bases/units/profile/envObjects change
   useEffect(() => {
     if (!rendererRef.current) return;
     rendererRef.current.updateWorld(
       bases,
       units,
       profile?.id || 'player_default',
-      profile?.allianceId
+      profile?.allianceId,
+      envObjects
     );
     rendererRef.current.selectedUnitIds = selectedUnitIds;
     rendererRef.current.selectedBaseId = selectedBaseId;
     rendererRef.current.fogEnabled = fogEnabled;
-  }, [bases, units, profile, selectedUnitIds, selectedBaseId, fogEnabled]);
+  }, [bases, units, profile, selectedUnitIds, selectedBaseId, fogEnabled, envObjects]);
 
   // 5. Continuous Keyboard Camera Pan Loop
   useEffect(() => {
