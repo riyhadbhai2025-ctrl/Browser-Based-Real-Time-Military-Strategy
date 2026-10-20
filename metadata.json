@@ -1,0 +1,6 @@
+{
+  "name": "Frontline Dominion - Real-Time Military RTS",
+  "description": "Browser-based persistent real-time military strategy game with tactical maps, base building, authentic combat, alliance warfare, and real-time multiplayer.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

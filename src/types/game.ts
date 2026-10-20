@@ -1,0 +1,266 @@
+export type ResourceType = 'concrete' | 'steel' | 'aluminum' | 'fuel';
+
+export interface Resources {
+  concrete: number;
+  steel: number;
+  aluminum: number;
+  fuel: number;
+}
+
+export type BaseType = 'home' | 'tank' | 'air' | 'harbor' | 'rail';
+
+export type UnitCategory = 'ground' | 'air' | 'naval' | 'rail';
+
+export type UnitType =
+  // Ground
+  | 'vanguard_scout'
+  | 'ironclad_apc'
+  | 'titan_mbt'
+  | 'goliath_howitzer'
+  | 'skyguard_aa'
+  | 'dominator_conquest'
+  // Air
+  | 'hawk_scout_heli'
+  | 'cobra_gunship'
+  | 'stormbringer_jet'
+  | 'thunderbolt_bomber'
+  // Naval
+  | 'wavecutter_corvette'
+  | 'trident_destroyer'
+  // Rail
+  | 'iron_dreadnought';
+
+export type BuildingType =
+  | 'command_center'
+  | 'concrete_works'
+  | 'steel_foundry'
+  | 'aluminum_smelter'
+  | 'fuel_refinery'
+  | 'storage_depot'
+  | 'vehicle_factory'
+  | 'aviation_hangar'
+  | 'naval_dockyard'
+  | 'rail_depot'
+  | 'vulcan_turret'
+  | 'sam_launcher'
+  | 'coastal_battery';
+
+export interface BuildingDefinition {
+  type: BuildingType;
+  name: string;
+  category: 'economy' | 'production' | 'defense' | 'hq';
+  description: string;
+  cost: Resources;
+  buildTimeSec: number;
+  maxLevel: number;
+  baseTypesAllowed: BaseType[];
+  productionBonus?: Partial<Resources>; // rate per sec
+  storageBonus?: Partial<Resources>;
+  defenseStats?: {
+    damage: number;
+    range: number;
+    rateOfFire: number; // shots per sec
+    targets: ('ground' | 'air' | 'naval' | 'rail')[];
+  };
+}
+
+export interface UnitDefinition {
+  type: UnitType;
+  name: string;
+  category: UnitCategory;
+  role: string;
+  description: string;
+  cost: Resources;
+  trainTimeSec: number;
+  populationCost: number;
+  maxHealth: number;
+  armor: number; // damage reduction percentage or flat
+  speed: number; // grid cells per second
+  attackRange: number; // grid cells
+  attackDamage: number;
+  cooldownSec: number;
+  targets: UnitCategory[];
+  visionRadius: number; // grid cells
+  fuelBurnPerSec: number;
+  canCaptureBase?: boolean;
+  requiredBuilding: BuildingType;
+}
+
+export interface BuildingInstance {
+  id: string;
+  type: BuildingType;
+  level: number;
+  health: number;
+  maxHealth: number;
+  isConstructing?: boolean;
+  upgradeCompletionTime?: number; // epoch ms
+}
+
+export interface ConstructionOrder {
+  id: string;
+  baseId: string;
+  buildingType: BuildingType;
+  targetLevel: number;
+  startTime: number;
+  finishTime: number;
+  cost: Resources;
+}
+
+export interface UnitProductionOrder {
+  id: string;
+  baseId: string;
+  unitType: UnitType;
+  startTime: number;
+  finishTime: number;
+  cost: Resources;
+}
+
+export interface Base {
+  id: string;
+  name: string;
+  type: BaseType;
+  ownerId: string; // userId or 'neutral' or 'insurgent'
+  ownerName: string;
+  allianceId?: string | null;
+  x: number; // grid cell
+  y: number; // grid cell
+  radius: number; // visual & interaction radius in cells
+  health: number;
+  maxHealth: number;
+  buildings: BuildingInstance[];
+  resources: Resources;
+  storageCap: Resources;
+  productionRates: Resources; // per second
+  lastResourceUpdate: number; // epoch ms
+  constructionQueue: ConstructionOrder[];
+  productionQueue: UnitProductionOrder[];
+  defenseShield: number;
+  maxShield: number;
+  captureProgress: number; // 0 to 100
+  capturingPlayerId?: string | null;
+  isProtected?: boolean;
+}
+
+export type UnitCommandType = 'idle' | 'move' | 'attack' | 'attack_move' | 'hold' | 'patrol' | 'retreat' | 'stop';
+
+export interface Unit {
+  id: string;
+  type: UnitType;
+  ownerId: string;
+  ownerName: string;
+  allianceId?: string | null;
+  x: number; // current float x on grid
+  y: number; // current float y on grid
+  targetX?: number;
+  targetY?: number;
+  rotation: number; // radians
+  health: number;
+  maxHealth: number;
+  command: UnitCommandType;
+  targetUnitId?: string | null;
+  targetBaseId?: string | null;
+  path: { x: number; y: number }[];
+  lastAttackTime: number; // epoch ms
+  kills: number;
+  homeBaseId: string;
+  assignedGroup?: number | null;
+}
+
+export type TerrainType =
+  | 'grass'
+  | 'plains'
+  | 'forest'
+  | 'mountain'
+  | 'water'
+  | 'deep_water'
+  | 'road'
+  | 'railway'
+  | 'bridge_road'
+  | 'bridge_rail';
+
+export interface WorldMapConfig {
+  width: number;
+  height: number;
+  tileSize: number;
+  seed: number;
+}
+
+export interface PlayerProfile {
+  id: string;
+  username: string;
+  email: string;
+  rank: string;
+  score: number;
+  level: number;
+  avatar: string;
+  allianceId?: string | null;
+  allianceRole?: 'leader' | 'officer' | 'member' | null;
+  homeBaseId: string;
+  totalBasesCaptured: number;
+  totalUnitsProduced: number;
+  totalUnitsDestroyed: number;
+  totalResourcesHarvested: number;
+  joinedAt: number;
+  lastLoginAt: number;
+  beginnerProtectionUntil: number; // epoch ms
+  isAdmin?: boolean;
+}
+
+export interface Alliance {
+  id: string;
+  name: string;
+  tag: string; // 3-4 chars, e.g. [DOM]
+  description: string;
+  leaderId: string;
+  leaderName: string;
+  memberIds: string[];
+  bannerColor: string;
+  createdTime: number;
+  score: number;
+  territoryBasesCount: number;
+}
+
+export interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  allianceTag?: string | null;
+  channel: 'global' | 'alliance' | 'system';
+  allianceId?: string | null;
+  content: string;
+  coords?: { x: number; y: number };
+  timestamp: number;
+}
+
+export interface CombatEvent {
+  id: string;
+  attackerId: string;
+  attackerType: string;
+  attackerOwnerId: string;
+  targetId: string;
+  targetType: string;
+  damage: number;
+  x: number;
+  y: number;
+  isFatal?: boolean;
+  timestamp: number;
+}
+
+export interface GameNotification {
+  id: string;
+  userId: string;
+  type: 'attack' | 'capture' | 'production' | 'alliance' | 'system';
+  title: string;
+  message: string;
+  coords?: { x: number; y: number };
+  timestamp: number;
+  read: boolean;
+}
+
+export interface FullWorldState {
+  bases: Base[];
+  units: Unit[];
+  alliances: Alliance[];
+  onlineUserIds: string[];
+  timestamp: number;
+}
