@@ -1,6 +1,6 @@
-import { Base, CombatEvent, EnvironmentObject, TerrainType, Unit, UnitType } from '../types/game';
+import { Base, BuildingType, CombatEvent, EnvironmentObject, TerrainType, Unit, UnitType } from '../types/game';
 import { assetManager } from './assets/assetManager';
-import { UNIT_CATALOG } from './catalog';
+import { BUILDING_CATALOG, UNIT_CATALOG } from './catalog';
 
 export interface VisualEffect {
   id: string;
@@ -590,29 +590,103 @@ export class TacticalRenderer {
         }
       }
 
-      // Headquarters central hardened command citadel
-      const coreSize = scale * 1.65;
-      // Soft drop shadow
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-      ctx.fillRect(sPos.x - coreSize / 2 + 5, sPos.y - coreSize / 2 + 5, coreSize, coreSize);
+      // =========================================================================
+      // DYNAMIC BASE FACILITY LAYOUT
+      // =========================================================================
+      
+      // 1. Render Base Buildings in a deterministic radial layout with functional zones
+      // HQ (command_center) is always at the center.
+      // Other buildings are arranged in concentric rings, grouped by category.
+      
+      const hqInstance = base.buildings.find(b => b.type === 'command_center');
+      const otherBuildings = base.buildings.filter(b => b.type !== 'command_center');
 
-      ctx.fillStyle = '#1e293b';
-      ctx.strokeStyle = ownerColor;
-      ctx.lineWidth = 2.5;
-      ctx.fillRect(sPos.x - coreSize / 2, sPos.y - coreSize / 2, coreSize, coreSize);
-      ctx.strokeRect(sPos.x - coreSize / 2, sPos.y - coreSize / 2, coreSize, coreSize);
+      // Functional zone sorting: Production -> Economy -> Defense
+      const categoryOrder: Record<string, number> = { production: 0, economy: 1, defense: 2, hq: 3 };
+      otherBuildings.sort((a, b) => {
+        const catA = BUILDING_CATALOG[a.type]?.category || 'economy';
+        const catB = BUILDING_CATALOG[b.type]?.category || 'economy';
+        if (catA !== catB) return categoryOrder[catA] - categoryOrder[catB];
+        return a.type.localeCompare(b.type);
+      });
 
-      // Rotating base radar dome
-      ctx.save();
-      ctx.translate(sPos.x, sPos.y);
-      ctx.rotate(this.radarAngle);
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 2.5;
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(coreSize * 0.6, 0);
-      ctx.stroke();
-      ctx.restore();
+      // A. Centerpiece: Headquarters
+      if (hqInstance) {
+        this.renderBaseBuilding(
+          ctx, 
+          'command_center', 
+          sPos.x, 
+          sPos.y, 
+          scale, 
+          hqInstance.isConstructing, 
+          ownerColor,
+          hqInstance.health / hqInstance.maxHealth,
+          isSelected
+        );
+      } else {
+        // Fallback
+        const coreSize = scale * 1.65;
+        ctx.fillStyle = '#1e293b';
+        ctx.strokeStyle = ownerColor;
+        ctx.lineWidth = 2.5;
+        ctx.fillRect(sPos.x - coreSize / 2, sPos.y - coreSize / 2, coreSize, coreSize);
+        ctx.strokeRect(sPos.x - coreSize / 2, sPos.y - coreSize / 2, coreSize, coreSize);
+      }
+
+      // B. Perimeter Facilities (arranged in 3 deterministic rings with zone-based offsets)
+      otherBuildings.forEach((building, idx) => {
+        let ring = 1;
+        let ringIdx = idx;
+        let countInRing = 6;
+        let ringDist = 1.65 * scale;
+
+        if (idx >= 6 && idx < 18) {
+          ring = 2;
+          ringIdx = idx - 6;
+          countInRing = 12;
+          ringDist = 2.8 * scale;
+        } else if (idx >= 18) {
+          ring = 3;
+          ringIdx = idx - 18;
+          countInRing = 18;
+          ringDist = 4.0 * scale;
+        }
+        
+        // Add a category-based rotation offset to separate zones
+        const cat = BUILDING_CATALOG[building.type]?.category || 'economy';
+        const catOffset = (categoryOrder[cat] || 0) * (Math.PI / 2);
+        
+        const angle = (ringIdx / countInRing) * Math.PI * 2 + catOffset + (ring === 2 ? 0.3 : ring === 3 ? -0.15 : 0);
+        
+        const bx = sPos.x + Math.cos(angle) * ringDist;
+        const by = sPos.y + Math.sin(angle) * ringDist;
+
+        this.renderBaseBuilding(
+          ctx,
+          building.type,
+          bx,
+          by,
+          scale,
+          building.isConstructing,
+          ownerColor,
+          building.health / building.maxHealth,
+          isSelected
+        );
+      });
+
+      // Rotating base radar dome (only if command_center is operational)
+      if (hqInstance && !hqInstance.isConstructing) {
+        ctx.save();
+        ctx.translate(sPos.x, sPos.y);
+        ctx.rotate(this.radarAngle);
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(scale * 1.1, 0);
+        ctx.stroke();
+        ctx.restore();
+      }
 
       // Base Health, Shield, and Conquest Progress Bars
       const hpPct = Math.max(0, base.health / base.maxHealth);
@@ -1142,6 +1216,126 @@ export class TacticalRenderer {
   }
 
   // Render High-Detail Environment Objects (Trees, Bunkers, Sandbags, Boulders, Craters)
+  // Render a high-detail military base building from the AssetManager sprites
+  private renderBaseBuilding(
+    ctx: CanvasRenderingContext2D,
+    type: BuildingType,
+    bx: number,
+    by: number,
+    scale: number,
+    isConstructing: boolean = false,
+    ownerColor: string,
+    healthPct: number = 1.0,
+    isSelected: boolean = false
+  ) {
+    const sprite = assetManager.getSpriteCanvas(type);
+    if (!sprite) return;
+
+    // reference scale is 40px per cell
+    const bScale = (scale / 40); 
+    const w = sprite.width * bScale;
+    const h = sprite.height * bScale;
+
+    ctx.save();
+    ctx.translate(bx, by);
+
+    // Selection Glow
+    if (isSelected && !isConstructing) {
+      ctx.save();
+      ctx.shadowColor = '#38bdf8';
+      ctx.shadowBlur = 12 * bScale;
+      ctx.beginPath();
+      ctx.arc(0, 0, (w + h) / 4, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.15)';
+      ctx.fill();
+      ctx.restore();
+    }
+
+    if (isConstructing) {
+      // CONSTRUCTION SITE VISUALS
+      // 1. Foundation slab
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(-w * 0.45, -h * 0.45, w * 0.9, h * 0.9);
+      
+      // 2. Scaffolding grid
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 2]);
+      ctx.strokeRect(-w * 0.48, -h * 0.48, w * 0.96, h * 0.96);
+      
+      // 3. Yellow/Black Hazard tape around perimeter
+      ctx.setLineDash([]);
+      ctx.strokeStyle = '#eab308';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.5, h * 0.5);
+      ctx.lineTo(w * 0.5, h * 0.5);
+      ctx.stroke();
+
+      // 4. Construction crane line (stylized)
+      ctx.strokeStyle = '#94a3b8';
+      ctx.beginPath();
+      ctx.moveTo(w * 0.4, -h * 1.2);
+      ctx.lineTo(0, -h * 0.3);
+      ctx.stroke();
+    } else {
+      // OPERATIONAL BUILDING
+      // 1. Building Shadow (Global)
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+      ctx.shadowBlur = 8 * bScale;
+      ctx.shadowOffsetX = 4 * bScale;
+      ctx.shadowOffsetY = 4 * bScale;
+
+      // 2. Draw Sprite
+      ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
+      ctx.shadowColor = 'transparent';
+
+      // 3. Damage Overlay (if health < 80%)
+      if (healthPct < 0.8) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.globalCompositeOperation = 'source-atop';
+        const damageW = w * (1 - healthPct);
+        ctx.fillRect(-w/2, -h/2, damageW, h);
+        ctx.globalCompositeOperation = 'source-over';
+        
+        // Smoke effect for heavily damaged buildings
+        if (healthPct < 0.4) {
+          ctx.fillStyle = 'rgba(71, 85, 105, 0.6)';
+          for (let i = 0; i < 3; i++) {
+            ctx.beginPath();
+            ctx.arc((Math.random() - 0.5) * w * 0.5, (Math.random() - 0.5) * h * 0.5, 6 * bScale, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+
+      // 4. Facility-Specific Animations
+      if (type === 'radar_station' || type === 'operations_center') {
+        // Rotating radar dish / scanning beam
+        ctx.save();
+        ctx.translate(0, -h * 0.2); // Offset to roof
+        ctx.rotate(this.radarAngle * 1.2);
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2.5 * bScale;
+        ctx.beginPath();
+        ctx.arc(0, 0, 14 * bScale, Math.PI * 1.1, Math.PI * 1.9);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      if (type === 'comms_tower') {
+        // Pulsing red beacon
+        const pulse = 0.5 + Math.sin(Date.now() / 200) * 0.5;
+        ctx.fillStyle = `rgba(239, 68, 68, ${pulse})`;
+        ctx.beginPath();
+        ctx.arc(0, -h * 0.45, 4 * bScale, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
+  }
+
   private renderEnvironmentObject(ctx: CanvasRenderingContext2D, obj: EnvironmentObject, scale: number) {
     const sPos = this.worldToScreen(obj.x, obj.y);
     const spriteCanvas = assetManager.getSpriteCanvas(obj.type);

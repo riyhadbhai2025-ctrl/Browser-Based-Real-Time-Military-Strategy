@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Hammer, Wrench, Shield, Clock, Crosshair, ArrowUpCircle } from 'lucide-react';
 import { Base, BuildingType, UnitType } from '../types/game';
 import { BUILDING_CATALOG, UNIT_CATALOG } from '../game/catalog';
+import { assetManager } from '../game/assets/assetManager';
 
 interface BaseDrawerProps {
   base: Base;
@@ -188,16 +189,22 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
               return (
                 <div
                   key={def.type}
-                  className="p-2 rounded bg-slate-900/80 border border-slate-800 text-slate-200 text-xs"
+                  className="p-2 rounded bg-slate-900/80 border border-slate-800 text-slate-200"
                 >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-slate-100 font-mono">{def.name}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-cyan-400 font-mono">
-                      LVL {currentLevel} / {def.maxLevel}
-                    </span>
+                  <div className="flex gap-2.5 mb-2">
+                    <div className="w-14 h-14 shrink-0 rounded bg-slate-950 border border-slate-800 flex items-center justify-center overflow-hidden">
+                      <BuildingPreview type={def.type} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="font-bold text-slate-100 font-mono text-[11px] truncate mr-1">{def.name}</span>
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-cyan-400 font-mono shrink-0">
+                          LVL {currentLevel}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 leading-tight line-clamp-2">{def.description}</p>
+                    </div>
                   </div>
-
-                  <p className="text-[11px] text-slate-400 mb-2 leading-relaxed">{def.description}</p>
 
                   <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[10px] font-mono">
                     <div className="flex items-center gap-2 text-slate-400">
@@ -399,4 +406,26 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
       </div>
     </div>
   );
+};
+
+const BuildingPreview: React.FC<{ type: BuildingType }> = ({ type }) => {
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+
+  React.useEffect(() => {
+    if (!canvasRef.current) return;
+    const ctx = canvasRef.current.getContext('2d');
+    if (!ctx) return;
+
+    const sprite = assetManager.getSpriteCanvas(type);
+    if (!sprite) return;
+
+    ctx.clearRect(0, 0, 64, 64);
+    const scale = Math.min(56 / sprite.width, 56 / sprite.height);
+    const w = sprite.width * scale;
+    const h = sprite.height * scale;
+    
+    ctx.drawImage(sprite, 32 - w/2, 32 - h/2, w, h);
+  }, [type]);
+
+  return <canvas ref={canvasRef} width={64} height={64} className="w-12 h-12 block" />;
 };

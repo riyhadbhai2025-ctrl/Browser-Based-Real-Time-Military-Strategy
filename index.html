@@ -3,6 +3,43 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function() {
+        try {
+          var _nativeFetch = window.fetch;
+          var _currentFetch = function() {
+            return _nativeFetch.apply(window, arguments);
+          };
+          for (var key in _nativeFetch) {
+            try { _currentFetch[key] = _nativeFetch[key]; } catch (_) {}
+          }
+          var descriptor = {
+            configurable: true,
+            enumerable: true,
+            get: function() {
+              return _currentFetch;
+            },
+            set: function(newFetch) {
+              _currentFetch = newFetch;
+            }
+          };
+          try {
+            Object.defineProperty(window, 'fetch', descriptor);
+          } catch (_) {}
+          if (typeof Window !== 'undefined' && Window.prototype) {
+            try {
+              Object.defineProperty(Window.prototype, 'fetch', descriptor);
+            } catch (_) {}
+          }
+          var proto = Object.getPrototypeOf ? Object.getPrototypeOf(window) : null;
+          if (proto && proto !== (typeof Window !== 'undefined' ? Window.prototype : null)) {
+            try {
+              Object.defineProperty(proto, 'fetch', descriptor);
+            } catch (_) {}
+          }
+        } catch (_) {}
+      })();
+    </script>
 
     <title>Frontline Dominion - Real-Time Military RTS</title>
     <meta name="description" content="Browser-based persistent real-time military strategy game with tactical maps, base building, authentic combat, alliance warfare, and real-time multiplayer." />

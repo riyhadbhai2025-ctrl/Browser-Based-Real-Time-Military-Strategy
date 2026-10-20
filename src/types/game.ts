@@ -31,19 +31,37 @@ export type UnitType =
   | 'iron_dreadnought';
 
 export type BuildingType =
+  // Command
   | 'command_center'
+  | 'command_bunker'
+  | 'operations_center'
+  | 'comms_tower'
+  | 'military_gate'
+  // Production
+  | 'barracks'
+  | 'vehicle_factory'
+  | 'aviation_hangar'
+  | 'naval_dockyard'
+  | 'rail_depot'
+  // Economy & Support
   | 'concrete_works'
   | 'steel_foundry'
   | 'aluminum_smelter'
   | 'fuel_refinery'
   | 'storage_depot'
-  | 'vehicle_factory'
-  | 'aviation_hangar'
-  | 'naval_dockyard'
-  | 'rail_depot'
+  | 'power_station'
+  | 'repair_depot'
+  | 'logistics_center'
+  // Defense
+  | 'guard_tower'
+  | 'mg_turret'
   | 'vulcan_turret'
   | 'sam_launcher'
-  | 'coastal_battery';
+  | 'coastal_battery'
+  | 'artillery_post'
+  | 'fortified_bunker'
+  | 'perimeter_wall'
+  | 'radar_station';
 
 export interface BuildingDefinition {
   type: BuildingType;

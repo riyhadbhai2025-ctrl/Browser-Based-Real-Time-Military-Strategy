@@ -1038,6 +1038,476 @@ export class AssetManager {
         ctx.fillRect(30, y, 6, 2);
       }
     }));
+
+    // =========================================================================
+    // 3. MILITARY BASE BUILDINGS & FACILITIES
+    // =========================================================================
+
+    // A. Base Headquarters (HQ)
+    this.spriteCanvases.set('command_center', this.createTile(80, 80, (ctx) => {
+      // Ground Shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+      ctx.fillRect(10, 50, 65, 25);
+
+      // Main Block (Reinforced Concrete)
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(15, 25, 50, 45);
+      // Roof (Steel/Composite)
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(12, 22, 56, 8);
+      
+      // Detailing: Windows & Lights
+      ctx.fillStyle = '#1e293b';
+      for (let i = 0; i < 3; i++) {
+        ctx.fillRect(20 + i * 15, 35, 10, 8);
+        ctx.fillRect(20 + i * 15, 50, 10, 8);
+      }
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.4)'; // Blue window glow
+      for (let i = 0; i < 3; i++) {
+        ctx.fillRect(21 + i * 15, 36, 8, 6);
+      }
+
+      // Antennae Array
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(25, 22); ctx.lineTo(25, 8);
+      ctx.moveTo(22, 12); ctx.lineTo(28, 12);
+      ctx.moveTo(55, 22); ctx.lineTo(55, 5);
+      ctx.stroke();
+
+      // Blinking red obstruction light
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(55, 5, 2, 0, Math.PI * 2); ctx.fill();
+
+      // Entrance steps
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(35, 65, 10, 5);
+    }));
+
+    // B. Command Bunker
+    this.spriteCanvases.set('command_bunker', this.createTile(72, 60, (ctx) => {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(5, 40, 62, 15);
+      // Heavy concrete low profile
+      ctx.fillStyle = '#1e293b';
+      ctx.beginPath();
+      ctx.moveTo(10, 45); ctx.lineTo(62, 45); ctx.lineTo(55, 15); ctx.lineTo(17, 15);
+      ctx.closePath(); ctx.fill();
+      // Observation Slit
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(20, 25, 32, 4);
+      // Ventilation pipes
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(15, 10, 4, 10);
+      ctx.fillRect(53, 10, 4, 10);
+    }));
+
+    // C. Operations Center
+    this.spriteCanvases.set('operations_center', this.createTile(76, 76, (ctx) => {
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(10, 30, 56, 40);
+      // Tactical screens on facade
+      ctx.fillStyle = 'rgba(34, 197, 94, 0.5)';
+      ctx.fillRect(15, 40, 12, 10);
+      ctx.fillRect(32, 40, 12, 10);
+      ctx.fillRect(49, 40, 12, 10);
+      // Satellite dish on roof
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(38, 20, 12, Math.PI * 1.1, Math.PI * 1.9);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(38, 30); ctx.lineTo(38, 20);
+      ctx.stroke();
+    }));
+
+    // D. Communications Tower
+    this.spriteCanvases.set('comms_tower', this.createTile(40, 100, (ctx) => {
+      // Lattice structure
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(15, 95); ctx.lineTo(20, 5); ctx.lineTo(25, 95);
+      ctx.stroke();
+      // Cross braces
+      for (let y = 15; y < 90; y += 15) {
+        ctx.beginPath();
+        ctx.moveTo(15 + (95-y)*0.05, y); ctx.lineTo(25 - (95-y)*0.05, y);
+        ctx.stroke();
+      }
+      // Top Beacon
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath(); ctx.arc(20, 5, 3, 0, Math.PI * 2); ctx.fill();
+    }));
+
+    // E. Military Gate
+    this.spriteCanvases.set('military_gate', this.createTile(80, 40, (ctx) => {
+      // Guard Houses
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(5, 5, 15, 30);
+      ctx.fillRect(60, 5, 15, 30);
+      // Gate Arm
+      ctx.fillStyle = '#eab308';
+      ctx.fillRect(20, 20, 40, 4);
+      // Stripes
+      ctx.fillStyle = '#000';
+      for (let i = 0; i < 5; i++) {
+        ctx.fillRect(25 + i * 8, 20, 4, 4);
+      }
+    }));
+
+    // F. Barracks
+    this.spriteCanvases.set('barracks', this.createTile(80, 60, (ctx) => {
+      ctx.fillStyle = '#4a5568';
+      // Dual long buildings
+      ctx.fillRect(10, 10, 60, 18);
+      ctx.fillRect(10, 35, 60, 18);
+      // Windows
+      ctx.fillStyle = '#1a202c';
+      for (let i = 0; i < 6; i++) {
+        ctx.fillRect(15 + i * 10, 14, 4, 4);
+        ctx.fillRect(15 + i * 10, 39, 4, 4);
+      }
+    }));
+
+    // G. Vehicle Factory
+    this.spriteCanvases.set('vehicle_factory', this.createTile(96, 90, (ctx) => {
+      // Large factory block
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(10, 20, 76, 60);
+      // Sawtooth roof
+      ctx.fillStyle = '#334155';
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.moveTo(10 + i * 25, 20); ctx.lineTo(35 + i * 25, 20); ctx.lineTo(10 + i * 25, 5);
+        ctx.closePath(); ctx.fill();
+      }
+      // Industrial Doors
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(20, 50, 25, 30);
+      ctx.fillRect(55, 50, 25, 30);
+      // Gantry Crane details
+      ctx.strokeStyle = '#475569';
+      ctx.strokeRect(20, 50, 25, 30);
+      ctx.strokeRect(55, 50, 25, 30);
+    }));
+
+    // H. Aircraft Hangar
+    this.spriteCanvases.set('aviation_hangar', this.createTile(100, 80, (ctx) => {
+      // Curved Roof
+      ctx.fillStyle = '#475569';
+      ctx.beginPath();
+      ctx.ellipse(50, 60, 45, 50, 0, Math.PI, 0);
+      ctx.fill();
+      // Facade
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(5, 60, 90, 15);
+      // Sliding Doors
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(15, 40, 30, 35);
+      ctx.fillRect(55, 40, 30, 35);
+      // Hazard markings
+      ctx.fillStyle = '#eab308';
+      ctx.fillRect(5, 75, 90, 3);
+    }));
+
+    // I. Naval Shipyard
+    this.spriteCanvases.set('naval_dockyard', this.createTile(110, 100, (ctx) => {
+      // Concrete Quays
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(10, 40, 20, 50);
+      ctx.fillRect(80, 40, 20, 50);
+      // Connecting bridge
+      ctx.fillRect(30, 45, 50, 10);
+      // Crane
+      ctx.strokeStyle = '#f59e0b';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(20, 40); ctx.lineTo(20, 10); ctx.lineTo(50, 10);
+      ctx.stroke();
+      // Hook
+      ctx.strokeStyle = '#94a3b8';
+      ctx.beginPath(); ctx.moveTo(50, 10); ctx.lineTo(50, 25); ctx.stroke();
+    }));
+
+    // J. Rail Depot
+    this.spriteCanvases.set('rail_depot', this.createTile(90, 90, (ctx) => {
+      // Tracks
+      ctx.fillStyle = '#3f3f46';
+      ctx.fillRect(20, 5, 6, 80);
+      ctx.fillRect(64, 5, 6, 80);
+      // Service bay
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(10, 30, 70, 30);
+      // Gantry
+      ctx.strokeStyle = '#475569';
+      ctx.strokeRect(10, 30, 70, 30);
+    }));
+
+    // K. Concrete Processing Plant
+    this.spriteCanvases.set('concrete_works', this.createTile(80, 80, (ctx) => {
+      // Main structure
+      ctx.fillStyle = '#4a5568';
+      ctx.fillRect(20, 30, 40, 40);
+      // Cylindrical silos
+      ctx.fillStyle = '#cbd5e0';
+      ctx.fillRect(10, 10, 12, 60);
+      ctx.fillRect(58, 10, 12, 60);
+      // Silo tops (conical)
+      ctx.beginPath();
+      ctx.moveTo(10, 10); ctx.lineTo(22, 10); ctx.lineTo(16, 2); ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(58, 10); ctx.lineTo(70, 10); ctx.lineTo(64, 2); ctx.fill();
+      // Conveyor
+      ctx.strokeStyle = '#2d3748';
+      ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(22, 40); ctx.lineTo(58, 20); ctx.stroke();
+    }));
+
+    // L. Industrial Steel Works
+    this.spriteCanvases.set('steel_foundry', this.createTile(84, 84, (ctx) => {
+      ctx.fillStyle = '#2d3748';
+      ctx.fillRect(10, 30, 64, 50);
+      // Blast Furnace Stacks
+      ctx.fillStyle = '#1a202c';
+      ctx.fillRect(20, 5, 8, 30);
+      ctx.fillRect(50, 5, 8, 30);
+      // Orange glow from vents
+      ctx.fillStyle = 'rgba(251, 146, 60, 0.6)';
+      ctx.fillRect(20, 45, 44, 4);
+    }));
+
+    // M. Aluminum Smelter Facility
+    this.spriteCanvases.set('aluminum_smelter', this.createTile(80, 72, (ctx) => {
+      ctx.fillStyle = '#4a5568';
+      ctx.fillRect(10, 20, 60, 45);
+      // Metallic piping
+      ctx.strokeStyle = '#cbd5e0';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(15, 20); ctx.lineTo(15, 5); ctx.lineTo(65, 5); ctx.lineTo(65, 20);
+      ctx.stroke();
+      // Cooling towers
+      ctx.fillStyle = '#2d3748';
+      ctx.fillRect(30, 10, 8, 10);
+      ctx.fillRect(45, 10, 8, 10);
+    }));
+
+    // N. Strategic Fuel Depot
+    this.spriteCanvases.set('fuel_refinery', this.createTile(80, 80, (ctx) => {
+      // Large Storage Tanks
+      ctx.fillStyle = '#cbd5e0';
+      ctx.beginPath(); ctx.arc(25, 40, 18, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(55, 55, 15, 0, Math.PI * 2); ctx.fill();
+      // Pipe network
+      ctx.strokeStyle = '#4a5568';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(25, 40); ctx.lineTo(55, 55); ctx.stroke();
+      // Hazard symbols (small red dots)
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(23, 38, 4, 4);
+      ctx.fillRect(53, 53, 4, 4);
+    }));
+
+    // O. Resource Storage Warehouse
+    this.spriteCanvases.set('storage_depot', this.createTile(90, 70, (ctx) => {
+      ctx.fillStyle = '#2d3748';
+      ctx.fillRect(10, 15, 70, 45);
+      // Roof ridges
+      ctx.strokeStyle = '#4a5568';
+      for (let x = 15; x < 80; x += 10) {
+        ctx.beginPath(); ctx.moveTo(x, 15); ctx.lineTo(x, 60); ctx.stroke();
+      }
+      // Loading bays
+      ctx.fillStyle = '#000';
+      ctx.fillRect(20, 50, 12, 10);
+      ctx.fillRect(40, 50, 12, 10);
+      ctx.fillRect(60, 50, 12, 10);
+    }));
+
+    // P. Power Generation Station
+    this.spriteCanvases.set('power_station', this.createTile(76, 76, (ctx) => {
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(15, 30, 45, 35);
+      // Transformers
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(15, 45, 10, 20);
+      ctx.fillRect(35, 45, 10, 20);
+      // High voltage poles
+      ctx.strokeStyle = '#94a3b8';
+      ctx.beginPath();
+      ctx.moveTo(60, 65); ctx.lineTo(60, 10);
+      ctx.moveTo(55, 20); ctx.lineTo(65, 20);
+      ctx.stroke();
+      // Blue electrical sparks (subtle)
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath(); ctx.arc(60, 10, 2, 0, Math.PI * 2); ctx.fill();
+    }));
+
+    // Q. Maintenance & Repair Depot
+    this.spriteCanvases.set('repair_depot', this.createTile(84, 80, (ctx) => {
+      ctx.fillStyle = '#4a5568';
+      ctx.fillRect(10, 25, 64, 45);
+      // Repair bays
+      ctx.fillStyle = '#1a202c';
+      ctx.fillRect(15, 50, 15, 20);
+      ctx.fillRect(45, 50, 15, 20);
+      // Tools / Parts crates
+      ctx.fillStyle = '#7c2d12';
+      ctx.fillRect(65, 55, 8, 8);
+      ctx.fillRect(68, 48, 6, 6);
+    }));
+
+    // R. Forward Logistics Center
+    this.spriteCanvases.set('logistics_center', this.createTile(88, 70, (ctx) => {
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(10, 20, 68, 40);
+      // Parked Logistics Trucks (simple blocks)
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(15, 50, 8, 15);
+      ctx.fillRect(30, 50, 8, 15);
+      ctx.fillRect(45, 50, 8, 15);
+      // Crate stacks
+      ctx.fillStyle = '#d97706';
+      for (let i = 0; i < 3; i++) ctx.fillRect(65, 50 - i * 6, 10, 5);
+    }));
+
+    // S. Elevated Guard Tower
+    this.spriteCanvases.set('guard_tower', this.createTile(40, 80, (ctx) => {
+      // Legs
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(10, 75); ctx.lineTo(18, 40);
+      ctx.moveTo(30, 75); ctx.lineTo(22, 40);
+      ctx.stroke();
+      // Cabin
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(12, 20, 16, 20);
+      // Roof
+      ctx.fillStyle = '#334155';
+      ctx.beginPath(); ctx.moveTo(8, 20); ctx.lineTo(32, 20); ctx.lineTo(20, 10); ctx.closePath(); ctx.fill();
+      // Searchlight beam (subtle glow)
+      ctx.fillStyle = 'rgba(254, 240, 138, 0.2)';
+      ctx.beginPath(); ctx.moveTo(20, 30); ctx.lineTo(0, 50); ctx.lineTo(5, 60); ctx.closePath(); ctx.fill();
+    }));
+
+    // T. Machine-Gun Emplacement
+    this.spriteCanvases.set('mg_turret', this.createTile(48, 48, (ctx) => {
+      // Sandbag ring
+      ctx.fillStyle = '#a8a29e';
+      ctx.beginPath(); ctx.arc(24, 24, 18, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#78716c';
+      ctx.stroke();
+      // MG Core
+      ctx.fillStyle = '#1c1917';
+      ctx.fillRect(18, 18, 12, 12);
+      // Barrel
+      ctx.fillRect(30, 22, 14, 4);
+    }));
+
+    // U. Vulcan Anti-Aircraft Turret
+    this.spriteCanvases.set('vulcan_turret', this.createTile(56, 56, (ctx) => {
+      // Reinforced Base
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(10, 35, 36, 15);
+      // Turret Hub
+      ctx.fillStyle = '#1e293b';
+      ctx.beginPath(); ctx.arc(28, 28, 16, 0, Math.PI * 2); ctx.fill();
+      // Quad Barrels
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(35, 20, 15, 3);
+      ctx.fillRect(35, 25, 15, 3);
+      ctx.fillRect(35, 30, 15, 3);
+      ctx.fillRect(35, 35, 15, 3);
+    }));
+
+    // V. SAM Missile Battery
+    this.spriteCanvases.set('sam_launcher', this.createTile(64, 60, (ctx) => {
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(12, 40, 40, 15);
+      // Launch Rails
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(20, 40); ctx.lineTo(45, 15); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(35, 40); ctx.lineTo(60, 15); ctx.stroke();
+      // Missiles (White tipped)
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(38, 18, 10, 4);
+      ctx.fillRect(53, 18, 10, 4);
+      ctx.fillStyle = '#ef4444';
+      ctx.fillRect(46, 18, 2, 4);
+      ctx.fillRect(61, 18, 2, 4);
+    }));
+
+    // W. Coastal Defense Battery
+    this.spriteCanvases.set('coastal_battery', this.createTile(80, 64, (ctx) => {
+      // Heavy Emplacement
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(10, 30, 60, 25);
+      // Circular turret
+      ctx.fillStyle = '#334155';
+      ctx.beginPath(); ctx.arc(40, 35, 20, 0, Math.PI * 2); ctx.fill();
+      // Long Range Cannon
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(40, 32, 35, 6);
+    }));
+
+    // X. Fixed Artillery Emplacement
+    this.spriteCanvases.set('artillery_post', this.createTile(72, 60, (ctx) => {
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(10, 40, 52, 12);
+      // Recoil mechanism base
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(20, 25, 32, 15);
+      // Big barrel
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.moveTo(36, 30); ctx.lineTo(36, 5); ctx.lineTo(44, 5); ctx.lineTo(44, 30);
+      ctx.closePath(); ctx.fill();
+    }));
+
+    // Y. Heavy Fortified Bunker
+    this.spriteCanvases.set('fortified_bunker', this.createTile(80, 60, (ctx) => {
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(5, 35, 70, 15);
+      // Multi-layer concrete
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(10, 15, 60, 30);
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(25, 20, 30, 20);
+      // Metal doors
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(35, 30, 10, 15);
+    }));
+
+    // Z. Perimeter Defense
+    this.spriteCanvases.set('perimeter_wall', this.createTile(64, 32, (ctx) => {
+      // Concrete wall section
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(0, 12, 64, 12);
+      // Top razor wire loop
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 1;
+      for (let x = 4; x < 64; x += 8) {
+        ctx.beginPath(); ctx.arc(x, 12, 4, 0, Math.PI * 2); ctx.stroke();
+      }
+    }));
+
+    // AA. Dedicated Radar Station
+    this.spriteCanvases.set('radar_station', this.createTile(80, 80, (ctx) => {
+      // Base
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(20, 45, 40, 25);
+      // Support mast
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(36, 15, 8, 30);
+      // Rotating base (static part)
+      ctx.fillStyle = '#1e293b';
+      ctx.beginPath(); ctx.arc(40, 15, 12, 0, Math.PI * 2); ctx.fill();
+    }));
   }
 
   private createTile(w: number, hOrFn: number | ((ctx: CanvasRenderingContext2D) => void), fn?: (ctx: CanvasRenderingContext2D) => void): HTMLCanvasElement {
