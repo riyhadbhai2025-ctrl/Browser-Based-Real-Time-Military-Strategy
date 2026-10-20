@@ -59,7 +59,7 @@
         "aluminum": 5.9,
         "fuel": 7.8
       },
-      "lastResourceUpdate": 1792513116517,
+      "lastResourceUpdate": 1792519809446,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -146,10 +146,10 @@
       "maxShield": 800,
       "captureProgress": 0,
       "resources": {
-        "concrete": 9140.35400000005,
+        "concrete": 9208.858000000051,
         "steel": 15000,
-        "aluminum": 4370.177000000027,
-        "fuel": 6805.265500000005
+        "aluminum": 4404.429000000027,
+        "fuel": 6856.643500000003
       },
       "storageCap": {
         "concrete": 12000,
@@ -163,7 +163,7 @@
         "aluminum": 1,
         "fuel": 1.5
       },
-      "lastResourceUpdate": 1792513116517,
+      "lastResourceUpdate": 1792519809446,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -212,10 +212,10 @@
       "maxShield": 600,
       "captureProgress": 0,
       "resources": {
-        "concrete": 8440.35400000007,
-        "steel": 8440.35400000007,
+        "concrete": 8508.858000000071,
+        "steel": 8508.858000000071,
         "aluminum": 12000,
-        "fuel": 8005.26550000002
+        "fuel": 8056.643500000018
       },
       "storageCap": {
         "concrete": 10000,
@@ -229,7 +229,7 @@
         "aluminum": 5.9,
         "fuel": 1.5
       },
-      "lastResourceUpdate": 1792513116517,
+      "lastResourceUpdate": 1792519809446,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -280,10 +280,10 @@
       "maxShield": 800,
       "captureProgress": 0,
       "resources": {
-        "concrete": 7540.354000000069,
-        "steel": 8540.354000000092,
-        "aluminum": 4570.177000000048,
-        "fuel": 7205.265500000009
+        "concrete": 7608.858000000073,
+        "steel": 8608.858000000093,
+        "aluminum": 4604.429000000048,
+        "fuel": 7256.6435000000065
       },
       "storageCap": {
         "concrete": 14000,
@@ -297,7 +297,7 @@
         "aluminum": 1,
         "fuel": 1.5
       },
-      "lastResourceUpdate": 1792513116517,
+      "lastResourceUpdate": 1792519809446,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -343,9 +343,9 @@
       "captureProgress": 0,
       "resources": {
         "concrete": 14000,
-        "steel": 9220.354000000125,
-        "aluminum": 4240.177000000038,
-        "fuel": 6745.265499999996
+        "steel": 9288.858000000126,
+        "aluminum": 4274.429000000038,
+        "fuel": 6796.643499999994
       },
       "storageCap": {
         "concrete": 14000,
@@ -359,7 +359,7 @@
         "aluminum": 1,
         "fuel": 1.5
       },
-      "lastResourceUpdate": 1792513116517,
+      "lastResourceUpdate": 1792519809446,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -414,7 +414,7 @@
         "concrete": 18000,
         "steel": 18000,
         "aluminum": 11500,
-        "fuel": 4625.265500000022
+        "fuel": 4676.64350000002
       },
       "storageCap": {
         "concrete": 18000,
@@ -428,7 +428,7 @@
         "aluminum": 4.5,
         "fuel": 1.5
       },
-      "lastResourceUpdate": 1792513116517,
+      "lastResourceUpdate": 1792519809446,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -504,7 +504,7 @@
       "resources": {
         "concrete": 8000,
         "steel": 8000,
-        "aluminum": 4070.1770000000392,
+        "aluminum": 4104.429000000042,
         "fuel": 15000
       },
       "storageCap": {
@@ -519,7 +519,7 @@
         "aluminum": 1,
         "fuel": 9.6
       },
-      "lastResourceUpdate": 1792513116517,
+      "lastResourceUpdate": 1792519809446,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [

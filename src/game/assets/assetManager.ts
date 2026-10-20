@@ -23,6 +23,35 @@ export class AssetManager {
     if (this.initialized) return;
     this.generateTerrainTextures();
     this.generateEnvironmentSprites();
+    
+    // Load Kenney Industrial assets
+    const assets = [
+      { key: 'command_center', file: 'building-a' },
+      { key: 'command_bunker', file: 'building-b' },
+      { key: 'operations_center', file: 'building-c' },
+      { key: 'comms_tower', file: 'building-d' },
+      { key: 'military_gate', file: 'building-e' },
+      { key: 'barracks', file: 'building-f' },
+      { key: 'vehicle_factory', file: 'building-g' },
+      { key: 'aviation_hangar', file: 'building-h' },
+      { key: 'naval_dockyard', file: 'building-i' },
+      { key: 'rail_depot', file: 'building-j' },
+      { key: 'concrete_works', file: 'building-k' },
+      { key: 'steel_foundry', file: 'building-l' },
+      { key: 'aluminum_smelter', file: 'building-m' },
+      { key: 'fuel_refinery', file: 'building-n' },
+      { key: 'storage_depot', file: 'building-o' },
+      { key: 'power_station', file: 'building-p' },
+      { key: 'repair_depot', file: 'building-q' },
+      { key: 'logistics_center', file: 'building-r' },
+      { key: 'guard_tower', file: 'building-s' },
+      { key: 'mg_turret', file: 'building-t' },
+      { key: 'water_tower', file: 'water-tower' },
+      { key: 'windmill', file: 'windmill' },
+    ];
+
+    assets.forEach(a => this.loadExternalSprite(a.key, `/assets/building_sprites/${a.file}.png`));
+    
     this.initialized = true;
   }
 
@@ -1603,6 +1632,22 @@ export class AssetManager {
       renderFn(ctx);
     }
     return canvas;
+  }
+
+  // 4. Load External Image-Based Sprites
+  private loadExternalSprite(key: string, url: string) {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0);
+        this.spriteCanvases.set(key, canvas);
+      }
+    };
+    img.src = url;
   }
 
   // Retrieve cached pattern for a given canvas context
