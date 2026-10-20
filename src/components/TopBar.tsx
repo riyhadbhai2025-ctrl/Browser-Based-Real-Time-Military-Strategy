@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Battery, Box, Droplets, Volume2, VolumeX, Maximize2, Terminal, Users, Flag, Paintbrush } from 'lucide-react';
+import { Shield, Battery, Box, Droplets, Volume2, VolumeX, Maximize2, Terminal, Users, Flag, Paintbrush, Keyboard } from 'lucide-react';
 import { Base, PlayerProfile } from '../types/game';
 
 interface TopBarProps {
@@ -12,6 +12,7 @@ interface TopBarProps {
   onOpenAlliance: () => void;
   onOpenIntel: () => void;
   onOpenTutorial: () => void;
+  onOpenShortcuts: () => void;
   onToggleMapEditor?: () => void;
   isMapEditorOpen?: boolean;
   alliedTag?: string | null;
@@ -28,6 +29,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenAlliance,
   onOpenIntel,
   onOpenTutorial,
+  onOpenShortcuts,
   onToggleMapEditor,
   isMapEditorOpen,
   alliedTag,
@@ -182,6 +184,14 @@ export const TopBar: React.FC<TopBarProps> = ({
             <span className="hidden lg:inline">Map Designer</span>
           </button>
         )}
+
+        <button
+          onClick={onOpenShortcuts}
+          className="p-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 transition"
+          title="Keyboard Shortcuts"
+        >
+          <Keyboard className="w-3.5 h-3.5 text-blue-400" />
+        </button>
 
         <button
           onClick={onToggleMute}

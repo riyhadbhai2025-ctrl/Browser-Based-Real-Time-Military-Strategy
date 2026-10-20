@@ -178,6 +178,7 @@ export const TacticalChat: React.FC<TacticalChatProps> = ({
               </button>
 
               <input
+                id="tactical-chat-input"
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}

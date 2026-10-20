@@ -80,6 +80,8 @@ export class TacticalRenderer {
 
   // Fog of war
   public fogEnabled: boolean = true;
+  public showRepairCranes: boolean = true;
+  public flashUnitsUntil: number = 0;
   private exploredCells: Uint8Array | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -761,6 +763,26 @@ export class TacticalRenderer {
         this.renderEnvironmentObject(ctx, item.data, scale);
       } else {
         this.renderMilitaryUnit(ctx, item.data, scale);
+        
+        // --- RTS REPAIR CRANE VISUALS ---
+        if (this.showRepairCranes) {
+          const unit = item.data as Unit;
+          const uDef = UNIT_CATALOG[unit.type];
+          const maxHp = uDef?.maxHealth || unit.maxHealth;
+          
+          if (unit.health < maxHp) {
+            // Check if near a base with repair_depot
+            const nearestBase = this.bases.find(b => 
+              b.ownerId === unit.ownerId && 
+              Math.hypot(b.x - unit.x, b.y - unit.y) <= b.radius + 2 &&
+              b.buildings.some(fac => fac.type === 'repair_depot' && !fac.isConstructing)
+            );
+
+            if (nearestBase) {
+              this.renderRepairCrane(ctx, unit.x, unit.y, scale);
+            }
+          }
+        }
       }
     });
 
@@ -1336,6 +1358,44 @@ export class TacticalRenderer {
     ctx.restore();
   }
 
+  private renderRepairCrane(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
+    const sPos = this.worldToScreen(x, y);
+    const craneScale = scale * 0.45;
+    
+    ctx.save();
+    ctx.translate(sPos.x, sPos.y - scale * 0.6);
+    
+    // Rotating crane base
+    const angle = Math.sin(Date.now() / 800) * 0.4;
+    ctx.rotate(angle);
+    
+    // Crane structure (yellow/black)
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(craneScale * 1.5, -craneScale * 0.5);
+    ctx.stroke();
+    
+    // Crane line
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(craneScale * 1.5, -craneScale * 0.5);
+    ctx.lineTo(craneScale * 1.5, craneScale * 0.5);
+    ctx.stroke();
+    
+    // Welding sparks (random blue/white bursts)
+    if (Math.random() > 0.7) {
+      ctx.fillStyle = Math.random() > 0.5 ? '#38bdf8' : '#ffffff';
+      ctx.beginPath();
+      ctx.arc(craneScale * 1.5, craneScale * 0.5, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    
+    ctx.restore();
+  }
+
   private renderEnvironmentObject(ctx: CanvasRenderingContext2D, obj: EnvironmentObject, scale: number) {
     const sPos = this.worldToScreen(obj.x, obj.y);
     const spriteCanvas = assetManager.getSpriteCanvas(obj.type);
@@ -1659,14 +1719,27 @@ export class TacticalRenderer {
     });
 
     // Unit Dots
+    const isFlashing = Date.now() < this.flashUnitsUntil;
     this.units.forEach((u) => {
       if (!this.isCellVisible(u.x, u.y)) return;
       const isPlayer = u.ownerId === this.currentUserId;
       const isAllied = this.userAllianceId && u.allianceId === this.userAllianceId;
       const isEnemy = u.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied);
 
-      mCtx.fillStyle = isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
-      mCtx.fillRect(u.x * cellW - 1, u.y * cellH - 1, 3.2, 3.2);
+      if (isFlashing && isPlayer) {
+        const pulse = 1.0 + Math.sin(Date.now() / 100) * 0.4;
+        mCtx.fillStyle = '#ffffff';
+        mCtx.beginPath();
+        mCtx.arc(u.x * cellW, u.y * cellH, 6 * pulse, 0, Math.PI * 2);
+        mCtx.fill();
+        mCtx.fillStyle = '#38bdf8';
+        mCtx.beginPath();
+        mCtx.arc(u.x * cellW, u.y * cellH, 3.5 * pulse, 0, Math.PI * 2);
+        mCtx.fill();
+      } else {
+        mCtx.fillStyle = isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
+        mCtx.fillRect(u.x * cellW - 1, u.y * cellH - 1, 3.2, 3.2);
+      }
     });
 
     // Camera Frustum

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { ZoomIn, ZoomOut, Home, Eye } from 'lucide-react';
+import { ZoomIn, ZoomOut, Home, Eye, Zap } from 'lucide-react';
 import { TacticalRenderer } from '../game/renderer';
 
 interface MinimapProps {
@@ -8,6 +8,8 @@ interface MinimapProps {
   onJumpToHome: () => void;
   fogEnabled: boolean;
   onToggleFog: () => void;
+  showRepairCranes: boolean;
+  onToggleRepair: () => void;
 }
 
 export const Minimap: React.FC<MinimapProps> = ({
@@ -16,6 +18,8 @@ export const Minimap: React.FC<MinimapProps> = ({
   onJumpToHome,
   fogEnabled,
   onToggleFog,
+  showRepairCranes,
+  onToggleRepair,
 }) => {
   const minimapCanvasRef = useRef<HTMLCanvasElement>(null);
   const isDraggingRef = useRef<boolean>(false);
@@ -89,6 +93,13 @@ export const Minimap: React.FC<MinimapProps> = ({
             title="Toggle Fog of War"
           >
             <Eye className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={onToggleRepair}
+            className={`p-1 rounded hover:bg-slate-800 ${showRepairCranes ? 'text-amber-400' : 'text-slate-500'}`}
+            title="Toggle Repair Crane Visuals (R)"
+          >
+            <Zap className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={onJumpToHome}

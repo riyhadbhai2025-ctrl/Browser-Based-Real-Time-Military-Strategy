@@ -13,6 +13,7 @@ import { IntelModal } from './components/IntelModal';
 import { AdminModal } from './components/AdminModal';
 import { TutorialModal } from './components/TutorialModal';
 import { AuthModal } from './components/AuthModal';
+import { ShortcutsModal } from './components/ShortcutsModal';
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -43,15 +44,21 @@ export default function App() {
   // Modals & UI States
   const [muted, setMuted] = useState<boolean>(false);
   const [fogEnabled, setFogEnabled] = useState<boolean>(true);
+  const [repairVisualsActive, setRepairVisualsActive] = useState<boolean>(true);
   const [cameraCoords, setCameraCoords] = useState<{ x: number; y: number }>({ x: 18, y: 30 });
   const [showAdmin, setShowAdmin] = useState<boolean>(false);
   const [showAlliance, setShowAlliance] = useState<boolean>(false);
   const [showIntel, setShowIntel] = useState<boolean>(false);
   const [showTutorial, setShowTutorial] = useState<boolean>(false);
+  const [showShortcuts, setShowShortcuts] = useState<boolean>(false);
   const [notificationToast, setNotificationToast] = useState<{ title: string; message: string } | null>(null);
 
   // Keys held tracking for camera pan
   const keysHeld = useRef<Set<string>>(new Set());
+  const mousePos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const isRightDragging = useRef(false);
+  const lastRightPos = useRef<{ x: number; y: number } | null>(null);
+  const rightDragDistance = useRef(0);
 
   // 1. Initial Profile Check
   useEffect(() => {
@@ -180,6 +187,50 @@ export default function App() {
     };
   }, [token]);
 
+  // --- COMMAND HELPERS ---
+
+  // Jump camera to Home Base
+  const jumpToHome = useCallback(() => {
+    const homeBase = bases.find((b) => b.ownerId === (profile?.id || 'player_default') && b.type === 'home');
+    if (homeBase && rendererRef.current) {
+      rendererRef.current.cameraX = homeBase.x;
+      rendererRef.current.cameraY = homeBase.y;
+      setCameraCoords({ x: homeBase.x, y: homeBase.y });
+      soundEngine.playCommandAck();
+    }
+  }, [bases, profile]);
+
+  // Jump camera to arbitrary coordinates
+  const jumpToCoords = useCallback((x: number, y: number) => {
+    if (rendererRef.current) {
+      rendererRef.current.cameraX = x;
+      rendererRef.current.cameraY = y;
+      setCameraCoords({ x, y });
+      soundEngine.playCommandAck();
+    }
+  }, []);
+
+  // Issue command to selected units
+  const issueUnitCommand = useCallback((
+    command: 'move' | 'attack' | 'hold' | 'patrol' | 'retreat' | 'stop',
+    targetX?: number,
+    targetY?: number,
+    targetUnitId?: string,
+    targetBaseId?: string
+  ) => {
+    if (selectedUnitIds.size === 0 || !socketRef.current) return;
+
+    socketRef.current.emit('unit:command', {
+      unitIds: Array.from(selectedUnitIds),
+      command,
+      targetX,
+      targetY,
+      targetUnitId,
+      targetBaseId,
+    });
+    soundEngine.playCommandAck();
+  }, [selectedUnitIds]);
+
   // 4. Initialize Canvas Renderer
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -219,24 +270,38 @@ export default function App() {
     rendererRef.current.selectedUnitIds = selectedUnitIds;
     rendererRef.current.selectedBaseId = selectedBaseId;
     rendererRef.current.fogEnabled = fogEnabled;
-  }, [bases, units, profile, selectedUnitIds, selectedBaseId, fogEnabled, envObjects]);
+    rendererRef.current.showRepairCranes = repairVisualsActive;
+  }, [bases, units, profile, selectedUnitIds, selectedBaseId, fogEnabled, envObjects, repairVisualsActive]);
 
   // 5. Continuous Keyboard Camera Pan Loop
   useEffect(() => {
     let animId: number;
-    const panLoop = () => {
+    let lastTime = performance.now();
+
+    const panLoop = (time: number) => {
+      const dt = Math.min(2.0, (time - lastTime) / 16.67); // Normalize to 60fps, cap at 2x
+      lastTime = time;
+
       const renderer = rendererRef.current;
       if (renderer && keysHeld.current.size > 0) {
-        const speed = 0.45 / renderer.zoom;
-        if (keysHeld.current.has('KeyW') || keysHeld.current.has('ArrowUp')) renderer.cameraY -= speed;
-        if (keysHeld.current.has('KeyS') || keysHeld.current.has('ArrowDown')) renderer.cameraY += speed;
-        if (keysHeld.current.has('KeyA') || keysHeld.current.has('ArrowLeft')) renderer.cameraX -= speed;
-        if (keysHeld.current.has('KeyD') || keysHeld.current.has('ArrowRight')) renderer.cameraX += speed;
+        let vx = 0;
+        let vy = 0;
+        if (keysHeld.current.has('KeyW') || keysHeld.current.has('ArrowUp')) vy -= 1;
+        if (keysHeld.current.has('KeyS') || keysHeld.current.has('ArrowDown')) vy += 1;
+        if (keysHeld.current.has('KeyA') || keysHeld.current.has('ArrowLeft')) vx -= 1;
+        if (keysHeld.current.has('KeyD') || keysHeld.current.has('ArrowRight')) vx += 1;
 
-        // Clamp
-        renderer.cameraX = Math.max(0, Math.min(100, renderer.cameraX));
-        renderer.cameraY = Math.max(0, Math.min(75, renderer.cameraY));
-        setCameraCoords({ x: renderer.cameraX, y: renderer.cameraY });
+        if (vx !== 0 || vy !== 0) {
+          const mag = Math.hypot(vx, vy);
+          const speed = (0.55 * dt) / renderer.zoom;
+          renderer.cameraX += (vx / mag) * speed;
+          renderer.cameraY += (vy / mag) * speed;
+
+          // Clamp
+          renderer.cameraX = Math.max(0, Math.min(100, renderer.cameraX));
+          renderer.cameraY = Math.max(0, Math.min(75, renderer.cameraY));
+          setCameraCoords({ x: renderer.cameraX, y: renderer.cameraY });
+        }
       }
       animId = requestAnimationFrame(panLoop);
     };
@@ -245,6 +310,11 @@ export default function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't capture when typing in an input
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
+
+      // Prevent scrolling for navigation keys
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.code)) {
+        e.preventDefault();
+      }
 
       keysHeld.current.add(e.code);
 
@@ -282,8 +352,61 @@ export default function App() {
         issueUnitCommand('stop');
       }
       if (e.code === 'KeyR') {
-        setActiveCommand('retreat');
-        issueUnitCommand('retreat');
+        // Toggle Repair Cranes
+        const nextState = !repairVisualsActive;
+        setRepairVisualsActive(nextState);
+        setNotificationToast({
+          title: 'REPAIR VISUALS',
+          message: nextState ? 'Repair activity ENABLED' : 'Repair activity HIDDEN'
+        });
+        setTimeout(() => setNotificationToast(null), 2000);
+      }
+      if (e.code === 'Enter') {
+        // Open/Focus Chat
+        const chatInput = document.getElementById('tactical-chat-input');
+        if (chatInput) {
+          chatInput.focus();
+        }
+      }
+      if (e.code === 'F11') {
+        // Toggle Fullscreen
+        e.preventDefault();
+        if (!document.fullscreenElement) {
+          document.documentElement.requestFullscreen().catch(() => {});
+        } else {
+          document.exitFullscreen().catch(() => {});
+        }
+      }
+      if (e.code === 'Home') {
+        // Select all mobile units
+        const myUnits = units.filter(u => u.ownerId === (profile?.id || 'player_default'));
+        setSelectedUnitIds(new Set(myUnits.map(u => u.id)));
+        setSelectedBaseId(null);
+        soundEngine.playCommandAck();
+      }
+      if (e.code === 'End') {
+        // Stop all units
+        setActiveCommand('stop');
+        issueUnitCommand('stop');
+      }
+      if (e.code === 'PageUp') {
+        // Flash units on minimap
+        if (rendererRef.current) {
+          rendererRef.current.flashUnitsUntil = Date.now() + 3500;
+        }
+      }
+      if (e.code === 'PageDown') {
+        // Post coordinates to chat
+        if (rendererRef.current && socketRef.current) {
+          const worldPos = rendererRef.current.screenToWorld(mousePos.current.x, mousePos.current.y);
+          const x = Math.round(worldPos.x);
+          const y = Math.round(worldPos.y);
+          socketRef.current.emit('chat:send', {
+            content: `Tactical Coordinates: X ${x}, Y ${y}`,
+            channel: 'global',
+            coords: { x, y }
+          });
+        }
       }
       if (e.code === 'Space') {
         // Jump camera to home base
@@ -308,49 +431,7 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [selectedUnitIds, controlGroups]);
-
-  // Jump camera to Home Base
-  const jumpToHome = useCallback(() => {
-    const homeBase = bases.find((b) => b.ownerId === (profile?.id || 'player_default') && b.type === 'home');
-    if (homeBase && rendererRef.current) {
-      rendererRef.current.cameraX = homeBase.x;
-      rendererRef.current.cameraY = homeBase.y;
-      setCameraCoords({ x: homeBase.x, y: homeBase.y });
-      soundEngine.playCommandAck();
-    }
-  }, [bases, profile]);
-
-  // Jump camera to arbitrary coordinates
-  const jumpToCoords = (x: number, y: number) => {
-    if (rendererRef.current) {
-      rendererRef.current.cameraX = x;
-      rendererRef.current.cameraY = y;
-      setCameraCoords({ x, y });
-      soundEngine.playCommandAck();
-    }
-  };
-
-  // Issue command to selected units
-  const issueUnitCommand = (
-    command: 'move' | 'attack' | 'hold' | 'patrol' | 'retreat' | 'stop',
-    targetX?: number,
-    targetY?: number,
-    targetUnitId?: string,
-    targetBaseId?: string
-  ) => {
-    if (selectedUnitIds.size === 0 || !socketRef.current) return;
-
-    socketRef.current.emit('unit:command', {
-      unitIds: Array.from(selectedUnitIds),
-      command,
-      targetX,
-      targetY,
-      targetUnitId,
-      targetBaseId,
-    });
-    soundEngine.playCommandAck();
-  };
+  }, [selectedUnitIds, controlGroups, repairVisualsActive, profile, units, jumpToHome, issueUnitCommand]);
 
   // 6. Canvas Mouse & Pointer Event Handlers
   const isBoxSelecting = useRef(false);
@@ -361,12 +442,39 @@ export default function App() {
       // Left click
       dragStartPos.current = { x: e.clientX, y: e.clientY };
       isBoxSelecting.current = false;
+    } else if (e.button === 2) {
+      // Right click drag start
+      isRightDragging.current = true;
+      lastRightPos.current = { x: e.clientX, y: e.clientY };
+      rightDragDistance.current = 0;
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
     }
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!rendererRef.current) return;
+    mousePos.current = { x: e.clientX, y: e.clientY };
 
+    // 1. Right Click Panning
+    if (isRightDragging.current && lastRightPos.current) {
+      const dx = e.clientX - lastRightPos.current.x;
+      const dy = e.clientY - lastRightPos.current.y;
+      rightDragDistance.current += Math.hypot(dx, dy);
+
+      const scale = 44 * rendererRef.current.zoom; // tileSize is 44
+      rendererRef.current.cameraX -= dx / scale;
+      rendererRef.current.cameraY -= dy / scale;
+
+      // Map bounds clamping
+      rendererRef.current.cameraX = Math.max(0, Math.min(100, rendererRef.current.cameraX));
+      rendererRef.current.cameraY = Math.max(0, Math.min(75, rendererRef.current.cameraY));
+      setCameraCoords({ x: rendererRef.current.cameraX, y: rendererRef.current.cameraY });
+
+      lastRightPos.current = { x: e.clientX, y: e.clientY };
+      return; // Skip box select if dragging map
+    }
+
+    // 2. Left Click Box Selection
     if (dragStartPos.current && e.buttons === 1) {
       const dist = Math.hypot(e.clientX - dragStartPos.current.x, e.clientY - dragStartPos.current.y);
       if (dist > 8) {
@@ -456,13 +564,22 @@ export default function App() {
       renderer.selectionBox = null;
       isBoxSelecting.current = false;
       dragStartPos.current = null;
+    } else if (e.button === 2) {
+      // Finished right click drag
+      isRightDragging.current = false;
+      lastRightPos.current = null;
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     }
   };
 
   const handleContextMenu = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     const renderer = rendererRef.current;
-    if (!renderer || selectedUnitIds.size === 0) return;
+    if (!renderer) return;
+
+    // If we were dragging the camera significantly, don't issue a command
+    if (rightDragDistance.current > 12) return;
+    if (selectedUnitIds.size === 0) return;
 
     const worldPos = renderer.screenToWorld(e.clientX, e.clientY);
 
@@ -605,6 +722,7 @@ export default function App() {
           onOpenAlliance={() => setShowAlliance(true)}
           onOpenIntel={() => setShowIntel(true)}
           onOpenTutorial={() => setShowTutorial(true)}
+          onOpenShortcuts={() => setShowShortcuts(true)}
           alliedTag={alliances.find((a) => a.id === profile.allianceId)?.tag}
           totalUnitsCount={units.filter((u) => u.ownerId === profile.id).length}
         />
@@ -617,6 +735,8 @@ export default function App() {
         onJumpToHome={jumpToHome}
         fogEnabled={fogEnabled}
         onToggleFog={() => setFogEnabled(!fogEnabled)}
+        showRepairCranes={repairVisualsActive}
+        onToggleRepair={() => setRepairVisualsActive(!repairVisualsActive)}
       />
 
       {/* 4. Unit Command Bar (Bottom Center) */}
@@ -702,6 +822,7 @@ export default function App() {
       )}
 
       {showIntel && <IntelModal onClose={() => setShowIntel(false)} />}
+      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
 
       {showAdmin && (
         <AdminModal
