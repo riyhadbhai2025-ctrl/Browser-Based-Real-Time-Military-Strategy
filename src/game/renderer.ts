@@ -206,25 +206,31 @@ export class TacticalRenderer {
     }
   }
 
-  // World to Screen coordinate translation
+  // World to Screen coordinate translation (3/4 Angled Perspective)
   public worldToScreen(wx: number, wy: number): { x: number; y: number } {
     const scale = this.tileSize * this.zoom;
     const screenCenterX = this.canvas.width / 2;
     const screenCenterY = this.canvas.height / 2;
+    
+    // We compress Y to simulate an angled camera (0.85 ratio)
+    const tilt = 0.85;
+    
     return {
       x: screenCenterX + (wx - this.cameraX) * scale,
-      y: screenCenterY + (wy - this.cameraY) * scale,
+      y: screenCenterY + (wy - this.cameraY) * scale * tilt,
     };
   }
 
-  // Screen to World coordinate translation
+  // Screen to World coordinate translation (Inverting 3/4 Perspective)
   public screenToWorld(sx: number, sy: number): { x: number; y: number } {
     const scale = this.tileSize * this.zoom;
     const screenCenterX = this.canvas.width / 2;
     const screenCenterY = this.canvas.height / 2;
+    const tilt = 0.85;
+    
     return {
       x: this.cameraX + (sx - screenCenterX) / scale,
-      y: this.cameraY + (sy - screenCenterY) / scale,
+      y: this.cameraY + (sy - screenCenterY) / (scale * tilt),
     };
   }
 
@@ -423,8 +429,34 @@ export class TacticalRenderer {
     }
 
     // =========================================================================
-    // LAYER 4: REALISTIC ROADS, DIRT TRACKS, RAILWAYS & BRIDGES (AUTO-CONNECTING)
+    // LAYER 3.5: BATTLEFIELD GRIT & DECALS (GROUND CLUTTER)
     // =========================================================================
+    for (let y = startY; y < endY; y++) {
+      for (let x = startX; x < endX; x++) {
+        const sPos = this.worldToScreen(x, y);
+        const seed = (x * 123.45 + y * 678.9) % 1.0;
+        
+        // tire tracks near roads or bases
+        if (seed > 0.88) {
+          const trackSprite = assetManager.getSpriteCanvas('tank_tracks');
+          if (trackSprite) {
+            ctx.save();
+            ctx.globalAlpha = 0.15;
+            ctx.translate(sPos.x + scale / 2, sPos.y + scale / 2);
+            ctx.rotate(seed * Math.PI);
+            ctx.drawImage(trackSprite, -scale / 2, -scale / 2, scale, scale);
+            ctx.restore();
+          }
+        }
+
+        // Small debris/grit flecks
+        if (seed < 0.05) {
+          ctx.fillStyle = 'rgba(0,0,0,0.2)';
+          ctx.fillRect(sPos.x + seed * scale, sPos.y + (1-seed) * scale, 2, 2);
+        }
+      }
+    }
+
     for (let y = startY; y < endY; y++) {
       for (let x = startX; x < endX; x++) {
         const cell = this.terrain[y][x];
@@ -522,7 +554,7 @@ export class TacticalRenderer {
     }
 
     // =========================================================================
-    // LAYER 5: BASES & COURTYARD FORTIFICATIONS
+    // LAYER 5: REALISTIC MILITARY COMPOUND & PERIMETER
     // =========================================================================
     this.bases.forEach((base) => {
       const sPos = this.worldToScreen(base.x, base.y);
@@ -535,62 +567,112 @@ export class TacticalRenderer {
       const ownerColor = isPlayer ? '#3b82f6' : isAllied ? '#10b981' : isEnemy ? '#ef4444' : '#f59e0b';
       const isSelected = this.selectedBaseId === base.id;
 
-      // Outer fortified perimeter wall with battlements
       ctx.save();
-      ctx.strokeStyle = isSelected ? '#38bdf8' : ownerColor;
-      ctx.lineWidth = isSelected ? 3.5 : 2;
+      
+      // 1. COMPOUND FOUNDATION (Zoned Paving)
+      // Large concrete hexagonal/circular pad
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
       ctx.beginPath();
-      ctx.arc(sPos.x, sPos.y, bRadius, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // Compound paved courtyard
-      ctx.fillStyle = isPlayer
-        ? 'rgba(30, 58, 138, 0.22)'
-        : isEnemy
-        ? 'rgba(127, 29, 29, 0.22)'
-        : 'rgba(120, 80, 20, 0.15)';
+      ctx.arc(sPos.x, sPos.y, bRadius * 1.05, 0, Math.PI * 2);
       ctx.fill();
-
-      // Perimeter Razor Wire / Barbed Wire coils
-      ctx.strokeStyle = '#64748b';
+      
+      // Paving Grids (Tactical markings)
+      ctx.strokeStyle = 'rgba(51, 65, 85, 0.3)';
       ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.arc(sPos.x, sPos.y, bRadius + 4, 0, Math.PI * 2);
-      ctx.stroke();
-
-      // Pulsing energy shield bubble
-      if (base.defenseShield > 0) {
-        const shieldAlpha = 0.18 + Math.sin(this.waterOffset * 2) * 0.06;
-        ctx.fillStyle = `rgba(6, 182, 212, ${shieldAlpha})`;
-        ctx.strokeStyle = '#22d3ee';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(sPos.x, sPos.y, bRadius * 1.05, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
+      for (let i = -10; i <= 10; i++) {
+        const d = (i * 0.2) * bRadius;
+        ctx.beginPath(); ctx.moveTo(sPos.x - bRadius, sPos.y + d); ctx.lineTo(sPos.x + bRadius, sPos.y + d); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(sPos.x + d, sPos.y - bRadius); ctx.lineTo(sPos.x + d, sPos.y + bRadius); ctx.stroke();
       }
-      ctx.restore();
 
-      // Runway for airbase
-      if (base.type === 'air') {
-        ctx.fillStyle = '#1e293b';
-        ctx.fillRect(sPos.x - bRadius * 0.8, sPos.y - scale * 0.35, bRadius * 1.6, scale * 0.7);
-        // White centerline stripes
-        ctx.strokeStyle = '#e2e8f0';
-        ctx.lineWidth = 2;
-        ctx.setLineDash([8, 8]);
-        ctx.beginPath();
-        ctx.moveTo(sPos.x - bRadius * 0.75, sPos.y);
-        ctx.lineTo(sPos.x + bRadius * 0.75, sPos.y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        // Threshold piano keys
-        ctx.fillStyle = '#ffffff';
-        for (let i = -3; i <= 3; i++) {
-          ctx.fillRect(sPos.x - bRadius * 0.78, sPos.y + i * 3 - 1, 6, 2);
-          ctx.fillRect(sPos.x + bRadius * 0.74, sPos.y + i * 3 - 1, 6, 2);
+      // 2. PERIMETER WALL SYSTEM (Realistic Isometric Sections)
+      const wallSprite = assetManager.getSpriteCanvas('perimeter_wall');
+      const towerSprite = assetManager.getSpriteCanvas('guard_tower');
+      
+      if (wallSprite && towerSprite) {
+        const numSegments = 16;
+        const wallScale = scale / 40;
+        
+        for (let i = 0; i < numSegments; i++) {
+          const angle = (i / numSegments) * Math.PI * 2;
+          
+          // Skip segment for entrance (South-East)
+          if (angle > 0.4 && angle < 0.9) continue; 
+
+          const wx = sPos.x + Math.cos(angle) * bRadius;
+          const wy = sPos.y + Math.sin(angle) * bRadius;
+
+          ctx.save();
+          ctx.translate(wx, wy);
+          ctx.rotate(angle + Math.PI / 2);
+          const drawW = wallSprite.width * wallScale;
+          const drawH = wallSprite.height * wallScale;
+          ctx.drawImage(wallSprite, -drawW / 2, -drawH / 2, drawW, drawH);
+          ctx.restore();
+
+          // Corner Guard Towers (Every 4 segments)
+          if (i % 4 === 0) {
+            ctx.save();
+            ctx.translate(wx, wy);
+            const tW = towerSprite.width * wallScale;
+            const tH = towerSprite.height * wallScale;
+            ctx.drawImage(towerSprite, -tW / 2, -tH + 10, tW, tH);
+            ctx.restore();
+          }
         }
       }
+
+      // 3. ENTRANCE GATE (Integrated into perimeter)
+      const gateSprite = assetManager.getSpriteCanvas('military_gate');
+      if (gateSprite) {
+        const gateAngle = 0.65;
+        const gx = sPos.x + Math.cos(gateAngle) * bRadius;
+        const gy = sPos.y + Math.sin(gateAngle) * bRadius;
+        const gScale = scale / 40;
+        const gW = gateSprite.width * gScale;
+        const gH = gateSprite.height * gScale;
+        
+        ctx.save();
+        ctx.translate(gx, gy);
+        ctx.rotate(gateAngle + Math.PI / 2);
+        ctx.drawImage(gateSprite, -gW / 2, -gH / 2, gW, gH);
+        ctx.restore();
+      }
+
+      // 4. DEFENSIVE SHIELD (Advanced Visual)
+      if (base.defenseShield > 0) {
+        const shieldAlpha = 0.15 + Math.sin(Date.now() / 400) * 0.05;
+        const grad = ctx.createRadialGradient(sPos.x, sPos.y, bRadius * 0.8, sPos.x, sPos.y, bRadius * 1.15);
+        grad.addColorStop(0, 'rgba(6, 182, 212, 0)');
+        grad.addColorStop(0.8, `rgba(6, 182, 212, ${shieldAlpha})`);
+        grad.addColorStop(1, 'rgba(34, 211, 238, 0.4)');
+        
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(sPos.x, sPos.y, bRadius * 1.15, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Hexagonal grid overlay for shield
+        ctx.strokeStyle = 'rgba(34, 211, 238, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 5]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      
+      // 5. SERVICE ROADS (Compound Connectivity)
+      ctx.fillStyle = '#272b30';
+      const gateAngle = 0.65;
+      const roadW = scale * 0.6;
+      ctx.save();
+      ctx.translate(sPos.x, sPos.y);
+      ctx.rotate(gateAngle);
+      ctx.fillRect(0, -roadW / 2, bRadius, roadW);
+      // center hub
+      ctx.beginPath(); ctx.arc(0, 0, roadW, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+
+      ctx.restore();
 
       // =========================================================================
       // DYNAMIC BASE FACILITY LAYOUT
@@ -1253,7 +1335,6 @@ export class TacticalRenderer {
     const sprite = assetManager.getSpriteCanvas(type);
     if (!sprite) return;
 
-    // reference scale is 40px per cell
     const bScale = (scale / 40); 
     const w = sprite.width * bScale;
     const h = sprite.height * bScale;
@@ -1261,97 +1342,68 @@ export class TacticalRenderer {
     ctx.save();
     ctx.translate(bx, by);
 
-    // Selection Glow
+    // 1. TACTICAL SELECTION BRACKETS (Instead of simple circle)
     if (isSelected && !isConstructing) {
-      ctx.save();
-      ctx.shadowColor = '#38bdf8';
-      ctx.shadowBlur = 12 * bScale;
-      ctx.beginPath();
-      ctx.arc(0, 0, (w + h) / 4, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.15)';
-      ctx.fill();
-      ctx.restore();
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      const bSize = w * 0.55;
+      const cornerLen = 8 * bScale;
+      
+      // Top-Left
+      ctx.beginPath(); ctx.moveTo(-bSize, -h); ctx.lineTo(-bSize + cornerLen, -h); ctx.moveTo(-bSize, -h); ctx.lineTo(-bSize, -h + cornerLen); ctx.stroke();
+      // Top-Right
+      ctx.beginPath(); ctx.moveTo(bSize, -h); ctx.lineTo(bSize - cornerLen, -h); ctx.moveTo(bSize, -h); ctx.lineTo(bSize, -h + cornerLen); ctx.stroke();
+      // Bottom-Left
+      ctx.beginPath(); ctx.moveTo(-bSize, 0); ctx.lineTo(-bSize + cornerLen, 0); ctx.moveTo(-bSize, 0); ctx.lineTo(-bSize, -cornerLen); ctx.stroke();
+      // Bottom-Right
+      ctx.beginPath(); ctx.moveTo(bSize, 0); ctx.lineTo(bSize - cornerLen, 0); ctx.moveTo(bSize, 0); ctx.lineTo(bSize, -cornerLen); ctx.stroke();
+      
+      // Footprint Glow
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
+      ctx.fillRect(-bSize, -h, bSize * 2, h);
     }
 
     if (isConstructing) {
-      // CONSTRUCTION SITE VISUALS
-      // 1. Foundation slab
+      // CONSTRUCTION SITE VISUALS (Upgraded)
       ctx.fillStyle = '#1e293b';
-      ctx.fillRect(-w * 0.45, -h * 0.45, w * 0.9, h * 0.9);
+      ctx.fillRect(-w * 0.45, -w * 0.25, w * 0.9, w * 0.5);
       
-      // 2. Scaffolding grid
       ctx.strokeStyle = '#475569';
       ctx.lineWidth = 1.5;
       ctx.setLineDash([4, 2]);
-      ctx.strokeRect(-w * 0.48, -h * 0.48, w * 0.96, h * 0.96);
+      ctx.strokeRect(-w * 0.48, -h * 0.96, w * 0.96, h * 0.96);
       
-      // 3. Yellow/Black Hazard tape around perimeter
       ctx.setLineDash([]);
       ctx.strokeStyle = '#eab308';
       ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(-w * 0.5, h * 0.5);
-      ctx.lineTo(w * 0.5, h * 0.5);
-      ctx.stroke();
-
-      // 4. Construction crane line (stylized)
-      ctx.strokeStyle = '#94a3b8';
-      ctx.beginPath();
-      ctx.moveTo(w * 0.4, -h * 1.2);
-      ctx.lineTo(0, -h * 0.3);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-w * 0.5, 0); ctx.lineTo(w * 0.5, 0); ctx.stroke();
     } else {
-      // OPERATIONAL BUILDING
-      // 1. Building Shadow (Global)
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-      ctx.shadowBlur = 8 * bScale;
-      ctx.shadowOffsetX = 4 * bScale;
-      ctx.shadowOffsetY = 4 * bScale;
+      // 1. DIRECTIONAL GROUND SHADOW (Elongated for perspective)
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+      ctx.beginPath();
+      ctx.moveTo(-w * 0.45, 0);
+      ctx.lineTo(w * 0.45, 0);
+      ctx.lineTo(w * 0.6, 10 * bScale);
+      ctx.lineTo(-w * 0.3, 10 * bScale);
+      ctx.closePath();
+      ctx.fill();
 
-      // 2. Draw Sprite
-      ctx.drawImage(sprite, -w / 2, -h / 2, w, h);
-      ctx.shadowColor = 'transparent';
+      // 2. Main Sprite
+      ctx.drawImage(sprite, -w / 2, -h, w, h);
 
-      // 3. Damage Overlay (if health < 80%)
+      // 3. Health Triage Overlay
       if (healthPct < 0.8) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-        ctx.globalCompositeOperation = 'source-atop';
-        const damageW = w * (1 - healthPct);
-        ctx.fillRect(-w/2, -h/2, damageW, h);
-        ctx.globalCompositeOperation = 'source-over';
-        
-        // Smoke effect for heavily damaged buildings
-        if (healthPct < 0.4) {
-          ctx.fillStyle = 'rgba(71, 85, 105, 0.6)';
-          for (let i = 0; i < 3; i++) {
-            ctx.beginPath();
-            ctx.arc((Math.random() - 0.5) * w * 0.5, (Math.random() - 0.5) * h * 0.5, 6 * bScale, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-      }
-
-      // 4. Facility-Specific Animations
-      if (type === 'radar_station' || type === 'operations_center') {
-        // Rotating radar dish / scanning beam
         ctx.save();
-        ctx.translate(0, -h * 0.2); // Offset to roof
-        ctx.rotate(this.radarAngle * 1.2);
-        ctx.strokeStyle = '#38bdf8';
-        ctx.lineWidth = 2.5 * bScale;
-        ctx.beginPath();
-        ctx.arc(0, 0, 14 * bScale, Math.PI * 1.1, Math.PI * 1.9);
-        ctx.stroke();
+        ctx.beginPath(); ctx.rect(-w/2, -h, w, h); ctx.clip();
+        ctx.fillStyle = 'rgba(127, 29, 29, 0.3)';
+        ctx.fillRect(-w/2, -h, w * (1-healthPct), h);
+        
+        // Emissive Fire/Sparks if critical
+        if (healthPct < 0.3 && Math.random() > 0.5) {
+          ctx.fillStyle = '#f97316';
+          ctx.beginPath(); ctx.arc((Math.random()-0.5)*w, -h*Math.random(), 3, 0, Math.PI*2); ctx.fill();
+        }
         ctx.restore();
-      }
-
-      if (type === 'comms_tower') {
-        // Pulsing red beacon
-        const pulse = 0.5 + Math.sin(Date.now() / 200) * 0.5;
-        ctx.fillStyle = `rgba(239, 68, 68, ${pulse})`;
-        ctx.beginPath();
-        ctx.arc(0, -h * 0.45, 4 * bScale, 0, Math.PI * 2);
-        ctx.fill();
       }
     }
 

@@ -1043,119 +1043,158 @@ export class AssetManager {
     // 3. MILITARY BASE BUILDINGS & FACILITIES
     // =========================================================================
 
-    // A. Base Headquarters (HQ)
-    this.spriteCanvases.set('command_center', this.createTile(80, 80, (ctx) => {
-      // Ground Shadow
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-      ctx.fillRect(10, 50, 65, 25);
+    // A. Base Headquarters (HQ) - Re-engineered for 3D Depth
+    this.spriteCanvases.set('command_center', this.createTile(100, 100, (ctx) => {
+      // 1. Foundation Slab (Concrete with edge highlights)
+      ctx.fillStyle = '#2d2d2d';
+      ctx.fillRect(10, 60, 80, 30);
+      ctx.strokeStyle = '#4a4a4a'; ctx.lineWidth = 1.5; ctx.strokeRect(10, 60, 80, 30);
 
-      // Main Block (Reinforced Concrete)
-      ctx.fillStyle = '#334155';
-      ctx.fillRect(15, 25, 50, 45);
-      // Roof (Steel/Composite)
-      ctx.fillStyle = '#475569';
-      ctx.fillRect(12, 22, 56, 8);
-      
-      // Detailing: Windows & Lights
-      ctx.fillStyle = '#1e293b';
-      for (let i = 0; i < 3; i++) {
-        ctx.fillRect(20 + i * 15, 35, 10, 8);
-        ctx.fillRect(20 + i * 15, 50, 10, 8);
-      }
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.4)'; // Blue window glow
-      for (let i = 0; i < 3; i++) {
-        ctx.fillRect(21 + i * 15, 36, 8, 6);
-      }
+      // 2. Main Building Body (Simulated Isometric Depth)
+      const gradFront = ctx.createLinearGradient(20, 20, 20, 75);
+      gradFront.addColorStop(0, '#334155'); gradFront.addColorStop(1, '#1e293b');
+      ctx.fillStyle = gradFront;
+      ctx.fillRect(20, 25, 60, 50);
 
-      // Antennae Array
-      ctx.strokeStyle = '#94a3b8';
-      ctx.lineWidth = 1.5;
+      // 3. Side Recesses (Gives volume)
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(18, 30, 2, 40);
+      ctx.fillRect(80, 30, 2, 40);
+
+      // 4. Multi-tier Roof (Metallic)
+      const gradRoof = ctx.createLinearGradient(15, 15, 15, 30);
+      gradRoof.addColorStop(0, '#64748b'); gradRoof.addColorStop(1, '#334155');
+      ctx.fillStyle = gradRoof;
+      ctx.fillRect(15, 20, 70, 10);
+      ctx.fillRect(30, 10, 40, 10);
+
+      // 5. Communications Array
+      ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(25, 22); ctx.lineTo(25, 8);
-      ctx.moveTo(22, 12); ctx.lineTo(28, 12);
-      ctx.moveTo(55, 22); ctx.lineTo(55, 5);
+      ctx.moveTo(35, 10); ctx.lineTo(35, -5);
+      ctx.moveTo(32, 2); ctx.lineTo(38, 2);
       ctx.stroke();
 
-      // Blinking red obstruction light
-      ctx.fillStyle = '#ef4444';
-      ctx.beginPath(); ctx.arc(55, 5, 2, 0, Math.PI * 2); ctx.fill();
+      // Satellite Dish
+      ctx.fillStyle = '#cbd5e0';
+      ctx.beginPath(); ctx.ellipse(65, 10, 12, 6, -0.3, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#4a5568'; ctx.stroke();
 
-      // Entrance steps
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(35, 65, 10, 5);
+      // 6. Windows (Glowing)
+      for (let i = 0; i < 4; i++) {
+        ctx.fillStyle = '#020617';
+        ctx.fillRect(28 + i * 12, 40, 8, 6);
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.4)';
+        ctx.fillRect(29 + i * 12, 41, 6, 4);
+      }
+
+      // 7. Industrial Weathering
+      ctx.fillStyle = 'rgba(67, 20, 7, 0.15)';
+      ctx.fillRect(20, 70, 60, 5);
     }));
 
-    // B. Command Bunker
-    this.spriteCanvases.set('command_bunker', this.createTile(72, 60, (ctx) => {
-      ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(5, 40, 62, 15);
-      // Heavy concrete low profile
-      ctx.fillStyle = '#1e293b';
+    // B. Command Bunker (Heavy Fortified)
+    this.spriteCanvases.set('command_bunker', this.createTile(80, 70, (ctx) => {
+      // Sloped Concrete Walls (Simulated Depth)
+      const grad = ctx.createLinearGradient(0, 0, 0, 70);
+      grad.addColorStop(0, '#475569'); grad.addColorStop(1, '#0f172a');
+      ctx.fillStyle = grad;
       ctx.beginPath();
-      ctx.moveTo(10, 45); ctx.lineTo(62, 45); ctx.lineTo(55, 15); ctx.lineTo(17, 15);
+      ctx.moveTo(5, 60); ctx.lineTo(75, 60); ctx.lineTo(65, 20); ctx.lineTo(15, 20);
       ctx.closePath(); ctx.fill();
-      // Observation Slit
-      ctx.fillStyle = '#020617';
-      ctx.fillRect(20, 25, 32, 4);
+
+      // Blast Slit with Red Glow
+      ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
+      ctx.fillRect(25, 35, 30, 4);
+      ctx.fillStyle = '#000';
+      ctx.fillRect(25, 36, 30, 2);
+
+      // Steel Blast Doors
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(35, 50, 10, 10);
+      ctx.strokeStyle = '#94a3b8'; ctx.strokeRect(35, 50, 10, 10);
+      
       // Ventilation pipes
       ctx.fillStyle = '#475569';
       ctx.fillRect(15, 10, 4, 10);
       ctx.fillRect(53, 10, 4, 10);
     }));
 
-    // C. Operations Center
-    this.spriteCanvases.set('operations_center', this.createTile(76, 76, (ctx) => {
+    // C. Operations Center (Tactical Intelligence Hub)
+    this.spriteCanvases.set('operations_center', this.createTile(90, 90, (ctx) => {
+      // Concrete Compound Base
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(10, 40, 70, 40);
+      
+      // Main Building with Angled Roof
+      const gradRoof = ctx.createLinearGradient(0, 20, 0, 40);
+      gradRoof.addColorStop(0, '#475569'); gradRoof.addColorStop(1, '#1e293b');
+      ctx.fillStyle = gradRoof;
+      ctx.beginPath();
+      ctx.moveTo(15, 45); ctx.lineTo(75, 45); ctx.lineTo(65, 20); ctx.lineTo(25, 20);
+      ctx.closePath(); ctx.fill();
+
+      // Tactical Screens (Green Glow)
+      ctx.fillStyle = 'rgba(34, 197, 94, 0.4)';
+      ctx.fillRect(35, 50, 20, 15);
+      ctx.fillStyle = '#052e16';
+      ctx.fillRect(36, 51, 18, 13);
+
+      // Rotating Radar (Handled by renderer animation, but base part here)
       ctx.fillStyle = '#334155';
-      ctx.fillRect(10, 30, 56, 40);
-      // Tactical screens on facade
-      ctx.fillStyle = 'rgba(34, 197, 94, 0.5)';
-      ctx.fillRect(15, 40, 12, 10);
-      ctx.fillRect(32, 40, 12, 10);
-      ctx.fillRect(49, 40, 12, 10);
-      // Satellite dish on roof
-      ctx.strokeStyle = '#94a3b8';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(38, 20, 12, Math.PI * 1.1, Math.PI * 1.9);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(38, 30); ctx.lineTo(38, 20);
-      ctx.stroke();
+      ctx.fillRect(40, 15, 10, 10);
     }));
 
-    // D. Communications Tower
-    this.spriteCanvases.set('comms_tower', this.createTile(40, 100, (ctx) => {
-      // Lattice structure
-      ctx.strokeStyle = '#475569';
-      ctx.lineWidth = 2;
+    // D. Communications Tower (High Gain Array)
+    this.spriteCanvases.set('comms_tower', this.createTile(40, 120, (ctx) => {
+      // Lattice Mast (Steel)
+      ctx.strokeStyle = '#64748b'; ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.moveTo(15, 95); ctx.lineTo(20, 5); ctx.lineTo(25, 95);
+      ctx.moveTo(15, 115); ctx.lineTo(20, 10); ctx.lineTo(25, 115);
       ctx.stroke();
-      // Cross braces
-      for (let y = 15; y < 90; y += 15) {
+      
+      // Cross Braces
+      for (let y = 20; y < 110; y += 15) {
         ctx.beginPath();
-        ctx.moveTo(15 + (95-y)*0.05, y); ctx.lineTo(25 - (95-y)*0.05, y);
+        const w = (115 - y) * 0.05;
+        ctx.moveTo(15 + w, y); ctx.lineTo(25 - w, y);
         ctx.stroke();
       }
-      // Top Beacon
+
+      // Antenna Panels
+      ctx.fillStyle = '#cbd5e0';
+      ctx.fillRect(12, 30, 4, 12);
+      ctx.fillRect(24, 45, 4, 12);
+      
+      // Obstruction Beacon
       ctx.fillStyle = '#ef4444';
-      ctx.beginPath(); ctx.arc(20, 5, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(20, 10, 3, 0, Math.PI * 2); ctx.fill();
     }));
 
-    // E. Military Gate
-    this.spriteCanvases.set('military_gate', this.createTile(80, 40, (ctx) => {
-      // Guard Houses
+    // E. Military Gate (Fortified Entry)
+    this.spriteCanvases.set('military_gate', this.createTile(100, 60, (ctx) => {
+      // Left Guard House
       ctx.fillStyle = '#334155';
-      ctx.fillRect(5, 5, 15, 30);
-      ctx.fillRect(60, 5, 15, 30);
-      // Gate Arm
+      ctx.fillRect(5, 10, 20, 40);
+      // Right Guard House
+      ctx.fillRect(75, 10, 20, 40);
+      
+      // Gate Arch (Steel Beam)
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(25, 15, 50, 6);
+      
+      // Barrier Arm (Caution Stripes)
       ctx.fillStyle = '#eab308';
-      ctx.fillRect(20, 20, 40, 4);
-      // Stripes
+      ctx.fillRect(25, 45, 50, 4);
       ctx.fillStyle = '#000';
-      for (let i = 0; i < 5; i++) {
-        ctx.fillRect(25 + i * 8, 20, 4, 4);
+      for (let i = 0; i < 6; i++) {
+        ctx.fillRect(30 + i * 8, 45, 4, 4);
       }
+
+      // Searchlights
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath(); ctx.arc(20, 12, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(80, 12, 3, 0, Math.PI * 2); ctx.fill();
     }));
 
     // F. Barracks
@@ -1172,26 +1211,33 @@ export class AssetManager {
       }
     }));
 
-    // G. Vehicle Factory
-    this.spriteCanvases.set('vehicle_factory', this.createTile(96, 90, (ctx) => {
-      // Large factory block
+    // G. Vehicle Factory (Industrial Scale)
+    this.spriteCanvases.set('vehicle_factory', this.createTile(110, 100, (ctx) => {
+      // Main Hangar Block
       ctx.fillStyle = '#1e293b';
-      ctx.fillRect(10, 20, 76, 60);
-      // Sawtooth roof
-      ctx.fillStyle = '#334155';
-      for (let i = 0; i < 3; i++) {
-        ctx.beginPath();
-        ctx.moveTo(10 + i * 25, 20); ctx.lineTo(35 + i * 25, 20); ctx.lineTo(10 + i * 25, 5);
-        ctx.closePath(); ctx.fill();
-      }
-      // Industrial Doors
+      ctx.fillRect(10, 30, 90, 60);
+      
+      // Roof (Metallic with weathering)
+      const gradRoof = ctx.createLinearGradient(0, 10, 0, 30);
+      gradRoof.addColorStop(0, '#475569'); gradRoof.addColorStop(1, '#334155');
+      ctx.fillStyle = gradRoof;
+      ctx.fillRect(5, 15, 100, 15);
+
+      // Roll-up Industrial Doors
       ctx.fillStyle = '#0f172a';
-      ctx.fillRect(20, 50, 25, 30);
-      ctx.fillRect(55, 50, 25, 30);
-      // Gantry Crane details
-      ctx.strokeStyle = '#475569';
-      ctx.strokeRect(20, 50, 25, 30);
-      ctx.strokeRect(55, 50, 25, 30);
+      ctx.fillRect(25, 50, 25, 40);
+      ctx.fillRect(60, 50, 25, 40);
+      ctx.strokeStyle = '#334155'; ctx.lineWidth = 1;
+      for (let y = 54; y < 90; y += 4) {
+        ctx.beginPath(); ctx.moveTo(25, y); ctx.lineTo(50, y); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(60, y); ctx.lineTo(85, y); ctx.stroke();
+      }
+
+      // Smokestacks
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(85, 5, 8, 25);
+      ctx.fillStyle = '#475569';
+      ctx.fillRect(85, 5, 8, 4);
     }));
 
     // H. Aircraft Hangar
@@ -1374,24 +1420,59 @@ export class AssetManager {
       for (let i = 0; i < 3; i++) ctx.fillRect(65, 50 - i * 6, 10, 5);
     }));
 
-    // S. Elevated Guard Tower
-    this.spriteCanvases.set('guard_tower', this.createTile(40, 80, (ctx) => {
-      // Legs
-      ctx.strokeStyle = '#475569';
-      ctx.lineWidth = 3;
+    // S. Guard Tower (Elevated Observation)
+    this.spriteCanvases.set('guard_tower', this.createTile(50, 90, (ctx) => {
+      // Steel Legs (Truss structure)
+      ctx.strokeStyle = '#334155'; ctx.lineWidth = 3;
       ctx.beginPath();
-      ctx.moveTo(10, 75); ctx.lineTo(18, 40);
-      ctx.moveTo(30, 75); ctx.lineTo(22, 40);
+      ctx.moveTo(10, 85); ctx.lineTo(18, 40);
+      ctx.moveTo(40, 85); ctx.lineTo(30, 40);
       ctx.stroke();
-      // Cabin
+      // Cross braces
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(15, 70); ctx.lineTo(35, 70);
+      ctx.moveTo(18, 55); ctx.lineTo(32, 55);
+      ctx.stroke();
+
+      // Observation Cabin
+      const gradCabin = ctx.createLinearGradient(15, 15, 15, 40);
+      gradCabin.addColorStop(0, '#475569'); gradCabin.addColorStop(1, '#1e293b');
+      ctx.fillStyle = gradCabin;
+      ctx.fillRect(15, 15, 20, 25);
+      
+      // Armored Glass (Glow)
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.3)';
+      ctx.fillRect(18, 20, 14, 8);
+
+      // Searchlight (Rotating)
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath(); ctx.arc(25, 15, 4, 0, Math.PI * 2); ctx.fill();
+    }));
+
+    // Z. Perimeter Wall (Heavy Concrete)
+    this.spriteCanvases.set('perimeter_wall', this.createTile(64, 48, (ctx) => {
+      // Foundation shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(0, 35, 64, 10);
+
+      // Main Concrete Block
+      const grad = ctx.createLinearGradient(0, 10, 0, 40);
+      grad.addColorStop(0, '#94a3b8'); grad.addColorStop(1, '#475569');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 15, 64, 25);
+
+      // Steel Support Pillars
       ctx.fillStyle = '#1e293b';
-      ctx.fillRect(12, 20, 16, 20);
-      // Roof
-      ctx.fillStyle = '#334155';
-      ctx.beginPath(); ctx.moveTo(8, 20); ctx.lineTo(32, 20); ctx.lineTo(20, 10); ctx.closePath(); ctx.fill();
-      // Searchlight beam (subtle glow)
-      ctx.fillStyle = 'rgba(254, 240, 138, 0.2)';
-      ctx.beginPath(); ctx.moveTo(20, 30); ctx.lineTo(0, 50); ctx.lineTo(5, 60); ctx.closePath(); ctx.fill();
+      ctx.fillRect(0, 15, 6, 25);
+      ctx.fillRect(29, 15, 6, 25);
+      ctx.fillRect(58, 15, 6, 25);
+
+      // Razor Wire (Coiled)
+      ctx.strokeStyle = '#cbd5e0'; ctx.lineWidth = 1;
+      for (let x = 8; x < 64; x += 12) {
+        ctx.beginPath(); ctx.arc(x, 15, 6, 0, Math.PI * 2); ctx.stroke();
+      }
     }));
 
     // T. Machine-Gun Emplacement
