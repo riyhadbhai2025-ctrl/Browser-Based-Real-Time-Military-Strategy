@@ -7,6 +7,7 @@ import {
   CombatEvent,
   EnvironmentObject,
   GraphicsQuality,
+  HighwayExit,
   TerrainType,
   Unit,
   UnitType,
@@ -115,6 +116,7 @@ export class TacticalRenderer {
   private bases: Base[] = [];
   private units: Unit[] = [];
   public envObjects: EnvironmentObject[] = [];
+  public highwayExits: HighwayExit[] = [];
   private envPropsGroup: THREE.Group | null = null;
   private lastEnvCount: number = -1;
 
@@ -507,13 +509,17 @@ export class TacticalRenderer {
     units: Unit[],
     userId: string,
     allianceId?: string | null,
-    envObjects?: EnvironmentObject[]
+    envObjects?: EnvironmentObject[],
+    highwayExits?: HighwayExit[]
   ) {
     const firstBasesLoad = this.bases.length === 0 && bases.length > 0;
     this.bases = bases;
     this.units = units;
     this.currentUserId = userId;
     this.userAllianceId = allianceId || null;
+    if (highwayExits) {
+      this.highwayExits = highwayExits;
+    }
 
     if (firstBasesLoad && this.terrain.length > 0) {
       this.terrainSys.buildTerrain(this.terrain, this.bases);
@@ -1633,7 +1639,19 @@ export class TacticalRenderer {
       ctx.fillStyle = hpPct > 0.5 ? '#22c55e' : hpPct > 0.25 ? '#f59e0b' : '#ef4444';
       ctx.fillRect(sp.x - barW / 2, sp.y - 2, barW * hpPct, barH);
 
-      if (base.captureProgress > 0) {
+      if (base.isProtected) {
+        ctx.fillStyle = 'rgba(14, 116, 144, 0.92)';
+        ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 9);
+        ctx.fillStyle = '#e0f2fe';
+        ctx.font = 'bold 8px "JetBrains Mono", monospace';
+        ctx.fillText('SHIELD PROTECTED', sp.x, sp.y + 12);
+      } else if (base.captureContested) {
+        ctx.fillStyle = 'rgba(180, 83, 9, 0.95)';
+        ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 9);
+        ctx.fillStyle = '#fef3c7';
+        ctx.font = 'bold 8px "JetBrains Mono", monospace';
+        ctx.fillText(`CONTESTED (${base.captureProgress}%)`, sp.x, sp.y + 12);
+      } else if (base.captureProgress > 0) {
         const capPct = base.captureProgress / 100;
         ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
         ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 8);
@@ -1643,6 +1661,24 @@ export class TacticalRenderer {
         ctx.font = 'bold 9px "JetBrains Mono", monospace';
         ctx.fillText(`CAPTURE ${base.captureProgress}%`, sp.x, sp.y + 12);
       }
+    }
+
+    // 1b. Highway Exit Checkpoint Beacons
+    for (const exit of this.highwayExits) {
+      const sp = this.worldToScreen(exit.x, exit.y, 1.4);
+      if (!sp.visible) continue;
+      const labelW = 138;
+      ctx.save();
+      ctx.font = 'bold 9px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+      ctx.fillRect(sp.x - labelW / 2, sp.y - 16, labelW, 18);
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(sp.x - labelW / 2, sp.y - 16, labelW, 18);
+      ctx.fillStyle = '#fde68a';
+      ctx.fillText(`⇄ ${exit.name.toUpperCase()}`, sp.x, sp.y - 4);
+      ctx.restore();
     }
 
     // 2. Unit Health Bars & Faction Badges (Always show subtle tactical health bar like Alpha Force reference)
@@ -1774,6 +1810,13 @@ export class TacticalRenderer {
       mCtx.beginPath();
       mCtx.arc(b.x * cellW, b.y * cellH, 4.5, 0, Math.PI * 2);
       mCtx.fill();
+    });
+
+    // Highway Exit Dots on Minimap
+    this.highwayExits.forEach((ex) => {
+      mCtx.strokeStyle = '#fbbf24';
+      mCtx.lineWidth = 1.5;
+      mCtx.strokeRect(ex.x * cellW - 4, ex.y * cellH - 4, 8, 8);
     });
 
     // Unit Dots

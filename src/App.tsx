@@ -11,6 +11,8 @@ import {
   CombatEvent,
   EnvironmentObject,
   GraphicsQuality,
+  HighwayExit,
+  MapSectorConfig,
   PlayerProfile,
   TerrainType,
   Unit,
@@ -28,6 +30,7 @@ import { AdminModal } from './components/AdminModal';
 import { TutorialModal } from './components/TutorialModal';
 import { AuthModal } from './components/AuthModal';
 import { ShortcutsModal } from './components/ShortcutsModal';
+import { ProgressionModal } from './components/ProgressionModal';
 import { AdminPanel } from './components/admin/AdminPanel';
 
 export default function App() {
@@ -69,6 +72,9 @@ export default function App() {
   const isAuthenticated = authStatus === 'authenticated' && Boolean(token && profile);
 
   // World State (populated only when authenticated)
+  const [maps, setMaps] = useState<MapSectorConfig[]>([]);
+  const [currentMapId, setCurrentMapId] = useState<string>('map_riverfront_assault');
+  const [highwayExits, setHighwayExits] = useState<HighwayExit[]>([]);
   const [terrain, setTerrain] = useState<TerrainType[][]>([]);
   const [bases, setBases] = useState<Base[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
@@ -95,6 +101,7 @@ export default function App() {
   const [cameraCoords, setCameraCoords] = useState<{ x: number; y: number }>({ x: 16.8, y: 28.2 });
   const [showAdmin, setShowAdmin] = useState<boolean>(false);
   const [showAlliance, setShowAlliance] = useState<boolean>(false);
+  const [showProgression, setShowProgression] = useState<boolean>(false);
   const [showIntel, setShowIntel] = useState<boolean>(false);
   const [showTutorial, setShowTutorial] = useState<boolean>(false);
   const [showShortcuts, setShowShortcuts] = useState<boolean>(false);
@@ -261,9 +268,23 @@ export default function App() {
     socket.on('world:state', (state) => {
       const incomingBases: Base[] = state.bases || [];
       const incomingUnits: Unit[] = state.units || [];
+      if (state.mapId) setCurrentMapId(state.mapId);
+      if (state.maps) setMaps(state.maps);
+      if (state.highwayExits) setHighwayExits(state.highwayExits);
       setBases(incomingBases);
       setUnits(incomingUnits);
-      if (state.envObjects) setEnvObjects(state.envObjects);
+      if (state.envObjects) {
+        setEnvObjects(state.envObjects);
+        if (rendererRef.current) {
+          rendererRef.current.envObjects = state.envObjects;
+        }
+      }
+      if (state.terrain) {
+        setTerrain(state.terrain);
+        if (rendererRef.current) {
+          rendererRef.current.setTerrain(state.terrain);
+        }
+      }
       setAlliances(state.alliances || []);
       setChatMessages(state.chat || []);
 
@@ -273,10 +294,16 @@ export default function App() {
           incomingBases.find((b) => b.id === profile.homeBaseId) ||
           incomingBases.find((b) => b.ownerId === profile.id && b.type === 'home') ||
           incomingBases.find((b) => b.ownerId === profile.id);
+        const firstPlayerUnit = incomingUnits.find((u) => u.ownerId === profile.id);
         if (homeBase) {
           rendererRef.current.setPreviewMode(false);
           rendererRef.current.focusOn(homeBase.x, homeBase.y);
           setCameraCoords({ x: homeBase.x, y: homeBase.y });
+          needsHomeFocusRef.current = false;
+        } else if (firstPlayerUnit) {
+          rendererRef.current.setPreviewMode(false);
+          rendererRef.current.focusOn(firstPlayerUnit.x, firstPlayerUnit.y);
+          setCameraCoords({ x: firstPlayerUnit.x, y: firstPlayerUnit.y });
           needsHomeFocusRef.current = false;
         }
       }
@@ -285,6 +312,7 @@ export default function App() {
     socket.on('world:sync', (sync) => {
       if (sync.bases) setBases(sync.bases);
       if (sync.units) setUnits(sync.units);
+      if (sync.highwayExits) setHighwayExits(sync.highwayExits);
     });
 
     socket.on('combat:event', (evt: CombatEvent) => {
@@ -443,7 +471,8 @@ export default function App() {
       units,
       profile.id,
       profile.allianceId,
-      envObjects
+      envObjects,
+      highwayExits
     );
     rendererRef.current.selectedUnitIds = selectedUnitIds;
     rendererRef.current.selectedBaseId = selectedBaseId;
@@ -460,6 +489,7 @@ export default function App() {
     selectedBaseId,
     fogEnabled,
     envObjects,
+    highwayExits,
     repairVisualsActive,
     isStrategicOverview,
   ]);
@@ -964,6 +994,67 @@ export default function App() {
     });
   };
 
+  // Multi-Sector Map Switcher & Highway Redeployment
+  const handleSwitchMap = useCallback(
+    (targetMapId: string) => {
+      if (!isAuthenticated || !socketRef.current) return;
+      needsHomeFocusRef.current = true;
+      setSelectedUnitIds(new Set());
+      setSelectedBaseId(null);
+      setCurrentMapId(targetMapId);
+      if (profile) {
+        setProfile({ ...profile, currentMapId: targetMapId });
+      }
+      socketRef.current.emit('world:switch_map', { mapId: targetMapId }, (res: any) => {
+        if (res?.success) {
+          soundEngine.playCommandAck();
+          const mapName = maps.find((m) => m.id === targetMapId)?.name || targetMapId;
+          setNotificationToast({
+            title: 'SECTOR TELEMETRY SWITCHED',
+            message: `Now viewing ${mapName}.`,
+          });
+          setTimeout(() => setNotificationToast(null), 3000);
+        }
+      });
+    },
+    [isAuthenticated, profile, maps]
+  );
+
+  const handleHighwayTransfer = useCallback(
+    (targetMapId: string) => {
+      if (!isAuthenticated || selectedUnitIds.size === 0 || !socketRef.current) return;
+      const unitIds = Array.from(selectedUnitIds);
+      socketRef.current.emit('unit:transfer_map', { unitIds, targetMapId }, (res: any) => {
+        if (res?.success) {
+          soundEngine.playCommandAck();
+          setSelectedUnitIds(new Set());
+          setNotificationToast({
+            title: 'HIGHWAY TRANSIT COMPLETE',
+            message: res.message || `Transferred ${res.transferredCount} unit(s) to destination sector.`,
+          });
+          setTimeout(() => setNotificationToast(null), 4500);
+          handleSwitchMap(targetMapId);
+        } else if (res?.error) {
+          const exit = highwayExits.find((ex) => ex.targetMapId === targetMapId);
+          if (exit && res.error.includes('Move selected units')) {
+            issueUnitCommand('move', exit.x, exit.y);
+            setNotificationToast({
+              title: 'EN ROUTE TO HIGHWAY CHECKPOINT',
+              message: `Marching selected convoy to ${exit.name} (X:${exit.x}, Y:${exit.y}). Click transfer again on arrival.`,
+            });
+          } else {
+            setNotificationToast({
+              title: 'HIGHWAY TRANSIT BLOCKED',
+              message: res.error,
+            });
+          }
+          setTimeout(() => setNotificationToast(null), 5000);
+        }
+      });
+    },
+    [isAuthenticated, selectedUnitIds, handleSwitchMap, highwayExits, issueUnitCommand]
+  );
+
   // Alliance actions
   const handleCreateAlliance = (name: string, tag: string, description: string) => {
     if (!isAuthenticated) return;
@@ -979,6 +1070,32 @@ export default function App() {
     socketRef.current?.emit('alliance:join', { allianceId }, (res: any) => {
       if (res?.success && profile) {
         setProfile({ ...profile, allianceId, allianceRole: 'member' });
+      } else if (res?.requested) {
+        setNotificationToast({
+          title: 'JOIN REQUEST DISPATCHED',
+          message: res.message || 'Alliance officers notified.',
+        });
+        setTimeout(() => setNotificationToast(null), 3500);
+      } else if (res?.error) {
+        setNotificationToast({
+          title: 'ALLIANCE OPERATION FAILED',
+          message: res.error,
+        });
+        setTimeout(() => setNotificationToast(null), 3500);
+      }
+    });
+  };
+
+  const handleLeaveAlliance = () => {
+    if (!isAuthenticated || !profile) return;
+    socketRef.current?.emit('alliance:leave', {}, (res: any) => {
+      if (res?.success) {
+        setProfile({ ...profile, allianceId: undefined, allianceRole: undefined });
+        setNotificationToast({
+          title: 'ALLIANCE DEPARTURE',
+          message: res.message || 'You have left the alliance.',
+        });
+        setTimeout(() => setNotificationToast(null), 3500);
       }
     });
   };
@@ -1077,6 +1194,9 @@ export default function App() {
             profile={profile}
             activeBase={activeHomeBase}
             bases={bases}
+            maps={maps}
+            currentMapId={currentMapId}
+            onSwitchMap={handleSwitchMap}
             connected={connected}
             muted={muted}
             onToggleMute={() => {
@@ -1087,6 +1207,7 @@ export default function App() {
             onOpenAdmin={() => setShowAdmin(true)}
             onOpenAdminConsole={openAdminConsole}
             onOpenAlliance={() => setShowAlliance(true)}
+            onOpenProgression={() => setShowProgression(true)}
             onOpenIntel={() => setShowIntel(true)}
             onOpenTutorial={() => setShowTutorial(true)}
             onOpenShortcuts={() => setShowShortcuts(true)}
@@ -1156,6 +1277,8 @@ export default function App() {
               setControlGroups((prev) => ({ ...prev, [g]: Array.from(selectedUnitIds) }));
               soundEngine.playCommandAck();
             }}
+            highwayExits={highwayExits}
+            onHighwayTransfer={handleHighwayTransfer}
           />
 
           {/* 5. Base Management Drawer (Right Side) */}
@@ -1215,9 +1338,20 @@ export default function App() {
         <AllianceModal
           alliances={alliances}
           profile={profile}
+          token={token}
           onClose={() => setShowAlliance(false)}
           onCreateAlliance={handleCreateAlliance}
           onJoinAlliance={handleJoinAlliance}
+          onLeaveAlliance={handleLeaveAlliance}
+        />
+      )}
+
+      {isAuthenticated && showProgression && profile && (
+        <ProgressionModal
+          profile={profile}
+          token={token}
+          onClose={() => setShowProgression(false)}
+          onProfileUpdate={setProfile}
         />
       )}
 

@@ -1091,6 +1091,11 @@ export function createAdminRouter(
         buildingBuildSpeedMultiplier: bldSpeedMult,
         populationCapPerBase: Math.round(popCapPerBase),
         maxGlobalUnits: Math.round(maxGlobalUnits),
+        maxUnitsPerMap: Math.max(20, Math.min(400, Math.round(Number(body.maxUnitsPerMap ?? current.maxUnitsPerMap ?? 160)))),
+        maxBasesPerPlayerOnMap: Math.max(1, Math.min(15, Math.round(Number(body.maxBasesPerPlayerOnMap ?? current.maxBasesPerPlayerOnMap ?? 6)))),
+        maxBuildingsPerBase: Math.max(6, Math.min(30, Math.round(Number(body.maxBuildingsPerBase ?? current.maxBuildingsPerBase ?? 16)))),
+        maxSelectionGroupSize: Math.max(6, Math.min(60, Math.round(Number(body.maxSelectionGroupSize ?? current.maxSelectionGroupSize ?? 24)))),
+        fuelTravelCostMultiplier: Math.max(0.2, Math.min(5.0, Number(body.fuelTravelCostMultiplier ?? current.fuelTravelCostMultiplier ?? 1.0))),
         captureSpeedPerTick: Math.round(captureSpeed),
         updatedAt: now,
         updatedBy: session.username,
@@ -2171,6 +2176,69 @@ export function createAdminRouter(
       }
 
       res.json({ success: true, base });
+    }
+  );
+
+  // --------------------------------------------------------------------------
+  // 13. DURABLE STORAGE, BACKUP & RECOVERY (CLOUD SQL POSTGRESQL + SNAPSHOT)
+  // --------------------------------------------------------------------------
+  router.get(
+    '/storage-status',
+    authenticateAdmin,
+    requirePermission('dashboard.view'),
+    async (_req: AuthenticatedAdminRequest, res: Response) => {
+      const status = await gameStore.getStorageStatus();
+      res.json(status);
+    }
+  );
+
+  router.post(
+    '/backup',
+    authenticateAdmin,
+    requirePermission('admins.manage'),
+    async (req: AuthenticatedAdminRequest, res: Response) => {
+      const session = req.adminSession!;
+      await gameStore.syncToDatabaseNow();
+      const snapshot = gameStore.exportBackupSnapshot();
+      gameStore.addAuditLog({
+        adminId: session.userId,
+        adminUsername: session.username,
+        adminRole: session.role,
+        action: 'storage.backup.export',
+        targetType: 'system',
+        targetId: 'database_snapshot',
+        reason: 'Exported full durable game-state backup snapshot',
+        status: 'success',
+        ipAddress: getClientIp(req),
+      });
+      res.json({ success: true, snapshot });
+    }
+  );
+
+  router.post(
+    '/restore',
+    authenticateAdmin,
+    requirePermission('admins.manage'),
+    async (req: AuthenticatedAdminRequest, res: Response) => {
+      const session = req.adminSession!;
+      const result = await gameStore.importBackupSnapshot(req.body?.snapshot || req.body);
+      if (!result.success) {
+        res.status(400).json({ error: result.message });
+        return;
+      }
+      gameStore.addAuditLog({
+        adminId: session.userId,
+        adminUsername: session.username,
+        adminRole: session.role,
+        action: 'storage.backup.restore',
+        targetType: 'system',
+        targetId: 'database_snapshot',
+        reason: sanitizeText(req.body?.reason, 300) || 'Restored game state from backup snapshot',
+        status: 'success',
+        ipAddress: getClientIp(req),
+      });
+      gameSimulation.broadcastWorldSync();
+      res.json(result);
     }
   );
 

@@ -17,8 +17,10 @@ import {
   Crosshair,
   Sliders,
   LogOut,
+  Trophy,
+  Globe,
 } from 'lucide-react';
-import { AIDifficulty, AtmospherePreset, Base, GraphicsQuality, PlayerProfile } from '../types/game';
+import { AIDifficulty, AtmospherePreset, Base, GraphicsQuality, MapSectorConfig, PlayerProfile } from '../types/game';
 
 interface TopBarProps {
   profile: PlayerProfile;
@@ -31,6 +33,7 @@ interface TopBarProps {
   onOpenAdminConsole?: () => void;
   onOpenAlliance: () => void;
   onOpenIntel: () => void;
+  onOpenProgression?: () => void;
   onOpenTutorial: () => void;
   onOpenShortcuts: () => void;
   alliedTag?: string | null;
@@ -46,6 +49,9 @@ interface TopBarProps {
   onChangeAtmospherePreset?: (p: AtmospherePreset) => void;
   onJumpToCoords?: (x: number, y: number) => void;
   onLogout?: () => void;
+  maps?: MapSectorConfig[];
+  currentMapId?: string;
+  onSwitchMap?: (mapId: string) => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -59,6 +65,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenAdminConsole,
   onOpenAlliance,
   onOpenIntel,
+  onOpenProgression,
   onOpenTutorial,
   onOpenShortcuts,
   alliedTag,
@@ -74,6 +81,9 @@ export const TopBar: React.FC<TopBarProps> = ({
   onChangeAtmospherePreset,
   onJumpToCoords,
   onLogout,
+  maps = [],
+  currentMapId = 'map_riverfront_assault',
+  onSwitchMap,
 }) => {
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -89,6 +99,8 @@ export const TopBar: React.FC<TopBarProps> = ({
 
   const playerBasesCount = bases.filter((b) => b.ownerId === profile.id).length;
   const totalBasesCount = Math.max(1, bases.length);
+  const currentMapObj = maps.find((m) => m.id === currentMapId);
+  const isBeginnerProtected = Boolean(profile.beginnerProtectionUntil && profile.beginnerProtectionUntil > Date.now());
 
   return (
     <header className="absolute top-0 left-0 right-0 z-30 flex flex-col select-none pointer-events-auto">
@@ -108,6 +120,14 @@ export const TopBar: React.FC<TopBarProps> = ({
                 )}
                 <span className="text-[10px] text-slate-500">·</span>
                 <span className="text-[10px] text-emerald-400 font-mono">LVL {profile.level}</span>
+                {isBeginnerProtected && (
+                  <span
+                    className="text-[9px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-600/50 font-mono"
+                    title="Beginner Truce Shield active — hostile forces cannot attack your bases unless you initiate an offensive strike"
+                  >
+                    TRUCE SHIELD
+                  </span>
+                )}
               </div>
               <div className="text-[10px] text-slate-400 font-sans flex items-center gap-1">
                 <span>{profile.rank}</span>
@@ -188,7 +208,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* Population / Force Capacity */}
           <div
             className="flex items-center gap-1.5 text-xs text-slate-200 font-mono"
-            title={`Active Units: ${totalUnitsCount} | Supply Population: ${usedPopulation} / ${maxPopulation}`}
+            title={`Active Units in Sector: ${totalUnitsCount} | Sector Population: ${usedPopulation} / ${maxPopulation}`}
           >
             <Users className="w-3.5 h-3.5 text-indigo-400" />
             <span>
@@ -270,6 +290,17 @@ export const TopBar: React.FC<TopBarProps> = ({
             >
               <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
               <span className="hidden 2xl:inline">New Match</span>
+            </button>
+          )}
+
+          {onOpenProgression && (
+            <button
+              onClick={onOpenProgression}
+              className="px-2.5 py-1 text-xs rounded bg-amber-950/70 hover:bg-amber-900/80 border border-amber-600/60 text-amber-200 flex items-center gap-1 transition"
+              title="Missions, Achievements, Leaderboard & Battle Reports"
+            >
+              <Trophy className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Missions & Ranks</span>
             </button>
           )}
 
@@ -356,30 +387,53 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
       </div>
 
-      {/* Sub-Header: Tactical Mission Objectives & Sector Hotspots */}
-      <div className="flex items-center justify-between px-3 py-1 bg-slate-950/85 border-b border-slate-800/80 text-[11px] font-mono text-slate-300">
+      {/* Sub-Header: Multi-Sector Theater Switcher, Tactical Objectives & Sector Hotspots */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1 bg-slate-950/90 border-b border-slate-800/80 text-[11px] font-mono text-slate-300">
         <div className="flex items-center gap-2">
-          <Crosshair className="w-3.5 h-3.5 text-amber-400" />
-          <span className="text-amber-400 font-bold uppercase">OPERATION RIVERFRONT ASSAULT:</span>
-          <span className="text-slate-200">
-            Secure River Bridges & Seize Kodiak Stronghold ({playerBasesCount}/{totalBasesCount} Sectors Controlled)
+          {maps.length > 0 && onSwitchMap && (
+            <div className="flex items-center gap-1 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 mr-1">
+              <Globe className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="text-[10px] text-slate-400 mr-0.5">SECTOR:</span>
+              {maps.map((m, idx) => (
+                <button
+                  key={m.id}
+                  onClick={() => onSwitchMap(m.id)}
+                  className={`px-2 py-0.5 rounded text-[10px] font-mono transition ${
+                    currentMapId === m.id
+                      ? 'bg-cyan-600 text-white font-bold shadow'
+                      : 'bg-slate-950 text-slate-400 hover:text-slate-200 border border-slate-800'
+                  }`}
+                  title={m.description}
+                >
+                  S0{idx + 1}: {m.name.split(':')[1]?.trim().split(' ')[0] || m.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <Crosshair className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span className="text-amber-400 font-bold uppercase">
+            {currentMapObj?.objectiveTitle || 'OPERATION RIVERFRONT ASSAULT'}:
+          </span>
+          <span className="text-slate-200 truncate">
+            {currentMapObj?.objectiveDescription || 'Secure River Bridges & Seize Kodiak Stronghold'} ({playerBasesCount}/{totalBasesCount} Bases)
           </span>
         </div>
 
         {onJumpToCoords && (
-          <div className="hidden md:flex items-center gap-2 text-[10px]">
-            <span className="text-slate-500">QUICK CAMERA JUMP:</span>
+          <div className="hidden md:flex items-center gap-1.5 text-[10px]">
+            <span className="text-slate-500">HOTSPOTS:</span>
             <button
               onClick={() => onJumpToCoords(16.8, 28.2)}
               className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 transition"
             >
-              1. Fortress Alpha HQ
+              1. Allied HQ
             </button>
             <button
-              onClick={() => onJumpToCoords(46.0, 21.0)}
+              onClick={() => onJumpToCoords(50.0, 6.0)}
               className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-amber-300 transition"
             >
-              2. Riverfront Bridgehead
+              2. Highway Gate
             </button>
             <button
               onClick={() => onJumpToCoords(70.0, 20.0)}

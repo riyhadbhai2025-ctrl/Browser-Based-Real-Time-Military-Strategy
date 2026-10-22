@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Crosshair,
   Navigation,
@@ -12,8 +12,9 @@ import {
   Zap,
   Users,
   Home,
+  ArrowRightLeft,
 } from 'lucide-react';
-import { Unit } from '../types/game';
+import { HighwayExit, Unit } from '../types/game';
 import { UNIT_CATALOG } from '../game/catalog';
 
 interface CommandBarProps {
@@ -28,6 +29,8 @@ interface CommandBarProps {
   controlGroups: Record<number, string[]>;
   onRecallGroup: (groupNum: number) => void;
   onAssignGroup: (groupNum: number) => void;
+  highwayExits?: HighwayExit[];
+  onHighwayTransfer?: (targetMapId: string) => void;
 }
 
 export const CommandBar: React.FC<CommandBarProps> = ({
@@ -42,7 +45,11 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   controlGroups,
   onRecallGroup,
   onAssignGroup,
+  highwayExits = [],
+  onHighwayTransfer,
 }) => {
+  const [showHighwayMenu, setShowHighwayMenu] = useState(false);
+
   const unitCountsByType: Record<string, { count: number; units: Unit[] }> = {};
   selectedUnits.forEach((u) => {
     if (!unitCountsByType[u.type]) {
@@ -59,6 +66,47 @@ export const CommandBar: React.FC<CommandBarProps> = ({
 
   return (
     <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1 select-none pointer-events-auto">
+      {/* Highway Redeployment Popover */}
+      {showHighwayMenu && selectedUnits.length > 0 && highwayExits.length > 0 && (
+        <div className="mb-1 p-3 rounded-lg bg-slate-950/95 border border-amber-500/60 shadow-2xl w-80 text-xs font-mono">
+          <div className="flex items-center justify-between mb-2 pb-1 border-b border-slate-800">
+            <span className="font-bold text-amber-300 uppercase">Highway Sector Redeployment</span>
+            <button
+              onClick={() => setShowHighwayMenu(false)}
+              className="text-slate-400 hover:text-slate-200 text-[10px]"
+            >
+              [CLOSE]
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            {highwayExits.map((ex) => {
+              const totalFuel = selectedUnits.length * ex.fuelCostPerUnit;
+              return (
+                <button
+                  key={ex.id}
+                  onClick={() => {
+                    setShowHighwayMenu(false);
+                    if (onHighwayTransfer) onHighwayTransfer(ex.targetMapId);
+                  }}
+                  className="w-full p-2 rounded bg-slate-900 hover:bg-amber-950/60 border border-slate-800 hover:border-amber-500/50 text-left transition flex items-center justify-between"
+                >
+                  <div>
+                    <div className="font-bold text-slate-100 text-[11px]">{ex.targetMapName}</div>
+                    <div className="text-[10px] text-slate-400">
+                      Via {ex.name} · [{ex.allowedCategories.join(', ').toUpperCase()}]
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-amber-400 font-bold">-{totalFuel} FUEL</div>
+                    <div className="text-[9px] text-cyan-300">DEPLOY {selectedUnits.length}x</div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Control Groups Bar (Ctrl+1..9) */}
       <div className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-950/95 border border-slate-800 text-[10px] font-mono text-slate-300 shadow-lg">
         <span className="text-slate-500 mr-1">SQUADS (CTRL+1-9):</span>
@@ -105,10 +153,10 @@ export const CommandBar: React.FC<CommandBarProps> = ({
             <button
               onClick={onJumpToHome}
               className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 flex items-center gap-1.5 transition"
-              title="Center Camera on Fortress Alpha HQ (Space)"
+              title="Center Camera on Allied Sector HQ (Space)"
             >
               <Home className="w-3.5 h-3.5" />
-              <span>Fortress Alpha HQ</span>
+              <span>Sector HQ</span>
             </button>
           )}
         </div>
@@ -297,6 +345,21 @@ export const CommandBar: React.FC<CommandBarProps> = ({
               <Square className="w-4 h-4 mb-0.5 text-slate-400" />
               <span>STOP</span>
             </button>
+
+            {highwayExits.length > 0 && onHighwayTransfer && (
+              <button
+                onClick={() => setShowHighwayMenu(!showHighwayMenu)}
+                className={`flex flex-col items-center justify-center w-14 h-11 rounded text-[9px] font-mono font-bold transition border ${
+                  showHighwayMenu
+                    ? 'bg-amber-600 text-white border-amber-300 shadow'
+                    : 'bg-amber-950/70 hover:bg-amber-900 text-amber-300 border-amber-600/60'
+                }`}
+                title="Redeploy Selected Units Across Sector Highway Corridor"
+              >
+                <ArrowRightLeft className="w-4 h-4 mb-0.5 text-amber-300" />
+                <span>HIGHWAY</span>
+              </button>
+            )}
           </div>
         </div>
       )}

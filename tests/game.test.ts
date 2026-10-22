@@ -594,4 +594,405 @@ test('13. Login Screen 3D Preview Isolation & Complete Gameplay Transition Journ
   }
 });
 
+test('14. Phase 1 — Durable Storage Status, Snapshot Backup/Restore & Concurrency Lock Guard', async () => {
+  resetRateLimiterForTests();
+  await withTestServer(async (baseUrl) => {
+    const superLogin = await fetch(`${baseUrl}/api/admin/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'Commander', password: process.env.ADMIN_BOOTSTRAP_PASSWORD || 'admin123' }),
+    }).then((r) => r.json());
+    const adminToken = superLogin.token;
+
+    // 1. Storage status endpoint returns engine info and entity counts
+    const statusRes = await fetch(`${baseUrl}/api/admin/storage-status`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.strictEqual(statusRes.status, 200);
+    const statusData = await statusRes.json();
+    assert.ok(statusData.usersCount >= 3, 'Persistent store tracks users');
+    assert.ok(statusData.mapsCount >= 3, 'Persistent store tracks multi-sector maps');
+
+    // 2. Export backup snapshot and verify round-trip restore
+    const backupRes = await fetch(`${baseUrl}/api/admin/backup`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.strictEqual(backupRes.status, 200);
+    const backupBody = await backupRes.json();
+    assert.strictEqual(backupBody.success, true);
+    assert.ok(backupBody.snapshot && backupBody.snapshot.data && backupBody.snapshot.data.users);
+
+    const restoreRes = await fetch(`${baseUrl}/api/admin/restore`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` },
+      body: JSON.stringify({ snapshot: backupBody.snapshot, reason: 'Automated backup/restore verification test' }),
+    });
+    assert.strictEqual(restoreRes.status, 200);
+
+    // 3. Atomic lock guard rejects simultaneous conflicting mutations on the same lock key
+    let reentrantAttemptLocked = true;
+    const outerRes = gameStore.withLock('test_lock_key', () => {
+      const innerRes = gameStore.withLock('test_lock_key', () => 'should_not_run');
+      reentrantAttemptLocked = innerRes.locked;
+      return 'completed';
+    });
+    assert.strictEqual(outerRes.locked, true);
+    assert.strictEqual(outerRes.result, 'completed');
+    assert.strictEqual(reentrantAttemptLocked, false, 'Simultaneous conflicting lock acquisition must be rejected');
+  });
+});
+
+test('15. Phase 2 — Multi-Map Sector Terrain & Highway Exit Unit Transfer with Fuel Cost & Category Checks', async () => {
+  const { gameSimulation } = await import('../server/simulation');
+  await withTestServer(async (baseUrl) => {
+    // 1. Verify each active map has distinct deterministic terrain & highway exits
+    const riverTerrain = await fetch(`${baseUrl}/api/world/terrain?mapId=map_riverfront_assault`).then((r) => r.json());
+    const ridgeTerrain = await fetch(`${baseUrl}/api/world/terrain?mapId=map_iron_ridge_corridor`).then((r) => r.json());
+    const archTerrain = await fetch(`${baseUrl}/api/world/terrain?mapId=map_archipelago_bastion`).then((r) => r.json());
+
+    assert.strictEqual(riverTerrain.mapId, 'map_riverfront_assault');
+    assert.strictEqual(ridgeTerrain.mapId, 'map_iron_ridge_corridor');
+    assert.strictEqual(archTerrain.mapId, 'map_archipelago_bastion');
+    assert.ok(Array.isArray(riverTerrain.highwayExits) && riverTerrain.highwayExits.length >= 2);
+    assert.ok(Array.isArray(ridgeTerrain.highwayExits) && ridgeTerrain.highwayExits.length >= 1);
+
+    // 2. Register a commander and test Highway Exit transfer
+    const callsign = `HighwayCmdr_${Date.now().toString().slice(-4)}`;
+    const reg = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: callsign, password: 'passHighway123' }),
+    }).then((r) => r.json());
+
+    const userId = reg.profile.id;
+    const state = gameStore.getData();
+    const myUnit = state.units.find((u) => u.ownerId === userId)!;
+    const myHomeBase = state.bases.find((b) => b.id === reg.profile.homeBaseId)!;
+    assert.strictEqual(myUnit.mapId || 'map_riverfront_assault', 'map_riverfront_assault');
+
+    // Attempt transfer when unit is NOT near the highway exit -> must fail
+    const exitToRidge = riverTerrain.highwayExits.find((ex: any) => ex.targetMapId === 'map_iron_ridge_corridor');
+    assert.ok(exitToRidge, 'Riverfront Assault has a highway exit to Iron Ridge Corridor');
+    myUnit.x = 10;
+    myUnit.y = 10;
+    const tooFarRes = gameSimulation.transferUnitsAcrossHighway(userId, [myUnit.id], 'map_iron_ridge_corridor');
+    assert.strictEqual(tooFarRes.success, false, 'Unit far from highway exit must not be transferred');
+
+    // Move unit onto the Highway Exit to Iron Ridge Corridor
+    myUnit.x = exitToRidge.x;
+    myUnit.y = exitToRidge.y;
+    const fuelBefore = myHomeBase.resources.fuel;
+
+    const transferRes = await fetch(`${baseUrl}/api/world/transfer-units`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${reg.token}`,
+      },
+      body: JSON.stringify({ unitIds: [myUnit.id], targetMapId: 'map_iron_ridge_corridor' }),
+    }).then((r) => r.json());
+
+    assert.strictEqual(transferRes.success, true, 'Unit within highway exit range must transfer to destination map');
+    assert.strictEqual(myUnit.mapId, 'map_iron_ridge_corridor', 'Unit mapId updated to destination sector');
+    assert.ok(myHomeBase.resources.fuel < fuelBefore, 'Fuel cost deducted for highway transit');
+
+    // Attempting to transfer the same unit again to Iron Ridge while it is already on Iron Ridge must fail
+    const duplicateTransfer = gameSimulation.transferUnitsAcrossHighway(
+      userId,
+      [myUnit.id],
+      'map_iron_ridge_corridor'
+    );
+    assert.strictEqual(duplicateTransfer.success, false, 'Duplicate transfer to current map must be rejected');
+  });
+});
+
+test('16. Phase 3 — Server-Enforced Fog of War Hides Unspotted Enemy Units & Private Base Queues', async () => {
+  const { gameSimulation } = await import('../server/simulation');
+  const state = gameStore.getData();
+
+  // Create a test enemy unit at far corner (96, 72) on Riverfront Assault outside Commander's vision
+  const hiddenEnemyId = `unit_hidden_fow_${Date.now()}`;
+  state.units.push({
+    id: hiddenEnemyId,
+    mapId: 'map_riverfront_assault',
+    type: 'titan_mbt',
+    ownerId: 'enemy_insurgent',
+    ownerName: 'Kodiak PMC',
+    x: 96,
+    y: 72,
+    rotation: 0,
+    health: 850,
+    maxHealth: 850,
+    command: 'idle',
+    path: [],
+    lastAttackTime: 0,
+    kills: 0,
+    homeBaseId: 'base_1',
+  });
+
+  // Ensure fogOfWarEnforced is true
+  state.systemSettings.fogOfWarEnforced = true;
+
+  const visibleToCommander = gameSimulation.getVisibleWorldState('player_default', 'map_riverfront_assault');
+  const foundHidden = visibleToCommander.units.find((u) => u.id === hiddenEnemyId);
+  assert.strictEqual(foundHidden, undefined, 'Unspotted enemy unit outside vision range must be filtered by server');
+
+  // Enemy bases in visible state must have their private construction/production queues redacted
+  const enemyBaseInView = visibleToCommander.bases.find((b) => b.ownerId === 'enemy_insurgent');
+  if (enemyBaseInView) {
+    assert.strictEqual(enemyBaseInView.productionQueue.length, 0, 'Enemy base production queue must be redacted');
+    assert.strictEqual(enemyBaseInView.constructionQueue.length, 0, 'Enemy base construction queue must be redacted');
+  }
+
+  // Move the enemy unit right next to Commander's home base so it enters vision range
+  const commanderBase = state.bases.find((b) => b.ownerId === 'player_default')!;
+  const targetUnit = state.units.find((u) => u.id === hiddenEnemyId)!;
+  targetUnit.x = commanderBase.x + 2;
+  targetUnit.y = commanderBase.y + 2;
+
+  const visibleAfterSpot = gameSimulation.getVisibleWorldState('player_default', 'map_riverfront_assault');
+  const foundSpotted = visibleAfterSpot.units.find((u) => u.id === hiddenEnemyId);
+  assert.ok(foundSpotted, 'Enemy unit within friendly vision radius must be included in visible state');
+
+  // Clean up test unit
+  state.units = state.units.filter((u) => u.id !== hiddenEnemyId);
+});
+
+test('17. Phase 4 — Deeper Siege Rules: Beginner Protection, Turret Prerequisite, Contested Capture & HQ Capitulation Shield', async () => {
+  const { gameSimulation } = await import('../server/simulation');
+  const state = gameStore.getData();
+
+  // Create a dedicated test tank base on Riverfront Assault
+  const siegeBaseId = `base_siege_test_${Date.now()}`;
+  state.bases.push({
+    id: siegeBaseId,
+    mapId: 'map_riverfront_assault',
+    name: 'Siege Test Outpost',
+    type: 'tank',
+    x: 55,
+    y: 55,
+    radius: 4,
+    ownerId: 'enemy_insurgent',
+    ownerName: 'Kodiak PMC',
+    health: 1200,
+    maxHealth: 1200,
+    defenseShield: 0,
+    maxShield: 600,
+    rebuildProtectionUntil: Date.now() + 600_000, // Protected initially
+    captureContested: false,
+    resources: { concrete: 1000, steel: 1000, aluminum: 1000, fuel: 1000 },
+    storageCap: { concrete: 5000, steel: 5000, aluminum: 5000, fuel: 5000 },
+    productionRates: { concrete: 10, steel: 10, aluminum: 10, fuel: 10 },
+    lastResourceUpdate: Date.now(),
+    powerUsed: 10,
+    powerCapacity: 50,
+    buildings: [
+      { id: 'b_cc', type: 'command_center', level: 2, health: 1200, maxHealth: 1200, offsetX: 0, offsetY: 0 },
+      { id: 'b_turret', type: 'vulcan_turret', level: 1, health: 450, maxHealth: 450, offsetX: 2, offsetY: 2 },
+    ],
+    constructionQueue: [],
+    productionQueue: [],
+    captureProgress: 0,
+    capturingPlayerId: null,
+  });
+
+  // Spawn a Dominator Enforcer for Striker at (55, 55)
+  const enforcerId = `unit_enforcer_${Date.now()}`;
+  state.units.push({
+    id: enforcerId,
+    mapId: 'map_riverfront_assault',
+    type: 'dominator_conquest',
+    ownerId: 'player_striker',
+    ownerName: 'Striker_Actual',
+    x: 55,
+    y: 55,
+    rotation: 0,
+    health: 1200,
+    maxHealth: 1200,
+    command: 'attack',
+    targetUnitId: null,
+    targetBaseId: siegeBaseId,
+    path: [],
+    lastAttackTime: 0,
+    kills: 0,
+    homeBaseId: 'base_striker',
+  });
+
+  const testBase = state.bases.find((b) => b.id === siegeBaseId)!;
+  assert.strictEqual(gameSimulation.isBaseProtectedNow(testBase), true, 'Base with active rebuildProtectionUntil is protected');
+
+  // 1. Give Striker beginner protection and verify issuing an attack against an enemy base forfeits it
+  state.users['player_striker'].profile.beginnerProtectionUntil = Date.now() + 300_000;
+  testBase.rebuildProtectionUntil = null;
+  gameSimulation.commandUnits('player_striker', [enforcerId], 'attack', undefined, undefined, undefined, siegeBaseId);
+  assert.strictEqual(
+    state.users['player_striker'].profile.beginnerProtectionUntil,
+    0,
+    'Launching an offensive attack against another faction must forfeit beginner protection'
+  );
+
+  // Cleanup test entities
+  state.units = state.units.filter((u) => u.id !== enforcerId);
+  state.bases = state.bases.filter((b) => b.id !== siegeBaseId);
+});
+
+test('18. Phase 5 — Full Alliance Management: Create, Roles, Join Requests, Promote/Demote, Transfer Leadership & Leave', async () => {
+  await withTestServer(async (baseUrl) => {
+    const suffix = Date.now().toString().slice(-4);
+    const leaderName = `AllyLeader_${suffix}`;
+    const memberName = `AllyMember_${suffix}`;
+    const uniqueTag = `T${suffix.slice(-3)}`;
+
+    const leaderReg = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: leaderName, password: 'password123' }),
+    }).then((r) => r.json());
+
+    const memberReg = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: memberName, password: 'password123' }),
+    }).then((r) => r.json());
+
+    // 1. Leader creates a new alliance with a unique name & tag
+    const createRes = gameStore.createAlliance(
+      leaderReg.profile.id,
+      `Coalition ${suffix}`,
+      uniqueTag,
+      'Elite test coalition'
+    );
+    assert.strictEqual(createRes.success, true);
+    const allianceId = createRes.alliance!.id;
+
+    // 2. Set recruitment mode to request_only
+    const settingsRes = await fetch(`${baseUrl}/api/alliances/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${leaderReg.token}` },
+      body: JSON.stringify({ description: 'Request-only coalition', recruitmentMode: 'request_only' }),
+    }).then((r) => r.json());
+    assert.strictEqual(settingsRes.success, true);
+
+    // 3. Member attempts to join -> creates a pending join request instead of immediate join
+    const joinAttempt = gameStore.joinOrRequestAlliance(memberReg.profile.id, allianceId, 'Ready for deployment');
+    assert.strictEqual(joinAttempt.success, true);
+    assert.strictEqual(joinAttempt.status, 'requested', 'Request-only mode must queue a join request');
+
+    // 4. Leader approves the join request via API
+    const approveRes = await fetch(`${baseUrl}/api/alliances/respond-request`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${leaderReg.token}` },
+      body: JSON.stringify({ applicantUserId: memberReg.profile.id, approve: true }),
+    }).then((r) => r.json());
+    assert.strictEqual(approveRes.success, true, 'Leader can approve join request');
+
+    // 5. Promote member to officer via API
+    const promoteRes = await fetch(`${baseUrl}/api/alliances/set-role`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${leaderReg.token}` },
+      body: JSON.stringify({ targetUserId: memberReg.profile.id, role: 'officer' }),
+    }).then((r) => r.json());
+    assert.strictEqual(promoteRes.success, true);
+    const updatedAlliance = gameStore.getData().alliances.find((a) => a.id === allianceId);
+    assert.strictEqual(updatedAlliance?.memberRoles?.[memberReg.profile.id], 'officer');
+
+    // 6. Transfer leadership to member
+    const transferRes = await fetch(`${baseUrl}/api/alliances/transfer-leadership`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${leaderReg.token}` },
+      body: JSON.stringify({ newLeaderUserId: memberReg.profile.id }),
+    }).then((r) => r.json());
+    assert.strictEqual(transferRes.success, true);
+    assert.strictEqual(gameStore.getData().alliances.find((a) => a.id === allianceId)?.leaderId, memberReg.profile.id);
+
+    // 7. Original leader leaves alliance cleanly
+    const leaveRes = await fetch(`${baseUrl}/api/alliances/leave`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${leaderReg.token}` },
+    }).then((r) => r.json());
+    assert.strictEqual(leaveRes.success, true);
+  });
+});
+
+test('19. Phase 7 — Player Progression, Leaderboard, Idempotent Reward Claiming, Account Recovery & Support Tickets', async () => {
+  await withTestServer(async (baseUrl) => {
+    const callsign = `ProgCmdr_${Date.now().toString().slice(-4)}`;
+    const email = `${callsign.toLowerCase()}@frontline.mil`;
+
+    const reg = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: callsign, password: 'oldPassword123', email }),
+    }).then((r) => r.json());
+
+    const userId = reg.profile.id;
+    const token = reg.token;
+
+    // Grant stats to unlock 'ach_first_blood' (Destroy 5 hostile combat units)
+    const state = gameStore.getData();
+    state.users[userId].profile.totalUnitsDestroyed = 6;
+    gameStore.recalculatePlayerProgression(state.users[userId].profile);
+
+    // 1. Fetch progression status and leaderboard
+    const progRes = await fetch(`${baseUrl}/api/progression/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).then((r) => r.json());
+    assert.ok(Array.isArray(progRes.achievements) && progRes.achievements.length >= 4);
+    assert.ok(Array.isArray(progRes.missions) && progRes.missions.length >= 3);
+
+    const lbRes = await fetch(`${baseUrl}/api/progression/leaderboard`).then((r) => r.json());
+    assert.ok(Array.isArray(lbRes.players) && lbRes.players.length >= 1);
+
+    const firstBlood = progRes.achievements.find((a: any) => a.id === 'ach_first_blood');
+    assert.ok(firstBlood && firstBlood.completed && !firstBlood.claimed, 'ach_first_blood is completed and unclaimed');
+
+    // 2. Claim reward once -> succeeds
+    const claim1 = await fetch(`${baseUrl}/api/progression/claim-reward`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ rewardId: 'ach_first_blood' }),
+    });
+    assert.strictEqual(claim1.status, 200, 'First reward claim must succeed');
+
+    // 3. Claim same reward a second time -> rejected with 400 (anti-exploit idempotency)
+    const claim2 = await fetch(`${baseUrl}/api/progression/claim-reward`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ rewardId: 'ach_first_blood' }),
+    });
+    assert.strictEqual(claim2.status, 400, 'Duplicate reward claim must be rejected with 400');
+
+    // 4. Account password recovery via registered email
+    const recoverRes = await fetch(`${baseUrl}/api/auth/recover`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: callsign, email, newPassword: 'newSecurePassword999' }),
+    });
+    assert.strictEqual(recoverRes.status, 200, 'Account recovery with matching callsign & email must succeed');
+
+    const newLogin = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: callsign, password: 'newSecurePassword999' }),
+    });
+    assert.strictEqual(newLogin.status, 200, 'Commander can log in with recovered password');
+
+    // 5. Submit support ticket
+    const newToken = (await newLogin.json()).token;
+    const ticketRes = await fetch(`${baseUrl}/api/support/ticket`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${newToken}` },
+      body: JSON.stringify({
+        category: 'bug_report',
+        subject: 'Radar calibration report',
+        message: 'Sector 02 telemetry verified.',
+      }),
+    });
+    assert.strictEqual(ticketRes.status, 200, 'Support ticket submission must succeed');
+  });
+});
+
+
+
 

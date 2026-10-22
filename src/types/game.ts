@@ -145,9 +145,10 @@ export interface UnitProductionOrder {
 
 export interface Base {
   id: string;
+  mapId?: string; // Sector map ID (e.g. 'map_riverfront_assault')
   name: string;
   type: BaseType;
-  ownerId: string; // userId or 'neutral' or 'insurgent'
+  ownerId: string; // userId or 'neutral' or 'enemy_insurgent'
   ownerName: string;
   allianceId?: string | null;
   x: number; // grid cell
@@ -166,13 +167,18 @@ export interface Base {
   maxShield: number;
   captureProgress: number; // 0 to 100
   capturingPlayerId?: string | null;
+  captureContested?: boolean;
   isProtected?: boolean;
+  rebuildProtectionUntil?: number | null;
+  powerUsed?: number;
+  powerCapacity?: number;
 }
 
 export type UnitCommandType = 'idle' | 'move' | 'attack' | 'attack_move' | 'hold' | 'patrol' | 'retreat' | 'stop';
 
 export interface Unit {
   id: string;
+  mapId?: string; // Sector map ID (e.g. 'map_riverfront_assault')
   type: UnitType;
   ownerId: string;
   ownerName: string;
@@ -250,6 +256,7 @@ export type EnvObjectType =
 
 export interface EnvironmentObject {
   id: string;
+  mapId?: string;
   type: EnvObjectType;
   x: number; // grid coordinate (float)
   y: number; // grid coordinate (float)
@@ -257,6 +264,20 @@ export interface EnvironmentObject {
   rotation?: number;
   variant?: number;
   blocksMovement?: boolean;
+}
+
+export interface HighwayExit {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  radius: number;
+  targetMapId: string;
+  targetMapName: string;
+  entryX: number;
+  entryY: number;
+  fuelCostPerUnit: number;
+  allowedCategories: UnitCategory[];
 }
 
 export interface WorldMapConfig {
@@ -354,6 +375,20 @@ export interface ModerationRecord {
   metadata?: Record<string, any>;
 }
 
+export type AllianceRole = 'leader' | 'co_leader' | 'officer' | 'member';
+export type AllianceRecruitmentMode = 'open' | 'request_only' | 'invite_only';
+
+export interface SupportTicket {
+  id: string;
+  userId: string;
+  username: string;
+  category: 'account_recovery' | 'bug_report' | 'fair_play' | 'general';
+  subject: string;
+  message: string;
+  status: 'open' | 'resolved';
+  createdAt: number;
+}
+
 export interface PlayerProfile {
   id: string;
   username: string;
@@ -363,12 +398,15 @@ export interface PlayerProfile {
   level: number;
   avatar: string;
   allianceId?: string | null;
-  allianceRole?: 'leader' | 'officer' | 'member' | null;
+  allianceRole?: AllianceRole | null;
   homeBaseId: string;
+  currentMapId?: string;
   totalBasesCaptured: number;
   totalUnitsProduced: number;
   totalUnitsDestroyed: number;
   totalResourcesHarvested: number;
+  highwayTransfersCompleted?: number;
+  claimedRewardIds?: string[];
   joinedAt: number;
   lastLoginAt: number;
   beginnerProtectionUntil: number; // epoch ms
@@ -392,6 +430,11 @@ export interface EconomyConfig {
   buildingBuildSpeedMultiplier: number; // 0.2 to 5.0
   populationCapPerBase: number; // 10 to 200
   maxGlobalUnits: number; // 50 to 1000
+  maxUnitsPerMap?: number; // 30 to 400
+  maxBasesPerPlayerOnMap?: number; // 1 to 15
+  maxBuildingsPerBase?: number; // 6 to 30
+  maxSelectionGroupSize?: number; // 6 to 60
+  fuelTravelCostMultiplier?: number; // 0.2 to 5.0
   captureSpeedPerTick: number; // 1 to 25
   updatedAt: number;
   updatedBy: string;
@@ -455,6 +498,10 @@ export interface MapSectorConfig {
   tileSize: number;
   seed: number;
   maxPlayers: number;
+  maxUnitsOnMap?: number;
+  maxBasesPerPlayer?: number;
+  maxPopPerPlayer?: number;
+  highwayExits?: HighwayExit[];
   enabled: boolean;
   isActiveMap: boolean;
   atmospherePreset: AtmospherePreset;
@@ -536,6 +583,27 @@ export interface AdminSessionInfo {
   ipAddress: string;
 }
 
+export interface AllianceJoinRequest {
+  userId: string;
+  username: string;
+  requestedAt: number;
+  message?: string;
+}
+
+export interface AllianceInvite {
+  userId: string;
+  username: string;
+  invitedBy: string;
+  invitedByUsername: string;
+  invitedAt: number;
+}
+
+export interface AllianceActivityEntry {
+  id: string;
+  text: string;
+  timestamp: number;
+}
+
 export interface Alliance {
   id: string;
   name: string;
@@ -544,6 +612,12 @@ export interface Alliance {
   leaderId: string;
   leaderName: string;
   memberIds: string[];
+  memberRoles?: Record<string, AllianceRole>;
+  recruitmentMode?: AllianceRecruitmentMode;
+  maxMembers?: number;
+  joinRequests?: AllianceJoinRequest[];
+  invites?: AllianceInvite[];
+  activityLog?: AllianceActivityEntry[];
   bannerColor: string;
   createdTime: number;
   score: number;
@@ -552,6 +626,7 @@ export interface Alliance {
 
 export interface ChatMessage {
   id: string;
+  mapId?: string;
   senderId: string;
   senderName: string;
   allianceTag?: string | null;
@@ -566,6 +641,7 @@ export type AIDifficulty = 'easy' | 'medium' | 'hard';
 
 export interface CombatEvent {
   id: string;
+  mapId?: string;
   attackerId: string;
   attackerType: string;
   attackerOwnerId: string;
@@ -583,7 +659,8 @@ export interface CombatEvent {
 export interface GameNotification {
   id: string;
   userId: string;
-  type: 'attack' | 'capture' | 'production' | 'alliance' | 'system';
+  mapId?: string;
+  type: 'attack' | 'capture' | 'production' | 'alliance' | 'system' | 'progression';
   title: string;
   message: string;
   coords?: { x: number; y: number };
@@ -591,11 +668,61 @@ export interface GameNotification {
   read: boolean;
 }
 
+export interface BattleReport {
+  id: string;
+  mapId: string;
+  mapName: string;
+  type: 'base_captured' | 'hq_siege' | 'highway_transfer' | 'skirmish_victory';
+  attackerId: string;
+  attackerName: string;
+  defenderId: string;
+  defenderName: string;
+  baseId?: string;
+  baseName?: string;
+  coords: { x: number; y: number };
+  plunderedResources?: Partial<Resources>;
+  buildingsDamaged?: number;
+  unitsTransferred?: number;
+  fuelSpent?: number;
+  summary: string;
+  timestamp: number;
+}
+
+export interface AchievementProgress {
+  id: string;
+  title: string;
+  description: string;
+  category: 'combat' | 'conquest' | 'economy' | 'logistics' | 'alliance';
+  currentValue: number;
+  targetValue: number;
+  completed: boolean;
+  claimed: boolean;
+  rewardScore: number;
+  rewardResources: Resources;
+}
+
+export interface MissionProgress {
+  id: string;
+  cadence: 'daily' | 'weekly';
+  title: string;
+  description: string;
+  currentValue: number;
+  targetValue: number;
+  completed: boolean;
+  claimed: boolean;
+  rewardScore: number;
+  rewardResources: Resources;
+}
+
 export interface FullWorldState {
+  mapId?: string;
   bases: Base[];
   units: Unit[];
   alliances: Alliance[];
   onlineUserIds: string[];
   envObjects: EnvironmentObject[];
+  highwayExits?: HighwayExit[];
+  exploredBounds?: number[];
   timestamp: number;
 }
+

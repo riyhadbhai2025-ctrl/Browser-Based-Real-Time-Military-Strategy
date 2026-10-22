@@ -8,16 +8,18 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, isRestoringSession = false }) => {
-  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [mode, setMode] = useState<'login' | 'register' | 'recover'>('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const handleQuickPlay = async () => {
     setLoading(true);
     setError(null);
+    setSuccessMsg(null);
     try {
       const res = await fetch('/api/auth/guest', {
         method: 'POST',
@@ -37,6 +39,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, isRestoringSess
     e.preventDefault();
     setLoading(true);
     setError(null);
+    setSuccessMsg(null);
+
+    if (mode === 'recover') {
+      try {
+        const res = await fetch('/api/auth/recover', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, email, newPassword: password }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Password recovery failed');
+        setSuccessMsg(data.message || 'Passcode updated! You may now sign in.');
+        setMode('login');
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
 
     const endpoint = mode === 'register' ? '/api/auth/register' : '/api/auth/login';
     const body = mode === 'register' ? { username, password, email } : { username, password };
@@ -81,7 +103,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, isRestoringSess
         <div className="hidden sm:flex items-center gap-4 text-[10px] font-mono text-slate-300">
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-900/80 border border-slate-800">
             <Radio className="w-3.5 h-3.5 text-emerald-400 animate-pulse" />
-            <span>LIVE 3D SATELLITE RECON // RIVERFRONT SECTOR</span>
+            <span>LIVE 3D SATELLITE RECON // MULTI-SECTOR THEATER</span>
           </div>
           <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-900/80 border border-slate-800 text-amber-300">
             <Compass className="w-3.5 h-3.5" />
@@ -133,6 +155,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, isRestoringSess
                 </div>
               )}
 
+              {successMsg && (
+                <div className="p-3 rounded-lg bg-emerald-950/70 border border-emerald-700 text-emerald-200 text-xs font-mono">
+                  {successMsg}
+                </div>
+              )}
+
               {/* Non-Privileged Guest Quick Play CTA */}
               <button
                 type="button"
@@ -158,6 +186,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, isRestoringSess
                   onClick={() => {
                     setMode('login');
                     setError(null);
+                    setSuccessMsg(null);
                   }}
                   className={`flex-1 py-1.5 rounded text-center transition cursor-pointer ${
                     mode === 'login' ? 'bg-slate-800 text-white font-bold shadow' : 'text-slate-400 hover:text-slate-200'
@@ -170,12 +199,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, isRestoringSess
                   onClick={() => {
                     setMode('register');
                     setError(null);
+                    setSuccessMsg(null);
                   }}
                   className={`flex-1 py-1.5 rounded text-center transition cursor-pointer ${
                     mode === 'register' ? 'bg-slate-800 text-white font-bold shadow' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
                   New Enlistment
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('recover');
+                    setError(null);
+                    setSuccessMsg(null);
+                  }}
+                  className={`flex-1 py-1.5 rounded text-center transition cursor-pointer ${
+                    mode === 'recover' ? 'bg-slate-800 text-white font-bold shadow' : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Recover
                 </button>
               </div>
 
@@ -192,21 +235,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, isRestoringSess
                   />
                 </div>
 
-                {mode === 'register' && (
+                {(mode === 'register' || mode === 'recover') && (
                   <div>
-                    <label className="block text-[11px] font-mono text-slate-300 mb-1">COMMUNICATION EMAIL</label>
+                    <label className="block text-[11px] font-mono text-slate-300 mb-1">
+                      {mode === 'recover' ? 'REGISTERED COMMUNICATION EMAIL' : 'COMMUNICATION EMAIL'}
+                    </label>
                     <input
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="commander@frontline.mil"
+                      required={mode === 'recover'}
                       className="w-full bg-slate-950/90 px-3 py-2 rounded-lg border border-slate-700/80 text-xs text-slate-100 font-mono focus:outline-none focus:border-cyan-400"
                     />
                   </div>
                 )}
 
                 <div>
-                  <label className="block text-[11px] font-mono text-slate-300 mb-1">SECURITY PASSCODE</label>
+                  <label className="block text-[11px] font-mono text-slate-300 mb-1">
+                    {mode === 'recover' ? 'NEW SECURITY PASSCODE' : 'SECURITY PASSCODE'}
+                  </label>
                   <input
                     type="password"
                     value={password}
@@ -228,6 +276,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess, isRestoringSess
                       ? 'Authorizing Command Uplink...'
                       : mode === 'register'
                       ? 'Register & Establish Outpost'
+                      : mode === 'recover'
+                      ? 'Reset Commander Passcode'
                       : 'Authorize & Enter Theater'}
                   </span>
                 </button>

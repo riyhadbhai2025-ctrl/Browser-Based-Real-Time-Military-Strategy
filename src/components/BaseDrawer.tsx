@@ -121,6 +121,29 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
           <div className="h-full bg-cyan-500 transition-all" style={{ width: `${shieldPct * 100}%` }} />
         </div>
 
+        <div className="flex items-center justify-between text-[10px] font-mono mb-2 px-2 py-1 rounded bg-slate-950 border border-slate-800">
+          <span className="text-slate-400">POWER GRID:</span>
+          <span
+            className={
+              (base.powerUsed || 0) > (base.powerCapacity || 45)
+                ? 'text-rose-400 font-bold'
+                : 'text-amber-300 font-bold'
+            }
+          >
+            {base.powerUsed ?? 20} / {base.powerCapacity ?? 65} MW
+          </span>
+          {base.isProtected && (
+            <span className="px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-600/50">
+              TRUCE SHIELD
+            </span>
+          )}
+          {base.captureContested && (
+            <span className="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600/50">
+              CONTESTED
+            </span>
+          )}
+        </div>
+
         {isOwner && (base.health < base.maxHealth || base.defenseShield < base.maxShield) && (
           <button
             onClick={() => onRepairBase(base.id)}
