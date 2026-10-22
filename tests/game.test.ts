@@ -471,3 +471,127 @@ test('12. Persistent player progress across logins and cross-player base/unit ma
   });
 });
 
+test('13. Login Screen 3D Preview Isolation & Complete Gameplay Transition Journey (Scenarios A-G)', async () => {
+  const { server } = await import('../server');
+  const { io: ClientIO } = await import('socket.io-client');
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const addr = server.address() as { port: number };
+  const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+  try {
+    // Scenario A: Unauthenticated visitor can load public 3D terrain for preview, but cannot access /api/auth/me or join multiplayer Socket.IO
+    const terrainRes = await fetch(`${baseUrl}/api/world/terrain`);
+    assert.strictEqual(terrainRes.status, 200, 'Public 3D terrain endpoint must be accessible for 3D login preview');
+    const terrainData = await terrainRes.json();
+    assert.ok(Array.isArray(terrainData.terrain) && terrainData.terrain.length === 75, '3D terrain grid is returned');
+    assert.ok(Array.isArray(terrainData.envObjects) && terrainData.envObjects.length > 0, '3D environmental props are returned');
+
+    const unauthMe = await fetch(`${baseUrl}/api/auth/me`);
+    assert.strictEqual(unauthMe.status, 401, 'Unauthenticated visitor must receive 401 on /api/auth/me');
+
+    const unauthSocket = ClientIO(baseUrl, { transports: ['websocket'], reconnection: false });
+    const unauthError = await new Promise<{ status: number; message: string }>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Expected auth:error on unauthenticated world:join')), 3000);
+      unauthSocket.on('connect', () => {
+        unauthSocket.emit('world:join', {});
+      });
+      unauthSocket.on('auth:error', (err) => {
+        clearTimeout(timer);
+        resolve(err);
+      });
+      unauthSocket.on('world:state', () => {
+        clearTimeout(timer);
+        reject(new Error('Unauthenticated socket must NEVER receive world:state'));
+      });
+    });
+    assert.strictEqual(unauthError.status, 401, 'Unauthenticated socket must be rejected with 401');
+    unauthSocket.disconnect();
+
+    // Scenario B & E: New player registers, transitions into authenticated Socket.IO gameplay, receives own home base & starter units, and restores session via /api/auth/me
+    const newCallsign = `Horizon_${Date.now().toString().slice(-4)}`;
+    const regRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: newCallsign, password: 'horizonPass123' }),
+    });
+    assert.strictEqual(regRes.status, 200);
+    const { token: regToken, profile: regProfile } = await regRes.json();
+    assert.strictEqual(regProfile.isAdmin, false);
+    assert.strictEqual(regProfile.adminRole, null);
+
+    // Session restore check (Scenario E)
+    const restoreRes = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${regToken}` },
+    });
+    assert.strictEqual(restoreRes.status, 200);
+    const restored = await restoreRes.json();
+    assert.strictEqual(restored.profile.id, regProfile.id);
+    assert.strictEqual(restored.profile.homeBaseId, regProfile.homeBaseId);
+
+    // Connect authenticated Socket.IO and verify world:state includes player's home base and starter units
+    const authSocket = ClientIO(baseUrl, {
+      transports: ['websocket'],
+      reconnection: false,
+      auth: { token: regToken },
+    });
+    const worldState = await new Promise<any>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Timed out waiting for world:state')), 3000);
+      authSocket.on('connect', () => {
+        authSocket.emit('world:join', { token: regToken });
+      });
+      authSocket.on('world:state', (state) => {
+        clearTimeout(timer);
+        resolve(state);
+      });
+    });
+
+    const myHomeBase = worldState.bases.find((b: any) => b.id === regProfile.homeBaseId);
+    assert.ok(myHomeBase, 'World state must contain the newly registered player home base for camera focus');
+    assert.strictEqual(myHomeBase.ownerId, regProfile.id);
+    const myUnits = worldState.units.filter((u: any) => u.ownerId === regProfile.id);
+    assert.ok(myUnits.length >= 2, 'World state must contain the player starter units');
+    authSocket.disconnect();
+
+    // Scenario D: Guest Quick Deploy transitions into gameplay with non-privileged recruit account
+    const guestRes = await fetch(`${baseUrl}/api/auth/guest`, { method: 'POST' });
+    assert.strictEqual(guestRes.status, 200);
+    const { token: guestToken, profile: guestProfile } = await guestRes.json();
+    assert.strictEqual(guestProfile.isAdmin, false);
+    assert.notStrictEqual(guestProfile.id, 'player_default');
+
+    // Scenario F & G: Logout revokes token, subsequent /api/auth/me and Socket.IO world:join fail with 401
+    const logoutRes = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${guestToken}` },
+    });
+    assert.strictEqual(logoutRes.status, 200);
+
+    const expiredMeRes = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${guestToken}` },
+    });
+    assert.strictEqual(expiredMeRes.status, 401, 'Logged-out token must return 401 on refresh');
+
+    const expiredSocket = ClientIO(baseUrl, {
+      transports: ['websocket'],
+      reconnection: false,
+      auth: { token: guestToken },
+    });
+    const expiredSocketErr = await new Promise<{ status: number }>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Expected auth:error on revoked token')), 3000);
+      expiredSocket.on('connect', () => {
+        expiredSocket.emit('world:join', { token: guestToken });
+      });
+      expiredSocket.on('auth:error', (err) => {
+        clearTimeout(timer);
+        resolve(err);
+      });
+    });
+    assert.strictEqual(expiredSocketErr.status, 401, 'Revoked token must be rejected by Socket.IO world:join');
+    expiredSocket.disconnect();
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+

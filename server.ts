@@ -222,7 +222,7 @@ async function provisionNewPlayerAccount(username: string, rawPassword: string, 
   data.tokens[token] = userId;
   gameStore.saveData();
 
-  io.emit('world:sync', {
+  io.to('authenticated_commanders').emit('world:sync', {
     units: data.units,
     bases: data.bases,
     timestamp: now,
@@ -643,6 +643,7 @@ io.on('connection', (socket) => {
     const access = gameStore.checkPlayerAccess(authenticatedUserId);
     if (access.allowed) {
       onlineSockets.set(socket.id, authenticatedUserId);
+      socket.join('authenticated_commanders');
     } else {
       authenticatedUserId = null;
     }
@@ -651,6 +652,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     onlineSockets.delete(socket.id);
     socketInstances.delete(socket.id);
+    socket.leave('authenticated_commanders');
   });
 
   // Join world with token authentication
@@ -661,6 +663,7 @@ io.on('connection', (socket) => {
     if (!resolvedId) {
       authenticatedUserId = null;
       onlineSockets.delete(socket.id);
+      socket.leave('authenticated_commanders');
       socket.emit('auth:error', { status: 401, message: 'Authentication required to join tactical command.' });
       return;
     }
@@ -669,6 +672,7 @@ io.on('connection', (socket) => {
     if (!access.allowed) {
       authenticatedUserId = null;
       onlineSockets.delete(socket.id);
+      socket.leave('authenticated_commanders');
       socket.emit('account:moderated', { reason: access.reason });
       socket.disconnect(true);
       return;
@@ -676,6 +680,7 @@ io.on('connection', (socket) => {
 
     authenticatedUserId = resolvedId;
     onlineSockets.set(socket.id, authenticatedUserId);
+    socket.join('authenticated_commanders');
 
     socket.emit('world:state', {
       bases: state.bases,
@@ -771,7 +776,7 @@ io.on('connection', (socket) => {
     const uid = canPerformGameplayAction();
     if (!uid) return;
     const freshData = resetSkirmishWorld();
-    io.emit('world:state', {
+    io.to('authenticated_commanders').emit('world:state', {
       bases: freshData.bases,
       units: freshData.units,
       alliances: freshData.alliances,
@@ -810,7 +815,7 @@ io.on('connection', (socket) => {
       base.resources.steel -= cost;
       base.health = Math.min(base.maxHealth, base.health + 800);
       base.defenseShield = Math.min(base.maxShield, base.defenseShield + 400);
-      io.emit('world:sync', { units: data.units, bases: data.bases, timestamp: Date.now() });
+      io.to('authenticated_commanders').emit('world:sync', { units: data.units, bases: data.bases, timestamp: Date.now() });
       if (callback) callback({ success: true });
     } else {
       if (callback) callback({ success: false, message: 'Insufficient repair materials' });
@@ -847,7 +852,7 @@ io.on('connection', (socket) => {
       data.chat.push(newMsg);
       if (data.chat.length > 200) data.chat.shift();
 
-      io.emit('chat:message', newMsg);
+      io.to('authenticated_commanders').emit('chat:message', newMsg);
     }
   );
 
@@ -886,7 +891,7 @@ io.on('connection', (socket) => {
     });
 
     gameStore.saveData();
-    io.emit('alliance:update', newAlliance);
+    io.to('authenticated_commanders').emit('alliance:update', newAlliance);
     if (callback) callback({ success: true, alliance: newAlliance });
   });
 
@@ -909,7 +914,7 @@ io.on('connection', (socket) => {
       });
 
       gameStore.saveData();
-      io.emit('alliance:update', alliance);
+      io.to('authenticated_commanders').emit('alliance:update', alliance);
       if (callback) callback({ success: true });
     }
   });

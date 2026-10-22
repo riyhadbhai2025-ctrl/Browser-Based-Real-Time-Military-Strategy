@@ -37,6 +37,7 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<TacticalRenderer | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const needsHomeFocusRef = useRef<boolean>(true);
 
   // Sync /admin URL navigation
   useEffect(() => {
@@ -57,13 +58,17 @@ export default function App() {
     setIsAdminRoute(false);
   }, []);
 
-  // Auth & Profile
+  // Auth & Session Lifecycle ('checking' -> 'authenticated' | 'unauthenticated')
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('frontline_token'));
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
-  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [authStatus, setAuthStatus] = useState<'checking' | 'unauthenticated' | 'authenticated'>(() =>
+    localStorage.getItem('frontline_token') ? 'checking' : 'unauthenticated'
+  );
   const [connected, setConnected] = useState<boolean>(false);
 
-  // World State
+  const isAuthenticated = authStatus === 'authenticated' && Boolean(token && profile);
+
+  // World State (populated only when authenticated)
   const [terrain, setTerrain] = useState<TerrainType[][]>([]);
   const [bases, setBases] = useState<Base[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
@@ -105,43 +110,91 @@ export default function App() {
   const lastClickTimeRef = useRef<number>(0);
   const lastClickedUnitTypeRef = useRef<UnitType | null>(null);
 
-  // 1. Initial Profile Check (Never falls back to player_default)
+  // Helper: Clear all private gameplay state and return cleanly to 3D Battlefield Preview
+  const clearSessionAndReturnToPreview = useCallback(() => {
+    localStorage.removeItem('frontline_token');
+    localStorage.removeItem('frontline_admin_token');
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+    setConnected(false);
+    setToken(null);
+    setProfile(null);
+    setAuthStatus('unauthenticated');
+    setBases([]);
+    setUnits([]);
+    setAlliances([]);
+    setChatMessages([]);
+    setCombatLogs([]);
+    setSelectedUnitIds(new Set());
+    setSelectedBaseId(null);
+    setPlacingBuilding(null);
+    setShowAdmin(false);
+    setShowAlliance(false);
+    setShowIntel(false);
+    setShowTutorial(false);
+    setShowShortcuts(false);
+    keysHeld.current.clear();
+
+    if (rendererRef.current) {
+      rendererRef.current.setPreviewMode(true);
+    }
+  }, []);
+
+  // 1. Verify Stored Token on Initial Load / Refresh (Never falls back to player_default)
   useEffect(() => {
     if (!token) {
       setProfile(null);
-      setShowAuthModal(true);
+      setAuthStatus('unauthenticated');
+      if (rendererRef.current) {
+        rendererRef.current.setPreviewMode(true);
+      }
       return;
     }
+
+    // If profile is already verified for this session (e.g. from Login / Register / Guest), skip redundant check
+    if (profile && authStatus === 'authenticated') {
+      return;
+    }
+
+    let cancelled = false;
+    setAuthStatus('checking');
 
     fetch('/api/auth/me', {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(async (res) => {
         if (!res.ok) {
-          localStorage.removeItem('frontline_token');
-          setToken(null);
-          setProfile(null);
-          setShowAuthModal(true);
+          if (!cancelled) {
+            clearSessionAndReturnToPreview();
+          }
           return null;
         }
         return res.json();
       })
       .then((data) => {
+        if (cancelled) return;
         if (data?.profile) {
+          needsHomeFocusRef.current = true;
           setProfile(data.profile);
-          setShowAuthModal(false);
+          setAuthStatus('authenticated');
         } else {
-          setProfile(null);
-          setShowAuthModal(true);
+          clearSessionAndReturnToPreview();
         }
       })
       .catch(() => {
-        setProfile(null);
-        setShowAuthModal(true);
+        if (!cancelled) {
+          clearSessionAndReturnToPreview();
+        }
       });
-  }, [token]);
 
-  // 2. Fetch World Terrain
+    return () => {
+      cancelled = true;
+    };
+  }, [token, profile, authStatus, clearSessionAndReturnToPreview]);
+
+  // 2. Fetch World Terrain for 3D Battlefield (used by both 3D Preview and Gameplay)
   useEffect(() => {
     fetch('/api/world/terrain')
       .then((res) => res.json())
@@ -162,21 +215,28 @@ export default function App() {
       .catch((err) => console.error('Failed to fetch terrain:', err));
   }, []);
 
-  // 3. Initialize Socket.IO connection
+  // 3. Connect Socket.IO ONLY When Authenticated
   useEffect(() => {
+    if (!isAuthenticated || !token || !profile) {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      setConnected(false);
+      return;
+    }
+
     const socket = io('/', {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 1000,
-      auth: token ? { token } : undefined,
+      auth: { token },
     });
     socketRef.current = socket;
 
     socket.on('connect', () => {
       setConnected(true);
-      if (token) {
-        socket.emit('world:join', { token });
-      }
+      socket.emit('world:join', { token });
     });
 
     socket.on('disconnect', () => {
@@ -184,17 +244,11 @@ export default function App() {
     });
 
     socket.on('auth:error', () => {
-      localStorage.removeItem('frontline_token');
-      setToken(null);
-      setProfile(null);
-      setShowAuthModal(true);
+      clearSessionAndReturnToPreview();
     });
 
     socket.on('account:moderated', (payload?: { reason?: string }) => {
-      localStorage.removeItem('frontline_token');
-      setToken(null);
-      setProfile(null);
-      setShowAuthModal(true);
+      clearSessionAndReturnToPreview();
       if (payload?.reason) {
         setNotificationToast({
           title: 'ACCOUNT ACCESS RESTRICTED',
@@ -205,11 +259,27 @@ export default function App() {
     });
 
     socket.on('world:state', (state) => {
-      setBases(state.bases || []);
-      setUnits(state.units || []);
+      const incomingBases: Base[] = state.bases || [];
+      const incomingUnits: Unit[] = state.units || [];
+      setBases(incomingBases);
+      setUnits(incomingUnits);
       if (state.envObjects) setEnvObjects(state.envObjects);
       setAlliances(state.alliances || []);
       setChatMessages(state.chat || []);
+
+      // Smoothly focus 3D camera onto the authenticated player's home base upon entering theater
+      if (needsHomeFocusRef.current && rendererRef.current) {
+        const homeBase =
+          incomingBases.find((b) => b.id === profile.homeBaseId) ||
+          incomingBases.find((b) => b.ownerId === profile.id && b.type === 'home') ||
+          incomingBases.find((b) => b.ownerId === profile.id);
+        if (homeBase) {
+          rendererRef.current.setPreviewMode(false);
+          rendererRef.current.focusOn(homeBase.x, homeBase.y);
+          setCameraCoords({ x: homeBase.x, y: homeBase.y });
+          needsHomeFocusRef.current = false;
+        }
+      }
     });
 
     socket.on('world:sync', (sync) => {
@@ -276,32 +346,36 @@ export default function App() {
 
     return () => {
       socket.disconnect();
+      if (socketRef.current === socket) {
+        socketRef.current = null;
+      }
     };
-  }, [token]);
+  }, [isAuthenticated, token, profile?.id, profile?.homeBaseId, clearSessionAndReturnToPreview]);
 
   // --- COMMAND HELPERS ---
 
   const jumpToHome = useCallback(() => {
-    if (!profile?.id) return;
+    if (!isAuthenticated || !profile?.id) return;
     const homeBase =
+      bases.find((b) => b.id === profile.homeBaseId) ||
       bases.find((b) => b.ownerId === profile.id && b.type === 'home') ||
       bases.find((b) => b.ownerId === profile.id);
     if (homeBase && rendererRef.current) {
-      rendererRef.current.cameraX = homeBase.x;
-      rendererRef.current.cameraY = homeBase.y;
+      rendererRef.current.focusOn(homeBase.x, homeBase.y);
       setCameraCoords({ x: homeBase.x, y: homeBase.y });
       soundEngine.playCommandAck();
     }
-  }, [bases, profile]);
+  }, [isAuthenticated, bases, profile]);
 
-  const jumpToCoords = useCallback((x: number, y: number) => {
-    if (rendererRef.current) {
-      rendererRef.current.cameraX = x;
-      rendererRef.current.cameraY = y;
+  const jumpToCoords = useCallback(
+    (x: number, y: number) => {
+      if (!isAuthenticated || !rendererRef.current) return;
+      rendererRef.current.focusOn(x, y);
       setCameraCoords({ x, y });
       soundEngine.playCommandAck();
-    }
-  }, []);
+    },
+    [isAuthenticated]
+  );
 
   const issueUnitCommand = useCallback(
     (
@@ -311,7 +385,7 @@ export default function App() {
       targetUnitId?: string,
       targetBaseId?: string
     ) => {
-      if (selectedUnitIds.size === 0 || !socketRef.current) return;
+      if (!isAuthenticated || selectedUnitIds.size === 0 || !socketRef.current) return;
 
       socketRef.current.emit('unit:command', {
         unitIds: Array.from(selectedUnitIds),
@@ -323,10 +397,10 @@ export default function App() {
       });
       soundEngine.playCommandAck();
     },
-    [selectedUnitIds]
+    [isAuthenticated, selectedUnitIds]
   );
 
-  // 4. Initialize Three.js 3D Tactical Renderer
+  // 4. Initialize Single Three.js 3D Tactical Renderer Instance (shared across Preview & Gameplay)
   useEffect(() => {
     if (isAdminRoute || !canvasRef.current) return;
     const canvas = canvasRef.current;
@@ -340,6 +414,7 @@ export default function App() {
 
     const renderer = new TacticalRenderer(canvas);
     rendererRef.current = renderer;
+    renderer.setPreviewMode(!isAuthenticated);
     renderer.startRenderLoop();
 
     if (terrain.length > 0) {
@@ -349,17 +424,25 @@ export default function App() {
     return () => {
       window.removeEventListener('resize', resize);
       renderer.stopRenderLoop();
+      rendererRef.current = null;
     };
   }, [isAdminRoute]);
 
-  // Update renderer state when bases/units/profile/envObjects change
+  // Synchronize Renderer Mode & World State on Auth / World Updates
   useEffect(() => {
     if (isAdminRoute || !rendererRef.current) return;
+
+    if (!isAuthenticated || !profile) {
+      rendererRef.current.setPreviewMode(true);
+      return;
+    }
+
+    rendererRef.current.setPreviewMode(false);
     rendererRef.current.updateWorld(
       bases,
       units,
-      profile?.id || '',
-      profile?.allianceId,
+      profile.id,
+      profile.allianceId,
       envObjects
     );
     rendererRef.current.selectedUnitIds = selectedUnitIds;
@@ -367,10 +450,27 @@ export default function App() {
     rendererRef.current.fogEnabled = fogEnabled;
     rendererRef.current.showRepairCranes = repairVisualsActive;
     rendererRef.current.isStrategicOverview = isStrategicOverview;
-  }, [isAdminRoute, bases, units, profile, selectedUnitIds, selectedBaseId, fogEnabled, envObjects, repairVisualsActive, isStrategicOverview]);
+  }, [
+    isAdminRoute,
+    isAuthenticated,
+    bases,
+    units,
+    profile,
+    selectedUnitIds,
+    selectedBaseId,
+    fogEnabled,
+    envObjects,
+    repairVisualsActive,
+    isStrategicOverview,
+  ]);
 
-  // 5. Continuous Keyboard Camera Pan & Rotation Loop
+  // 5. Continuous Keyboard Camera Pan & Rotation Loop ( strictly disabled while unauthenticated )
   useEffect(() => {
+    if (!isAuthenticated) {
+      keysHeld.current.clear();
+      return;
+    }
+
     let animId: number;
     let lastTime = performance.now();
 
@@ -379,7 +479,7 @@ export default function App() {
       lastTime = time;
 
       const renderer = rendererRef.current;
-      if (renderer && keysHeld.current.size > 0) {
+      if (renderer && !renderer.isPreviewMode && keysHeld.current.size > 0) {
         let forward = 0;
         let strafe = 0;
         if (keysHeld.current.has('KeyW') || keysHeld.current.has('ArrowUp')) forward -= 1;
@@ -543,6 +643,7 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, [
+    isAuthenticated,
     selectedUnitIds,
     controlGroups,
     repairVisualsActive,
@@ -554,11 +655,13 @@ export default function App() {
     placingBuilding,
   ]);
 
-  // 6. Canvas Mouse & Pointer Event Handlers
+  // 6. Canvas Mouse & Pointer Event Handlers (strictly blocked in unauthenticated preview mode)
   const isBoxSelecting = useRef(false);
   const dragStartPos = useRef<{ x: number; y: number } | null>(null);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isAuthenticated) return;
+
     // Middle-click or Alt+Left-click orbits 3D camera
     if (e.button === 1 || (e.button === 0 && e.altKey)) {
       isMiddleRotating.current = true;
@@ -600,6 +703,7 @@ export default function App() {
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isAuthenticated) return;
     const renderer = rendererRef.current;
     if (!renderer) return;
     mousePos.current = { x: e.clientX, y: e.clientY };
@@ -677,6 +781,7 @@ export default function App() {
   };
 
   const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isAuthenticated) return;
     const renderer = rendererRef.current;
     if (!renderer) return;
 
@@ -719,7 +824,6 @@ export default function App() {
           lastClickedUnitTypeRef.current = clickedUnit.type;
 
           if (isDoubleClick && clickedUnit.ownerId === currentUserId) {
-            // Select all friendly units of the same type
             const sameTypeUnits = units.filter(
               (u) => u.ownerId === currentUserId && u.type === clickedUnit.type
             );
@@ -761,6 +865,7 @@ export default function App() {
 
   const handleContextMenu = (e: React.PointerEvent<HTMLCanvasElement>) => {
     e.preventDefault();
+    if (!isAuthenticated) return;
     const renderer = rendererRef.current;
     if (!renderer) return;
 
@@ -790,6 +895,7 @@ export default function App() {
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    if (!isAuthenticated) return;
     const renderer = rendererRef.current;
     if (!renderer) return;
     const delta = e.deltaY < 0 ? 0.12 : -0.12;
@@ -798,16 +904,17 @@ export default function App() {
 
   // Base actions
   const handleBuild = (baseId: string, buildingType: BuildingType, offsetX?: number, offsetY?: number) => {
+    if (!isAuthenticated) return;
     socketRef.current?.emit('base:build', { baseId, buildingType, offsetX, offsetY }, (res: any) => {
       if (res?.success) soundEngine.playBuildComplete();
     });
   };
 
   const handleStartPlaceBuilding3D = (baseId: string, buildingType: BuildingType) => {
+    if (!isAuthenticated) return;
     const base = bases.find((b) => b.id === baseId);
     if (base && rendererRef.current) {
-      rendererRef.current.cameraX = base.x;
-      rendererRef.current.cameraY = base.y;
+      rendererRef.current.focusOn(base.x, base.y);
       setCameraCoords({ x: base.x, y: base.y });
     }
     setPlacingBuilding({ baseId, buildingType });
@@ -819,18 +926,21 @@ export default function App() {
   };
 
   const handleProduceUnit = (baseId: string, unitType: UnitType) => {
+    if (!isAuthenticated) return;
     socketRef.current?.emit('base:produce_unit', { baseId, unitType }, (res: any) => {
       if (res?.success) soundEngine.playBuildComplete();
     });
   };
 
   const handleRepairBase = (baseId: string) => {
+    if (!isAuthenticated) return;
     socketRef.current?.emit('base:repair', { baseId }, (res: any) => {
       if (res?.success) soundEngine.playBuildComplete();
     });
   };
 
   const handleChangeAiDifficulty = (difficulty: AIDifficulty) => {
+    if (!isAuthenticated) return;
     setAiDifficulty(difficulty);
     socketRef.current?.emit('ai:difficulty', { difficulty });
     setNotificationToast({
@@ -841,6 +951,7 @@ export default function App() {
   };
 
   const handleResetSkirmish = () => {
+    if (!isAuthenticated) return;
     socketRef.current?.emit('world:reset_skirmish', {}, () => {
       setSelectedUnitIds(new Set());
       setSelectedBaseId(null);
@@ -855,6 +966,7 @@ export default function App() {
 
   // Alliance actions
   const handleCreateAlliance = (name: string, tag: string, description: string) => {
+    if (!isAuthenticated) return;
     socketRef.current?.emit('alliance:create', { name, tag, description }, (res: any) => {
       if (res?.success && profile) {
         setProfile({ ...profile, allianceId: res.alliance.id, allianceRole: 'leader' });
@@ -863,6 +975,7 @@ export default function App() {
   };
 
   const handleJoinAlliance = (allianceId: string) => {
+    if (!isAuthenticated) return;
     socketRef.current?.emit('alliance:join', { allianceId }, (res: any) => {
       if (res?.success && profile) {
         setProfile({ ...profile, allianceId, allianceRole: 'member' });
@@ -877,18 +990,12 @@ export default function App() {
         headers: { Authorization: `Bearer ${token}` },
       }).catch(() => {});
     }
-    localStorage.removeItem('frontline_token');
-    localStorage.removeItem('frontline_admin_token');
-    setToken(null);
-    setProfile(null);
-    setSelectedUnitIds(new Set());
-    setSelectedBaseId(null);
-    setShowAuthModal(true);
-  }, [token]);
+    clearSessionAndReturnToPreview();
+  }, [token, clearSessionAndReturnToPreview]);
 
   // Admin Sandbox tools
   const handleAdminSpawn = (unitType: UnitType, isHostile: boolean) => {
-    if (!profile?.id) return;
+    if (!isAuthenticated || !profile?.id) return;
     const renderer = rendererRef.current;
     const targetX = Math.round(renderer ? renderer.cameraX + (Math.random() * 4 - 2) : 20);
     const targetY = Math.round(renderer ? renderer.cameraY + (Math.random() * 4 - 2) : 28);
@@ -907,7 +1014,7 @@ export default function App() {
   };
 
   const handleAdminBoost = (amount: number) => {
-    if (!profile?.id) return;
+    if (!isAuthenticated || !profile?.id) return;
     const homeBase = bases.find((b) => b.ownerId === profile.id);
     const authToken = localStorage.getItem('frontline_admin_token') || token || '';
     if (!authToken || !homeBase) return;
@@ -922,7 +1029,7 @@ export default function App() {
   };
 
   const handleAdminRepairAll = () => {
-    if (!profile?.id) return;
+    if (!isAuthenticated || !profile?.id) return;
     bases.forEach((b) => {
       if (b.ownerId === profile.id) {
         handleRepairBase(b.id);
@@ -930,14 +1037,15 @@ export default function App() {
     });
   };
 
-  const currentUserId = profile?.id || '';
+  const currentUserId = isAuthenticated && profile ? profile.id : '';
   const activeHomeBase = currentUserId
-    ? bases.find((b) => b.ownerId === currentUserId && b.type === 'home') ||
+    ? bases.find((b) => b.id === profile?.homeBaseId) ||
+      bases.find((b) => b.ownerId === currentUserId && b.type === 'home') ||
       bases.find((b) => b.ownerId === currentUserId)
     : undefined;
 
-  const selectedBase = bases.find((b) => b.id === selectedBaseId);
-  const selectedUnitsList = units.filter((u) => selectedUnitIds.has(u.id));
+  const selectedBase = isAuthenticated ? bases.find((b) => b.id === selectedBaseId) : undefined;
+  const selectedUnitsList = isAuthenticated ? units.filter((u) => selectedUnitIds.has(u.id)) : [];
   const playerUnits = currentUserId ? units.filter((u) => u.ownerId === currentUserId) : [];
   const usedPopulation = playerUnits.reduce((sum, u) => sum + (UNIT_CATALOG[u.type]?.populationCost || 1), 0);
   const maxPopulation = Math.max(
@@ -951,7 +1059,7 @@ export default function App() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans select-none">
-      {/* 1. Three.js 3D Tactical RTS Canvas */}
+      {/* 1. Three.js 3D Tactical RTS Canvas (runs in Strategic Preview Mode before login, and Gameplay Mode when authenticated) */}
       <canvas
         ref={canvasRef}
         onPointerDown={handlePointerDown}
@@ -959,121 +1067,123 @@ export default function App() {
         onPointerUp={handlePointerUp}
         onContextMenu={handleContextMenu}
         onWheel={handleWheel}
-        className="w-full h-full block cursor-crosshair"
+        className={`w-full h-full block ${isAuthenticated ? 'cursor-crosshair' : 'cursor-default'}`}
       />
 
-      {/* 2. Top Navigation & Resource Bar */}
-      {profile && (
-        <TopBar
-          profile={profile}
-          activeBase={activeHomeBase}
-          bases={bases}
-          connected={connected}
-          muted={muted}
-          onToggleMute={() => {
-            const nextMuted = !muted;
-            setMuted(nextMuted);
-            soundEngine.setMuted(nextMuted);
-          }}
-          onOpenAdmin={() => setShowAdmin(true)}
-          onOpenAdminConsole={openAdminConsole}
-          onOpenAlliance={() => setShowAlliance(true)}
-          onOpenIntel={() => setShowIntel(true)}
-          onOpenTutorial={() => setShowTutorial(true)}
-          onOpenShortcuts={() => setShowShortcuts(true)}
-          alliedTag={alliances.find((a) => a.id === profile.allianceId)?.tag}
-          totalUnitsCount={playerUnits.length}
-          usedPopulation={usedPopulation}
-          maxPopulation={maxPopulation}
-          aiDifficulty={aiDifficulty}
-          onChangeAiDifficulty={handleChangeAiDifficulty}
-          onResetSkirmish={handleResetSkirmish}
-          graphicsQuality={graphicsQuality}
-          onChangeGraphicsQuality={(q) => {
-            setGraphicsQuality(q);
-            rendererRef.current?.setGraphicsQuality(q);
-          }}
-          atmospherePreset={atmospherePreset}
-          onChangeAtmospherePreset={(p) => {
-            setAtmospherePreset(p);
-            rendererRef.current?.setAtmospherePreset(p);
-          }}
-          onJumpToCoords={jumpToCoords}
-          onLogout={handleLogout}
-        />
+      {/* 2. Authenticated Gameplay HUD & Drawers (strictly hidden while unauthenticated) */}
+      {isAuthenticated && profile && (
+        <>
+          <TopBar
+            profile={profile}
+            activeBase={activeHomeBase}
+            bases={bases}
+            connected={connected}
+            muted={muted}
+            onToggleMute={() => {
+              const nextMuted = !muted;
+              setMuted(nextMuted);
+              soundEngine.setMuted(nextMuted);
+            }}
+            onOpenAdmin={() => setShowAdmin(true)}
+            onOpenAdminConsole={openAdminConsole}
+            onOpenAlliance={() => setShowAlliance(true)}
+            onOpenIntel={() => setShowIntel(true)}
+            onOpenTutorial={() => setShowTutorial(true)}
+            onOpenShortcuts={() => setShowShortcuts(true)}
+            alliedTag={alliances.find((a) => a.id === profile.allianceId)?.tag}
+            totalUnitsCount={playerUnits.length}
+            usedPopulation={usedPopulation}
+            maxPopulation={maxPopulation}
+            aiDifficulty={aiDifficulty}
+            onChangeAiDifficulty={handleChangeAiDifficulty}
+            onResetSkirmish={handleResetSkirmish}
+            graphicsQuality={graphicsQuality}
+            onChangeGraphicsQuality={(q) => {
+              setGraphicsQuality(q);
+              rendererRef.current?.setGraphicsQuality(q);
+            }}
+            atmospherePreset={atmospherePreset}
+            onChangeAtmospherePreset={(p) => {
+              setAtmospherePreset(p);
+              rendererRef.current?.setAtmospherePreset(p);
+            }}
+            onJumpToCoords={jumpToCoords}
+            onLogout={handleLogout}
+          />
+
+          {/* 3. Radar Minimap & 3D Camera Controls (Bottom Left) */}
+          <Minimap
+            renderer={rendererRef.current}
+            cameraCoords={cameraCoords}
+            onJumpToHome={jumpToHome}
+            fogEnabled={fogEnabled}
+            onToggleFog={() => setFogEnabled(!fogEnabled)}
+            showRepairCranes={repairVisualsActive}
+            onToggleRepair={() => setRepairVisualsActive(!repairVisualsActive)}
+            isStrategicOverview={isStrategicOverview}
+            onToggleStrategicOverview={() => setIsStrategicOverview(!isStrategicOverview)}
+          />
+
+          {/* 4. Unit Command Bar & Squad Inspector (Bottom Center) */}
+          <CommandBar
+            selectedUnits={selectedUnitsList}
+            allPlayerUnitsCount={playerUnits.length}
+            activeCommand={activeCommand}
+            onSetCommand={(cmd) => {
+              setActiveCommand(cmd);
+              if (cmd === 'hold' || cmd === 'stop' || cmd === 'retreat') {
+                issueUnitCommand(cmd);
+              }
+            }}
+            onSelectSingleUnit={(id) => setSelectedUnitIds(new Set([id]))}
+            onSelectAllUnits={() => {
+              setSelectedUnitIds(new Set(playerUnits.map((u) => u.id)));
+              setSelectedBaseId(null);
+              soundEngine.playCommandAck();
+            }}
+            onJumpToHome={jumpToHome}
+            onFocusUnit={(u) => jumpToCoords(u.x, u.y)}
+            controlGroups={controlGroups}
+            onRecallGroup={(g) => {
+              const ids = controlGroups[g];
+              if (ids && ids.length > 0) {
+                setSelectedUnitIds(new Set(ids));
+                setSelectedBaseId(null);
+                soundEngine.playCommandAck();
+              }
+            }}
+            onAssignGroup={(g) => {
+              setControlGroups((prev) => ({ ...prev, [g]: Array.from(selectedUnitIds) }));
+              soundEngine.playCommandAck();
+            }}
+          />
+
+          {/* 5. Base Management Drawer (Right Side) */}
+          {selectedBase && !placingBuilding && (
+            <BaseDrawer
+              base={selectedBase}
+              currentUserId={currentUserId}
+              onClose={() => setSelectedBaseId(null)}
+              onBuild={handleBuild}
+              onStartPlaceBuilding3D={handleStartPlaceBuilding3D}
+              onProduceUnit={handleProduceUnit}
+              onRepairBase={handleRepairBase}
+            />
+          )}
+
+          {/* 6. Tactical Comms & Combat Logs (Bottom Right) */}
+          <TacticalChat
+            messages={chatMessages}
+            combatLogs={combatLogs}
+            onSendMessage={(content, channel, coords) => {
+              socketRef.current?.emit('chat:send', { content, channel, coords });
+            }}
+            onJumpToCoords={jumpToCoords}
+            currentCoords={cameraCoords}
+            allianceTag={alliances.find((a) => a.id === profile.allianceId)?.tag}
+          />
+        </>
       )}
-
-      {/* 3. Radar Minimap & 3D Camera Controls (Bottom Left) */}
-      <Minimap
-        renderer={rendererRef.current}
-        cameraCoords={cameraCoords}
-        onJumpToHome={jumpToHome}
-        fogEnabled={fogEnabled}
-        onToggleFog={() => setFogEnabled(!fogEnabled)}
-        showRepairCranes={repairVisualsActive}
-        onToggleRepair={() => setRepairVisualsActive(!repairVisualsActive)}
-        isStrategicOverview={isStrategicOverview}
-        onToggleStrategicOverview={() => setIsStrategicOverview(!isStrategicOverview)}
-      />
-
-      {/* 4. Unit Command Bar & Squad Inspector (Bottom Center) */}
-      <CommandBar
-        selectedUnits={selectedUnitsList}
-        allPlayerUnitsCount={playerUnits.length}
-        activeCommand={activeCommand}
-        onSetCommand={(cmd) => {
-          setActiveCommand(cmd);
-          if (cmd === 'hold' || cmd === 'stop' || cmd === 'retreat') {
-            issueUnitCommand(cmd);
-          }
-        }}
-        onSelectSingleUnit={(id) => setSelectedUnitIds(new Set([id]))}
-        onSelectAllUnits={() => {
-          setSelectedUnitIds(new Set(playerUnits.map((u) => u.id)));
-          setSelectedBaseId(null);
-          soundEngine.playCommandAck();
-        }}
-        onJumpToHome={jumpToHome}
-        onFocusUnit={(u) => jumpToCoords(u.x, u.y)}
-        controlGroups={controlGroups}
-        onRecallGroup={(g) => {
-          const ids = controlGroups[g];
-          if (ids && ids.length > 0) {
-            setSelectedUnitIds(new Set(ids));
-            setSelectedBaseId(null);
-            soundEngine.playCommandAck();
-          }
-        }}
-        onAssignGroup={(g) => {
-          setControlGroups((prev) => ({ ...prev, [g]: Array.from(selectedUnitIds) }));
-          soundEngine.playCommandAck();
-        }}
-      />
-
-      {/* 5. Base Management Drawer (Right Side) */}
-      {selectedBase && !placingBuilding && (
-        <BaseDrawer
-          base={selectedBase}
-          currentUserId={currentUserId}
-          onClose={() => setSelectedBaseId(null)}
-          onBuild={handleBuild}
-          onStartPlaceBuilding3D={handleStartPlaceBuilding3D}
-          onProduceUnit={handleProduceUnit}
-          onRepairBase={handleRepairBase}
-        />
-      )}
-
-      {/* 6. Tactical Comms & Combat Logs (Bottom Right) */}
-      <TacticalChat
-        messages={chatMessages}
-        combatLogs={combatLogs}
-        onSendMessage={(content, channel, coords) => {
-          socketRef.current?.emit('chat:send', { content, channel, coords });
-        }}
-        onJumpToCoords={jumpToCoords}
-        currentCoords={cameraCoords}
-        allianceTag={alliances.find((a) => a.id === profile?.allianceId)?.tag}
-      />
 
       {/* 7. Notification Toast */}
       {notificationToast && (
@@ -1083,21 +1193,25 @@ export default function App() {
         </div>
       )}
 
-      {/* 8. Modals */}
-      {showAuthModal && (
+      {/* 8. Unauthenticated Full-Screen 3D Battlefield Login Preview Overlay */}
+      {!isAuthenticated && (
         <AuthModal
+          isRestoringSession={authStatus === 'checking'}
           onSuccess={(newToken, newProfile) => {
-            setToken(newToken);
+            needsHomeFocusRef.current = true;
             localStorage.setItem('frontline_token', newToken);
+            setToken(newToken);
             setProfile(newProfile);
-            setShowAuthModal(false);
-            socketRef.current?.emit('world:join', { token: newToken });
-            jumpToHome();
+            setAuthStatus('authenticated');
+            if (rendererRef.current) {
+              rendererRef.current.setPreviewMode(false);
+            }
           }}
         />
       )}
 
-      {showAlliance && profile && (
+      {/* 9. Authenticated Gameplay Modals */}
+      {isAuthenticated && showAlliance && profile && (
         <AllianceModal
           alliances={alliances}
           profile={profile}
@@ -1107,10 +1221,10 @@ export default function App() {
         />
       )}
 
-      {showIntel && <IntelModal onClose={() => setShowIntel(false)} />}
-      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
+      {isAuthenticated && showIntel && <IntelModal onClose={() => setShowIntel(false)} />}
+      {isAuthenticated && showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
 
-      {showAdmin && (
+      {isAuthenticated && showAdmin && (
         <AdminModal
           onClose={() => setShowAdmin(false)}
           onSpawnUnit={handleAdminSpawn}
@@ -1119,7 +1233,7 @@ export default function App() {
         />
       )}
 
-      {showTutorial && (
+      {isAuthenticated && showTutorial && (
         <TutorialModal
           onClose={() => setShowTutorial(false)}
           onDeploy={() => {

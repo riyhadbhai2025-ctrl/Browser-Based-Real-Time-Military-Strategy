@@ -13,6 +13,7 @@ import {
 } from '../types/game';
 import { assetManager } from './assets/assetManager';
 import { BUILDING_CATALOG, UNIT_CATALOG } from './catalog';
+import { generateWorld } from './mapGenerator';
 import { Models3DRegistry } from './models3d';
 import { Terrain3DSystem } from './terrain3d';
 
@@ -144,20 +145,26 @@ export class TacticalRenderer {
     opacity: 0.55,
   });
 
-  private currentUserId: string = 'player_default';
-  private userAllianceId: string | null = 'alli_dominion';
+  private currentUserId: string = '';
+  private userAllianceId: string | null = null;
+
+  // Read-only 3D Battlefield Preview Mode state (used while unauthenticated)
+  public isPreviewMode: boolean = true;
+  private previewBases: Base[] = [];
+  private previewUnits: Unit[] = [];
+  private previewPatrolRoutes: Map<string, { startX: number; startY: number; endX: number; endY: number; speed: number; phase: number }> = new Map();
+  private lastPreviewShotMs: number = 0;
 
   // Camera state (world grid coordinates 0..100, 0..75)
-  // Default framed close to Fortress Alpha & combined-arms column like Alpha Force reference
-  public cameraX: number = 16.8;
-  public cameraY: number = 28.2;
-  private smoothCamX: number = 16.8;
-  private smoothCamY: number = 28.2;
-  public zoom: number = 1.42; // 0.42 (strategic) to 2.8 (close-up tactical)
-  private smoothZoom: number = 1.42;
-  public cameraYaw: number = -0.16; // Slight tactical angle toward riverfront
-  private smoothYaw: number = -0.16;
-  public cameraPitch: number = 0.72; // ~41 deg RTS perspective pitch
+  public cameraX: number = 36.0;
+  public cameraY: number = 28.0;
+  private smoothCamX: number = 36.0;
+  private smoothCamY: number = 28.0;
+  public zoom: number = 0.88; // 0.42 (strategic) to 2.8 (close-up tactical)
+  private smoothZoom: number = 0.88;
+  public cameraYaw: number = -0.18; // Slight tactical angle toward riverfront
+  private smoothYaw: number = -0.18;
+  public cameraPitch: number = 0.82; // Elevated strategic preview angle initially
   public isStrategicOverview: boolean = false;
 
   // Selection & Interactive states
@@ -290,6 +297,127 @@ export class TacticalRenderer {
         st.signature = '';
       });
     });
+
+    // Initialize deterministic read-only 3D battlefield showcase for login preview
+    this.initPreviewShowcase();
+  }
+
+  private initPreviewShowcase() {
+    const previewWorld = generateWorld({ width: 100, height: 75, tileSize: 40, seed: 202610 });
+    this.previewBases = previewWorld.bases.map((b, idx) => ({
+      ...b,
+      id: `preview_base_${idx}`,
+      ownerId: idx === 0 || idx === 1 ? 'preview_vanguard' : idx === 5 ? 'preview_kodiak' : 'neutral',
+      ownerName: idx === 0 || idx === 1 ? 'Vanguard Coalition' : idx === 5 ? 'Kodiak PMC' : 'Neutral Sector',
+    }));
+
+    const patrolSpecs: {
+      id: string;
+      type: UnitType;
+      ownerId: string;
+      startX: number;
+      startY: number;
+      endX: number;
+      endY: number;
+      speed: number;
+      phase: number;
+    }[] = [
+      // Vanguard armored column advancing toward Northern Riverfront Bridge
+      { id: 'prev_u1', type: 'titan_mbt', ownerId: 'preview_vanguard', startX: 19, startY: 21, endX: 41, endY: 21, speed: 0.22, phase: 0.0 },
+      { id: 'prev_u2', type: 'titan_mbt', ownerId: 'preview_vanguard', startX: 17, startY: 22.2, endX: 39, endY: 22.2, speed: 0.22, phase: 0.15 },
+      { id: 'prev_u3', type: 'ironclad_apc', ownerId: 'preview_vanguard', startX: 15, startY: 20.5, endX: 37, endY: 20.5, speed: 0.25, phase: 0.3 },
+      { id: 'prev_u4', type: 'vanguard_scout', ownerId: 'preview_vanguard', startX: 22, startY: 24, endX: 42, endY: 28, speed: 0.32, phase: 0.5 },
+      { id: 'prev_u5', type: 'goliath_howitzer', ownerId: 'preview_vanguard', startX: 24, startY: 26, endX: 33, endY: 25, speed: 0.14, phase: 0.2 },
+      { id: 'prev_u6', type: 'rifle_infantry', ownerId: 'preview_vanguard', startX: 28, startY: 22.8, endX: 40, endY: 22.8, speed: 0.18, phase: 0.4 },
+      // Air wing patrolling over the river valley & bridges
+      { id: 'prev_u7', type: 'cobra_gunship', ownerId: 'preview_vanguard', startX: 20, startY: 18, endX: 52, endY: 32, speed: 0.38, phase: 0.1 },
+      { id: 'prev_u8', type: 'stormbringer_jet', ownerId: 'preview_vanguard', startX: 14, startY: 14, endX: 64, endY: 36, speed: 0.55, phase: 0.6 },
+      // Opposing Kodiak forces holding eastern riverbank & bridgehead
+      { id: 'prev_u9', type: 'titan_mbt', ownerId: 'preview_kodiak', startX: 56, startY: 21, endX: 47, endY: 21, speed: 0.2, phase: 0.25 },
+      { id: 'prev_u10', type: 'skyguard_aa', ownerId: 'preview_kodiak', startX: 58, startY: 24, endX: 49, endY: 25, speed: 0.22, phase: 0.45 },
+      { id: 'prev_u11', type: 'cobra_gunship', ownerId: 'preview_kodiak', startX: 64, startY: 19, endX: 46, endY: 27, speed: 0.36, phase: 0.75 },
+      { id: 'prev_u12', type: 'hawk_scout_heli', ownerId: 'preview_vanguard', startX: 25, startY: 36, endX: 48, endY: 42, speed: 0.4, phase: 0.35 },
+    ];
+
+    this.previewPatrolRoutes.clear();
+    this.previewUnits = patrolSpecs.map((spec) => {
+      this.previewPatrolRoutes.set(spec.id, {
+        startX: spec.startX,
+        startY: spec.startY,
+        endX: spec.endX,
+        endY: spec.endY,
+        speed: spec.speed,
+        phase: spec.phase,
+      });
+      const uDef = UNIT_CATALOG[spec.type];
+      return {
+        id: spec.id,
+        type: spec.type,
+        ownerId: spec.ownerId,
+        ownerName: spec.ownerId === 'preview_vanguard' ? 'Vanguard Coalition' : 'Kodiak PMC',
+        x: spec.startX,
+        y: spec.startY,
+        rotation: Math.atan2(spec.endY - spec.startY, spec.endX - spec.startX),
+        health: uDef?.maxHealth || 500,
+        maxHealth: uDef?.maxHealth || 500,
+        command: 'patrol',
+        path: [{ x: spec.endX, y: spec.endY }],
+        lastAttackTime: 0,
+        kills: 0,
+        homeBaseId: 'preview_base_0',
+      };
+    });
+
+    if (this.terrain.length === 0) {
+      this.envObjects = previewWorld.envObjects;
+      this.setTerrain(previewWorld.terrain);
+    }
+  }
+
+  public setPreviewMode(enabled: boolean) {
+    const modeChanged = this.isPreviewMode !== enabled;
+    this.isPreviewMode = enabled;
+
+    if (enabled) {
+      this.currentUserId = '';
+      this.userAllianceId = null;
+      this.bases = [];
+      this.units = [];
+      this.selectedUnitIds.clear();
+      this.selectedBaseId = null;
+      this.selectionBox = null;
+      this.placementGhost = null;
+      if (this.exploredCells) {
+        this.exploredCells.fill(0);
+      }
+      this.zoom = 0.88;
+      this.cameraPitch = 0.82;
+      if (this.terrain.length > 0) {
+        this.terrainSys.buildTerrain(this.terrain, this.previewBases);
+      }
+    } else if (modeChanged) {
+      this.selectedUnitIds.clear();
+      this.selectedBaseId = null;
+      this.selectionBox = null;
+      this.placementGhost = null;
+      this.zoom = 1.42;
+      this.cameraPitch = 0.72;
+      this.cameraYaw = -0.16;
+      if (this.terrain.length > 0 && this.bases.length > 0) {
+        this.terrainSys.buildTerrain(this.terrain, this.bases);
+      }
+    }
+  }
+
+  public focusOn(x: number, y: number, immediate: boolean = false) {
+    const clampedX = Math.max(0, Math.min(100, x));
+    const clampedY = Math.max(0, Math.min(75, y));
+    this.cameraX = clampedX;
+    this.cameraY = clampedY;
+    if (immediate) {
+      this.smoothCamX = clampedX;
+      this.smoothCamY = clampedY;
+    }
   }
 
   public setGraphicsQuality(quality: GraphicsQuality) {
@@ -355,7 +483,8 @@ export class TacticalRenderer {
     if (!this.exploredCells || this.exploredCells.length !== w * h) {
       this.exploredCells = new Uint8Array(w * h);
     }
-    this.terrainSys.buildTerrain(this.terrain, this.bases);
+    const activeBases = this.isPreviewMode ? this.previewBases : this.bases;
+    this.terrainSys.buildTerrain(this.terrain, activeBases);
     this.rebuildEnvironmentProps();
   }
 
@@ -433,7 +562,7 @@ export class TacticalRenderer {
   }
 
   public isCellVisible(x: number, y: number): boolean {
-    if (!this.fogEnabled || !this.exploredCells || this.terrain.length === 0) return true;
+    if (this.isPreviewMode || !this.fogEnabled || !this.exploredCells || this.terrain.length === 0) return true;
     const w = this.terrain[0].length;
     const h = this.terrain.length;
     const cx = Math.floor(x);
@@ -677,6 +806,8 @@ export class TacticalRenderer {
     sx: number,
     sy: number
   ): { kind: 'unit'; unit: Unit } | { kind: 'base'; base: Base } | null {
+    if (this.isPreviewMode) return null;
+
     let bestUnit: Unit | null = null;
     let bestUnitDist = 36;
 
@@ -716,6 +847,8 @@ export class TacticalRenderer {
     y2: number,
     ownerId: string
   ): Unit[] {
+    if (this.isPreviewMode || !ownerId) return [];
+
     const minX = Math.min(x1, x2);
     const maxX = Math.max(x1, x2);
     const minY = Math.min(y1, y2);
@@ -817,9 +950,65 @@ export class TacticalRenderer {
       this.camera.updateProjectionMatrix();
     }
 
+    // 0. Update Read-Only 3D Strategic Preview Camera & Patrol Animation when unauthenticated
+    if (this.isPreviewMode) {
+      this.cameraX = 36 + Math.cos(elapsed * 0.1) * 14;
+      this.cameraY = 27 + Math.sin(elapsed * 0.075) * 8;
+      this.cameraYaw = -0.18 + Math.sin(elapsed * 0.06) * 0.26;
+      this.cameraPitch = 0.82;
+      this.zoom = 0.88;
+
+      for (const pu of this.previewUnits) {
+        const route = this.previewPatrolRoutes.get(pu.id);
+        if (!route) continue;
+        const cycle = (Math.sin(elapsed * route.speed + route.phase * Math.PI * 2) + 1) * 0.5;
+        const nextX = route.startX + (route.endX - route.startX) * cycle;
+        const nextY = route.startY + (route.endY - route.startY) * cycle;
+        const dx = nextX - pu.x;
+        const dy = nextY - pu.y;
+        if (Math.hypot(dx, dy) > 0.001) {
+          pu.rotation = Math.atan2(dy, dx);
+        }
+        pu.x = nextX;
+        pu.y = nextY;
+      }
+
+      // Periodic ambient preview exchange across the riverfront bridge
+      if (now - this.lastPreviewShotMs > 1650 && this.previewUnits.length >= 10) {
+        this.lastPreviewShotMs = now;
+        const vanguardAttackers = this.previewUnits.filter((u) => u.ownerId === 'preview_vanguard');
+        const kodiakTargets = this.previewUnits.filter((u) => u.ownerId === 'preview_kodiak');
+        if (vanguardAttackers.length > 0 && kodiakTargets.length > 0) {
+          const isVanguardVolley = Math.random() > 0.45;
+          const attacker = isVanguardVolley
+            ? vanguardAttackers[Math.floor(Math.random() * vanguardAttackers.length)]
+            : kodiakTargets[Math.floor(Math.random() * kodiakTargets.length)];
+          const target = isVanguardVolley
+            ? kodiakTargets[Math.floor(Math.random() * kodiakTargets.length)]
+            : vanguardAttackers[Math.floor(Math.random() * vanguardAttackers.length)];
+
+          this.addCombatEvent({
+            id: `prev_cb_${now}`,
+            attackerId: attacker.id,
+            attackerType: attacker.type,
+            attackerOwnerId: attacker.ownerId,
+            attackerX: attacker.x,
+            attackerY: attacker.y,
+            targetId: target.id,
+            targetType: target.type,
+            damage: 35,
+            x: target.x + (Math.random() - 0.5) * 1.4,
+            y: target.y + (Math.random() - 0.5) * 1.4,
+            isFatal: false,
+            timestamp: Date.now(),
+          });
+        }
+      }
+    }
+
     // 1. Update Damped RTS Camera
-    const targetPitch = this.isStrategicOverview ? 1.35 : this.cameraPitch;
-    const targetZoom = this.isStrategicOverview ? 0.48 : this.zoom;
+    const targetPitch = this.isPreviewMode ? 0.82 : this.isStrategicOverview ? 1.35 : this.cameraPitch;
+    const targetZoom = this.isPreviewMode ? 0.88 : this.isStrategicOverview ? 0.48 : this.zoom;
 
     const damp = 1 - Math.exp(-12 * dt);
     this.smoothCamX += (this.cameraX - this.smoothCamX) * damp;
@@ -867,13 +1056,17 @@ export class TacticalRenderer {
 
   private syncBases3D(elapsed: number) {
     const activeBaseIds = new Set<string>();
+    const sourceBases = this.isPreviewMode ? this.previewBases : this.bases;
 
-    for (const base of this.bases) {
+    for (const base of sourceBases) {
       activeBaseIds.add(base.id);
-      const isPlayer = base.ownerId === this.currentUserId;
-      const isAllied = this.userAllianceId && base.allianceId === this.userAllianceId;
-      const isEnemy =
-        base.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied && base.ownerId !== 'neutral');
+      const isPlayer = this.isPreviewMode
+        ? base.ownerId === 'preview_vanguard'
+        : Boolean(this.currentUserId && base.ownerId === this.currentUserId);
+      const isAllied = !this.isPreviewMode && Boolean(this.userAllianceId && base.allianceId === this.userAllianceId);
+      const isEnemy = this.isPreviewMode
+        ? base.ownerId === 'preview_kodiak'
+        : base.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied && base.ownerId !== 'neutral');
       const teamHex = isPlayer ? 0x3b82f6 : isAllied ? 0x10b981 : isEnemy ? 0xef4444 : 0xf59e0b;
 
       const sig = `${base.ownerId}_${base.buildings
@@ -990,8 +1183,8 @@ export class TacticalRenderer {
         }
       });
 
-      st.shieldMesh.visible = base.defenseShield > 0 && this.selectedBaseId === base.id;
-      st.selectionRing.visible = this.selectedBaseId === base.id;
+      st.shieldMesh.visible = !this.isPreviewMode && base.defenseShield > 0 && this.selectedBaseId === base.id;
+      st.selectionRing.visible = !this.isPreviewMode && this.selectedBaseId === base.id;
     }
 
     for (const [id, st] of this.baseStates.entries()) {
@@ -1005,13 +1198,18 @@ export class TacticalRenderer {
   private syncUnits3D(dt: number, elapsed: number, now: number) {
     const activeIds = new Set<string>();
     const posLerp = 1 - Math.exp(-12 * dt);
+    const sourceUnits = this.isPreviewMode ? this.previewUnits : this.units;
 
-    for (const unit of this.units) {
+    for (const unit of sourceUnits) {
       activeIds.add(unit.id);
 
-      const isPlayer = unit.ownerId === this.currentUserId;
-      const isAllied = this.userAllianceId && unit.allianceId === this.userAllianceId;
-      const isEnemy = unit.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied);
+      const isPlayer = this.isPreviewMode
+        ? unit.ownerId === 'preview_vanguard'
+        : Boolean(this.currentUserId && unit.ownerId === this.currentUserId);
+      const isAllied = !this.isPreviewMode && Boolean(this.userAllianceId && unit.allianceId === this.userAllianceId);
+      const isEnemy = this.isPreviewMode
+        ? unit.ownerId === 'preview_kodiak'
+        : unit.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied);
       const teamHex = isPlayer ? 0x2563eb : isAllied ? 0x10b981 : isEnemy ? 0xdc2626 : 0xd97706;
 
       let st = this.unitStates.get(unit.id);
@@ -1207,8 +1405,8 @@ export class TacticalRenderer {
         }
       }
 
-      // Selection Ring & 3D Waypoint Path Line
-      const isSelected = this.selectedUnitIds.has(unit.id);
+      // Selection Ring & 3D Waypoint Path Line (disabled in preview mode)
+      const isSelected = !this.isPreviewMode && this.selectedUnitIds.has(unit.id);
       st.selectionRing.visible = isSelected;
       st.rangeRing.visible = isSelected;
 
@@ -1387,6 +1585,12 @@ export class TacticalRenderer {
     const height = this.hudCanvas.height;
 
     ctx.clearRect(0, 0, width, height);
+
+    // Do not draw interactive 2D tactical bars, base capture labels, or selection boxes while in unauthenticated 3D preview mode
+    if (this.isPreviewMode) {
+      this.damageTexts = [];
+      return;
+    }
 
     // 1. Base Labels, Health Bars, Shield Bars & Capture Progress
     for (const base of this.bases) {

@@ -439,8 +439,10 @@ export class GameSimulation {
             timestamp: now,
           });
 
-          this.io?.emit('notification:new', notif);
-          this.io?.emit('base:captured', { baseId: base.id, newOwnerId: base.ownerId, newOwnerName: base.ownerName });
+          this.io?.to('authenticated_commanders').emit('notification:new', notif);
+          this.io
+            ?.to('authenticated_commanders')
+            .emit('base:captured', { baseId: base.id, newOwnerId: base.ownerId, newOwnerName: base.ownerName });
         }
       } else if (base.captureProgress > 0) {
         base.captureProgress = Math.max(0, base.captureProgress - 2);
@@ -602,7 +604,7 @@ export class GameSimulation {
                 activeMatch.totalUnitsSpawned += 1;
               }
 
-              this.io?.emit('unit:spawn', newUnit);
+              this.io?.to('authenticated_commanders').emit('unit:spawn', newUnit);
               hasStateChange = true;
             }
           }
@@ -621,20 +623,20 @@ export class GameSimulation {
       }
     }
 
-    // Broadcast combat events to clients and store recent ones for admin telemetry
+    // Broadcast combat events to authenticated clients and store recent ones for admin telemetry
     if (combatEvents.length > 0) {
       this.recentCombatEvents.unshift(...combatEvents);
       if (this.recentCombatEvents.length > 100) {
         this.recentCombatEvents = this.recentCombatEvents.slice(0, 100);
       }
       for (const evt of combatEvents) {
-        this.io?.emit('combat:event', evt);
+        this.io?.to('authenticated_commanders').emit('combat:event', evt);
       }
     }
 
-    // Broadcast state updates to all clients periodically
+    // Broadcast state updates to authenticated clients periodically
     if (hasStateChange) {
-      this.io?.emit('world:sync', {
+      this.io?.to('authenticated_commanders').emit('world:sync', {
         units: data.units,
         bases: data.bases,
         timestamp: now,
@@ -869,7 +871,7 @@ export class GameSimulation {
       }
     });
 
-    this.io?.emit('world:sync', {
+    this.io?.to('authenticated_commanders').emit('world:sync', {
       units: data.units,
       bases: data.bases,
       timestamp: Date.now(),
@@ -939,7 +941,7 @@ export class GameSimulation {
       offsetY,
     });
 
-    this.io?.emit('world:sync', { units: data.units, bases: data.bases, timestamp: now });
+    this.io?.to('authenticated_commanders').emit('world:sync', { units: data.units, bases: data.bases, timestamp: now });
     return { success: true };
   }
 
@@ -1012,7 +1014,7 @@ export class GameSimulation {
       },
     });
 
-    this.io?.emit('world:sync', { units: data.units, bases: data.bases, timestamp: now });
+    this.io?.to('authenticated_commanders').emit('world:sync', { units: data.units, bases: data.bases, timestamp: now });
     return { success: true };
   }
 }
