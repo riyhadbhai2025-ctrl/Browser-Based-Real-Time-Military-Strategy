@@ -923,9 +923,11 @@ export class Models3DRegistry {
       const pinePalette = [0x1c3d22, 0x224926, 0x17331c, 0x295228, 0x1e4220];
 
       pineTrees.forEach((t, i) => {
-        const gy = terrainSys.groundHeightAt(t.x, t.y, terrainGrid);
+        const tx = Number.isFinite(t.x) ? t.x : 0;
+        const ty = Number.isFinite(t.y) ? t.y : 0;
+        const gy = terrainSys.groundHeightAt(tx, ty, terrainGrid);
         const s = (t.scale || 1.0) * (0.92 + (i % 5) * 0.08);
-        dummy.position.set(t.x, gy - 0.02, t.y);
+        dummy.position.set(tx, gy - 0.02, ty);
         dummy.rotation.set(0, t.rotation || i * 1.1, 0);
         dummy.scale.set(s, s * 1.08, s);
         dummy.updateMatrix();
@@ -978,9 +980,11 @@ export class Models3DRegistry {
       const oakPalette = [0x2d5a27, 0x386b2d, 0x264e22, 0x447733, 0x315f26];
 
       deciduousTrees.forEach((t, i) => {
-        const gy = terrainSys.groundHeightAt(t.x, t.y, terrainGrid);
+        const tx = Number.isFinite(t.x) ? t.x : 0;
+        const ty = Number.isFinite(t.y) ? t.y : 0;
+        const gy = terrainSys.groundHeightAt(tx, ty, terrainGrid);
         const s = (t.scale || 1.0) * (0.9 + (i % 4) * 0.09);
-        dummy.position.set(t.x, gy - 0.02, t.y);
+        dummy.position.set(tx, gy - 0.02, ty);
         dummy.rotation.set(0, t.rotation || i * 1.3, 0);
         dummy.scale.set(s, s * 0.95, s);
         dummy.updateMatrix();
@@ -1010,9 +1014,11 @@ export class Models3DRegistry {
       bushInst.receiveShadow = true;
 
       bushes.forEach((b, i) => {
-        const gy = terrainSys.groundHeightAt(b.x, b.y, terrainGrid);
+        const bx = Number.isFinite(b.x) ? b.x : 0;
+        const by = Number.isFinite(b.y) ? b.y : 0;
+        const gy = terrainSys.groundHeightAt(bx, by, terrainGrid);
         const s = (b.scale || 1.0) * 0.9;
-        dummy.position.set(b.x, gy - 0.02, b.y);
+        dummy.position.set(bx, gy - 0.02, by);
         dummy.rotation.set(0, i * 0.7, 0);
         dummy.scale.set(s * 1.1, s * 0.72, s);
         dummy.updateMatrix();
@@ -1034,9 +1040,11 @@ export class Models3DRegistry {
       rockInst.receiveShadow = true;
 
       rocks.forEach((r, i) => {
-        const gy = terrainSys.groundHeightAt(r.x, r.y, terrainGrid);
+        const rx = Number.isFinite(r.x) ? r.x : 0;
+        const ry = Number.isFinite(r.y) ? r.y : 0;
+        const gy = terrainSys.groundHeightAt(rx, ry, terrainGrid);
         const s = (r.scale || 1.0) * (r.type === 'cliff_rock' ? 1.45 : 0.95);
-        dummy.position.set(r.x, gy - 0.03, r.y);
+        dummy.position.set(rx, gy - 0.03, ry);
         dummy.rotation.set(i * 0.3, r.rotation || i * 1.2, 0);
         dummy.scale.set(s * 1.15, s * 0.82, s * 1.05);
         dummy.updateMatrix();
@@ -1056,9 +1064,11 @@ export class Models3DRegistry {
       const craterInst = new THREE.InstancedMesh(craterGeom, craterMat, craters.length);
 
       craters.forEach((c, i) => {
-        const gy = terrainSys.groundHeightAt(c.x, c.y, terrainGrid);
+        const cx = Number.isFinite(c.x) ? c.x : 0;
+        const cy = Number.isFinite(c.y) ? c.y : 0;
+        const gy = terrainSys.groundHeightAt(cx, cy, terrainGrid);
         const s = c.type === 'crater_large' ? 1.45 : 0.88;
-        dummy.position.set(c.x, gy + 0.02, c.y);
+        dummy.position.set(cx, gy + 0.02, cy);
         dummy.rotation.set(0, 0, 0);
         dummy.scale.set(s, 1, s);
         dummy.updateMatrix();

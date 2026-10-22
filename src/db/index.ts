@@ -14,11 +14,27 @@ export const createPool = () => {
       password: process.env.SQL_PASSWORD,
       database: process.env.SQL_DB_NAME,
       max: 10,
-      connectionTimeoutMillis: 3000,
+      idleTimeoutMillis: 10000,
+      connectionTimeoutMillis: 15000,
+      allowExitOnIdle: true,
     });
 
-    global._postgresPool.on('error', (err) => {
-      console.error('Unexpected error on idle SQL pool client:', err);
+    // Idle client terminations (e.g. host or proxy closing idle sockets after timeout)
+    // are standard pool lifecycle events. node-postgres automatically evicts the dead client
+    // and allocates a fresh connection on the next checkout.
+    global._postgresPool.on('error', (err: any) => {
+      const isExpectedIdleClosure =
+        err?.message?.includes('Connection terminated unexpectedly') ||
+        err?.message?.includes('closed') ||
+        err?.code === 'ECONNRESET' ||
+        err?.code === '57P01' ||
+        err?.code === 'EPIPE';
+
+      if (isExpectedIdleClosure) {
+        // Expected idle socket reap by host/proxy; client is automatically replaced on next query
+        return;
+      }
+      console.warn('Notice: SQL pool client error:', err?.message || err);
     });
   }
   return global._postgresPool;

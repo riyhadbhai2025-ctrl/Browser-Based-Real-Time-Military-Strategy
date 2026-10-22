@@ -200,6 +200,30 @@ export class TacticalRenderer {
     this.canvas = canvas;
     assetManager.init();
 
+    // Context loss & restoration event listeners
+    canvas.addEventListener('webglcontextlost', (e) => {
+      e.preventDefault();
+      console.warn('[TacticalRenderer] WebGL Context Lost! Pausing render loop.');
+      this.running = false;
+    });
+
+    canvas.addEventListener('webglcontextrestored', () => {
+      console.log('[TacticalRenderer] WebGL Context Restored! Rebuilding 3D scene & terrain.');
+      try {
+        const pmrem = new THREE.PMREMGenerator(this.renderer);
+        this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+        pmrem.dispose();
+      } catch (e) {
+        console.warn('[TacticalRenderer] Failed PMREM env restoration:', e);
+      }
+      if (this.terrain.length > 0) {
+        const activeBases = this.isPreviewMode ? this.previewBases : this.bases;
+        this.terrainSys.buildTerrain(this.terrain, activeBases);
+        this.rebuildEnvironmentProps();
+      }
+      this.startRenderLoop();
+    });
+
     // Create 2D HUD overlay canvas for crisp screen-space bars, labels, and selection marquee
     this.hudCanvas = document.createElement('canvas');
     this.hudCanvas.className = 'absolute inset-0 w-full h-full pointer-events-none z-10';
@@ -210,21 +234,19 @@ export class TacticalRenderer {
     }
     this.hudCtx = this.hudCanvas.getContext('2d')!;
 
-    // Detect Software WebGL before full configuration
-    const tempGl =
-      canvas.getContext('webgl2', { powerPreference: 'high-performance' }) ||
-      canvas.getContext('webgl', { powerPreference: 'high-performance' });
-    if (tempGl) {
-      const dbg = tempGl.getExtension('WEBGL_debug_renderer_info');
-      const rendererStr = dbg ? tempGl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '';
-      this.isSoftwareGl = /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(rendererStr);
-    }
-
+    // 1. Initialize Renderer first, then detect Software GL from its context
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: !this.isSoftwareGl,
+      antialias: true, // We'll disable it later if software
       powerPreference: 'high-performance',
     });
+
+    const gl = this.renderer.getContext();
+    if (gl) {
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      const rendererStr = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '';
+      this.isSoftwareGl = /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(rendererStr);
+    }
     this.renderer.setPixelRatio(this.isSoftwareGl ? 1.0 : Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(canvas.width || window.innerWidth, canvas.height || window.innerHeight, false);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -238,17 +260,21 @@ export class TacticalRenderer {
     this.scene.background = new THREE.Color(0x84a9c0);
     this.scene.fog = new THREE.FogExp2(0x8fb2c7, 0.0068);
 
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.72;
-    pmrem.dispose();
+    try {
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      this.scene.environmentIntensity = 0.72;
+      pmrem.dispose();
+    } catch (e) {
+      console.warn('[TacticalRenderer] PMREM environment fallback:', e);
+    }
 
     // Perspective RTS Camera
     this.camera = new THREE.PerspectiveCamera(
       42,
       (canvas.width || window.innerWidth) / Math.max(1, canvas.height || window.innerHeight),
-      0.5,
-      190
+      0.25,
+      1000
     );
 
     // Warm Daylight Sunlight + Sky/Ground Hemisphere Light
@@ -278,6 +304,7 @@ export class TacticalRenderer {
     // Subsystems
     this.terrainSys = new Terrain3DSystem();
     this.modelsRegistry = new Models3DRegistry();
+
     this.scene.add(this.terrainSys.terrainGroup);
     this.scene.add(this.basesRoot);
     this.scene.add(this.unitsRoot);
@@ -293,6 +320,15 @@ export class TacticalRenderer {
     this.ghostPerimeterRing.visible = false;
     this.scene.add(this.ghostPerimeterRing);
 
+    // DIAGNOSTIC: Add a bright test cube to verify renderer pipeline
+    const testCube = new THREE.Mesh(
+      new THREE.BoxGeometry(1, 1, 1),
+      new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true })
+    );
+    testCube.position.set(36, 5, 28);
+    testCube.name = 'diagnostic_cube';
+    this.scene.add(testCube);
+
     // Rebuild base meshes when Kenney GLB models finish loading
     this.modelsRegistry.onModelsUpdated(() => {
       this.baseStates.forEach((st) => {
@@ -302,6 +338,41 @@ export class TacticalRenderer {
 
     // Initialize deterministic read-only 3D battlefield showcase for login preview
     this.initPreviewShowcase();
+
+    // Log diagnostic summary on initial setup
+    this.logDiagnostics();
+  }
+
+  public logDiagnostics() {
+    const gl = this.renderer.getContext();
+    const isContextLost = gl ? gl.isContextLost() : true;
+    console.log('[TacticalRenderer Diagnostics]', {
+      running: this.running,
+      canvasDimensions: `${this.canvas.width}x${this.canvas.height}`,
+      drawingBuffer: gl ? `${gl.drawingBufferWidth}x${gl.drawingBufferHeight}` : 'N/A',
+      isContextLost,
+      cameraPosition: [
+        Number(this.camera.position.x.toFixed(2)),
+        Number(this.camera.position.y.toFixed(2)),
+        Number(this.camera.position.z.toFixed(2)),
+      ],
+      cameraTarget: [Number(this.smoothCamX.toFixed(2)), Number(this.smoothCamY.toFixed(2))],
+      zoom: Number(this.smoothZoom.toFixed(2)),
+      yaw: Number(this.smoothYaw.toFixed(2)),
+      pitch: Number(this.cameraPitch.toFixed(2)),
+      groundMeshExists: Boolean(this.terrainSys.groundMesh),
+      groundMeshVisible: this.terrainSys.groundMesh?.visible ?? false,
+      groundMeshPos: this.terrainSys.groundMesh ? [this.terrainSys.groundMesh.position.x, this.terrainSys.groundMesh.position.y, this.terrainSys.groundMesh.position.z] : 'N/A',
+      terrainGroupChildren: this.terrainSys.terrainGroup.children.length,
+      sceneChildren: this.scene.children.length,
+      activeBasesCount: this.bases.length,
+      activeUnitsCount: this.units.length,
+      activeEnvCount: this.envObjects.length,
+      isPreviewMode: this.isPreviewMode,
+      cameraFar: this.camera.far,
+      cameraNear: this.camera.near,
+      cameraAspect: this.camera.aspect,
+    });
   }
 
   private initPreviewShowcase() {
@@ -479,9 +550,13 @@ export class TacticalRenderer {
   }
 
   public setTerrain(terrain: TerrainType[][]) {
+    if (!terrain || !Array.isArray(terrain) || terrain.length === 0 || !terrain[0] || terrain[0].length === 0) {
+      console.warn('[TacticalRenderer] setTerrain called with invalid or empty array. Retaining current terrain.');
+      return;
+    }
     this.terrain = terrain;
     const h = terrain.length;
-    const w = terrain[0]?.length || 0;
+    const w = terrain[0].length;
     if (!this.exploredCells || this.exploredCells.length !== w * h) {
       this.exploredCells = new Uint8Array(w * h);
     }
@@ -941,7 +1016,10 @@ export class TacticalRenderer {
   }
 
   public render() {
-    const dt = Math.min(this.clock.getDelta(), 0.1);
+    let dt = this.clock.getDelta();
+    if (!Number.isFinite(dt) || dt < 0 || dt > 0.1) {
+      dt = 0.016; // Safe default 60fps delta
+    }
     const elapsed = this.clock.getElapsedTime();
     const now = performance.now();
 
@@ -1012,31 +1090,77 @@ export class TacticalRenderer {
       }
     }
 
+    // Sanitize camera state variables against NaN / Infinity
+    if (!Number.isFinite(this.cameraX) || !Number.isFinite(this.cameraY)) {
+      this.cameraX = 36.0;
+      this.cameraY = 28.0;
+    }
+    if (!Number.isFinite(this.smoothCamX) || !Number.isFinite(this.smoothCamY)) {
+      this.smoothCamX = this.cameraX;
+      this.smoothCamY = this.cameraY;
+    }
+    if (!Number.isFinite(this.zoom) || !Number.isFinite(this.smoothZoom)) {
+      this.zoom = 0.88;
+      this.smoothZoom = 0.88;
+    }
+    if (!Number.isFinite(this.cameraYaw) || !Number.isFinite(this.smoothYaw)) {
+      this.cameraYaw = -0.18;
+      this.smoothYaw = -0.18;
+    }
+    if (!Number.isFinite(this.cameraPitch)) {
+      this.cameraPitch = 0.82;
+    }
+
     // 1. Update Damped RTS Camera
     const targetPitch = this.isPreviewMode ? 0.82 : this.isStrategicOverview ? 1.35 : this.cameraPitch;
     const targetZoom = this.isPreviewMode ? 0.88 : this.isStrategicOverview ? 0.48 : this.zoom;
 
     const damp = 1 - Math.exp(-12 * dt);
-    this.smoothCamX += (this.cameraX - this.smoothCamX) * damp;
-    this.smoothCamY += (this.cameraY - this.smoothCamY) * damp;
-    this.smoothZoom += (targetZoom - this.smoothZoom) * damp;
-    this.smoothYaw += (this.cameraYaw - this.smoothYaw) * damp;
+    const safeDamp = Number.isFinite(damp) ? Math.max(0, Math.min(1, damp)) : 0.1;
 
-    const groundY = this.terrainSys.groundHeightAt(this.smoothCamX, this.smoothCamY, this.terrain);
+    this.smoothCamX += (this.cameraX - this.smoothCamX) * safeDamp;
+    this.smoothCamY += (this.cameraY - this.smoothCamY) * safeDamp;
+    this.smoothZoom += (targetZoom - this.smoothZoom) * safeDamp;
+    this.smoothYaw += (this.cameraYaw - this.smoothYaw) * safeDamp;
+
+    // Final safety pass for smooth values
+    if (!Number.isFinite(this.smoothCamX)) this.smoothCamX = this.cameraX;
+    if (!Number.isFinite(this.smoothCamY)) this.smoothCamY = this.cameraY;
+    if (!Number.isFinite(this.smoothZoom)) this.smoothZoom = targetZoom;
+    if (!Number.isFinite(this.smoothYaw)) this.smoothYaw = this.cameraYaw;
+
+    const rawGroundY = this.terrainSys.groundHeightAt(this.smoothCamX, this.smoothCamY, this.terrain);
+    const groundY = Number.isFinite(rawGroundY) ? rawGroundY : 0.28;
     const orbitDist = 23 / Math.max(0.38, this.smoothZoom);
     const horizDist = Math.cos(targetPitch) * orbitDist;
     const vertDist = Math.sin(targetPitch) * orbitDist;
 
-    this.camera.position.set(
-      this.smoothCamX + Math.sin(this.smoothYaw) * horizDist,
-      groundY + vertDist,
-      this.smoothCamY + Math.cos(this.smoothYaw) * horizDist
-    );
-    this.camera.lookAt(this.smoothCamX, groundY, this.smoothCamY);
+    const camPX = this.smoothCamX + Math.sin(this.smoothYaw) * horizDist;
+    const camPY_ideal = groundY + vertDist;
+    const camPZ = this.smoothCamY + Math.cos(this.smoothYaw) * horizDist;
+
+    // Safety: Ensure camera stays above local ground at its actual coordinates
+    const localGroundY = this.terrainSys.groundHeightAt(camPX, camPZ, this.terrain);
+    const camPY = Math.max(camPY_ideal, localGroundY + 1.25);
+
+    if (Number.isFinite(camPX) && Number.isFinite(camPY) && Number.isFinite(camPZ)) {
+      this.camera.position.set(camPX, camPY, camPZ);
+    } else {
+      console.warn('[TacticalRenderer] Camera position NaN detected. Resetting.');
+      this.camera.position.set(36, 40, 28);
+    }
+    
+    if (Number.isFinite(this.smoothCamX) && Number.isFinite(groundY) && Number.isFinite(this.smoothCamY)) {
+      this.camera.lookAt(this.smoothCamX, groundY, this.smoothCamY);
+    } else {
+      this.camera.lookAt(36, 0, 28);
+    }
 
     // Move directional shadow frustum with camera so shadows stay sharp anywhere on map
-    this.sunLight.target.position.set(this.smoothCamX, groundY, this.smoothCamY);
-    this.sunLight.target.updateMatrixWorld();
+    if (Number.isFinite(this.smoothCamX)) {
+      this.sunLight.target.position.set(this.smoothCamX, groundY, this.smoothCamY);
+      this.sunLight.target.updateMatrixWorld();
+    }
 
     // 2. Update Animated Water
     this.terrainSys.updateWater(elapsed);
@@ -1054,7 +1178,11 @@ export class TacticalRenderer {
     this.updateCombatFX3D(dt, now);
 
     // 7. Render 3D WebGL Scene
-    this.renderer.render(this.scene, this.camera);
+    try {
+      this.renderer.render(this.scene, this.camera);
+    } catch (renderErr) {
+      console.error('[TacticalRenderer] Exception during renderer.render:', renderErr);
+    }
 
     // 8. Render 2D Tactical HUD Overlay (Health bars, Base labels, Selection box)
     this.renderHudOverlay(now);
@@ -1065,6 +1193,7 @@ export class TacticalRenderer {
     const sourceBases = this.isPreviewMode ? this.previewBases : this.bases;
 
     for (const base of sourceBases) {
+      if (!Number.isFinite(base.x) || !Number.isFinite(base.y)) continue;
       activeBaseIds.add(base.id);
       const isPlayer = this.isPreviewMode
         ? base.ownerId === 'preview_vanguard'
@@ -1086,7 +1215,8 @@ export class TacticalRenderer {
         }
 
         const group = new THREE.Group();
-        const gy = this.terrainSys.groundHeightAt(base.x, base.y, this.terrain);
+        const gy_raw = this.terrainSys.groundHeightAt(base.x, base.y, this.terrain);
+        const gy = Number.isFinite(gy_raw) ? gy_raw : 0.28;
         group.position.set(base.x, gy, base.y);
 
         // Compound paved military tarmac foundation + road apron
@@ -1203,10 +1333,12 @@ export class TacticalRenderer {
 
   private syncUnits3D(dt: number, elapsed: number, now: number) {
     const activeIds = new Set<string>();
-    const posLerp = 1 - Math.exp(-12 * dt);
+    const safeDt = Number.isFinite(dt) ? dt : 0.016;
+    const posLerp = 1 - Math.exp(-12 * safeDt);
     const sourceUnits = this.isPreviewMode ? this.previewUnits : this.units;
 
     for (const unit of sourceUnits) {
+      if (!Number.isFinite(unit.x) || !Number.isFinite(unit.y)) continue;
       activeIds.add(unit.id);
 
       const isPlayer = this.isPreviewMode
@@ -1307,18 +1439,23 @@ export class TacticalRenderer {
 
       const prevX = st.displayX;
       const prevZ = st.displayZ;
+      if (!Number.isFinite(st.displayX)) st.displayX = unit.x;
+      if (!Number.isFinite(st.displayZ)) st.displayZ = unit.y;
+
       st.displayX += (unit.x - st.displayX) * posLerp;
       st.displayZ += (unit.y - st.displayZ) * posLerp;
       const moveDelta = Math.hypot(st.displayX - prevX, st.displayZ - prevZ);
       const isMoving = moveDelta > 0.002 || (unit.path && unit.path.length > 0);
 
-      let angleDiff = unit.rotation - st.displayRot;
+      let angleDiff = (unit.rotation || 0) - (st.displayRot || 0);
+      if (!Number.isFinite(angleDiff)) angleDiff = 0;
       while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
       while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
       st.displayRot += angleDiff * posLerp;
 
       const uDef = UNIT_CATALOG[unit.type];
-      const gy = this.terrainSys.groundHeightAt(st.displayX, st.displayZ, this.terrain);
+      const gy_raw = this.terrainSys.groundHeightAt(st.displayX, st.displayZ, this.terrain);
+      const gy = Number.isFinite(gy_raw) ? gy_raw : 0.28;
 
       if (uDef?.category === 'air') {
         const hover = Math.sin(elapsed * 3.2 + st.displayX) * 0.08;

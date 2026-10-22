@@ -183,254 +183,335 @@ export class Terrain3DSystem {
   }
 
   public buildTerrain(terrain: TerrainType[][], bases: Base[]) {
-    if (!terrain || terrain.length === 0) return;
-
-    this.gridHeight = terrain.length;
-    this.gridWidth = terrain[0].length;
-    this.subWidth = this.gridWidth * 2;
-    this.subHeight = this.gridHeight * 2;
-
-    // Clear previous meshes
-    if (this.groundMesh) {
-      this.terrainGroup.remove(this.groundMesh);
-      this.groundMesh.geometry.dispose();
-    }
-    if (this.skirtMesh) {
-      this.terrainGroup.remove(this.skirtMesh);
-      this.skirtMesh.geometry.dispose();
-    }
-    if (this.waterMesh) {
-      this.terrainGroup.remove(this.waterMesh);
-      this.waterMesh.geometry.dispose();
-    }
-    while (this.transportGroup.children.length > 0) {
-      const child = this.transportGroup.children.pop()!;
-      this.transportGroup.remove(child);
+    if (!terrain || terrain.length === 0 || !terrain[0] || terrain[0].length === 0) {
+      console.warn('[Terrain3D] Received invalid or empty terrain grid. Retaining active battlefield terrain.');
+      return;
     }
 
-    // 1. Compute smoothed heightmap at 2x resolution with realistic ridges, riverbanks, and base plateaus
-    const cols = this.subWidth + 1;
-    const rows = this.subHeight + 1;
-    this.heightGrid = new Float32Array(cols * rows);
+    try {
+      this.gridHeight = terrain.length;
+      this.gridWidth = terrain[0].length;
+      this.subWidth = this.gridWidth * 2;
+      this.subHeight = this.gridHeight * 2;
 
-    const rawCellHeight = (gx: number, gz: number): number => {
-      const cx = Math.max(0, Math.min(this.gridWidth - 1, Math.floor(gx)));
-      const cz = Math.max(0, Math.min(this.gridHeight - 1, Math.floor(gz)));
-      const cell = terrain[cz][cx];
-
-      if (cell === 'bridge_road' || cell === 'bridge_rail') {
-        return -0.42;
-      }
-
-      let h = BASE_ELEVATION[cell] ?? 0.26;
-
-      // Multi-octave natural topographic relief
-      const wave1 = Math.sin(gx * 0.19 + gz * 0.15) * 0.09 + Math.cos(gx * 0.33 - gz * 0.27) * 0.06;
-      const wave2 = Math.sin(gx * 0.62 - gz * 0.48) * 0.035;
-
-      if (cell === 'mountain' || cell === 'snow') {
-        const ridge = Math.abs(Math.sin(gx * 0.48 + gz * 0.38) * Math.cos(gx * 0.25 - gz * 0.3)) * 1.35;
-        h += ridge + wave1 * 2.6 + wave2 * 2.0;
-      } else if (cell === 'hills' || cell === 'rock') {
-        h += Math.sin(gx * 0.34 + gz * 0.29) * 0.38 + wave1 * 1.5 + wave2;
-      } else if (cell === 'forest' || cell === 'pine_forest' || cell === 'forest_floor') {
-        h += wave1 * 1.25 + wave2;
-      } else if (cell !== 'water' && cell !== 'deep_water') {
-        h += wave1 * 0.75 + wave2 * 0.5;
-      }
-
-      return h;
-    };
-
-    // Sample and smooth 3x3 neighborhood for natural rolling hills while keeping bases and highways level
-    for (let rz = 0; rz < rows; rz++) {
-      const gz = (rz / this.subHeight) * this.gridHeight;
-      for (let rx = 0; rx < cols; rx++) {
-        const gx = (rx / this.subWidth) * this.gridWidth;
-
-        let sum = 0;
-        let weightSum = 0;
-        for (let dz = -1; dz <= 1; dz++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            const w = dx === 0 && dz === 0 ? 4 : 1;
-            sum += rawCellHeight(gx + dx * 0.42, gz + dz * 0.42) * w;
-            weightSum += w;
-          }
+      // Clear previous meshes
+      if (this.groundMesh) {
+        this.terrainGroup.remove(this.groundMesh);
+        this.groundMesh.geometry.dispose();
+        if (Array.isArray(this.groundMesh.material)) {
+          this.groundMesh.material.forEach((m) => m.dispose());
+        } else if (this.groundMesh.material) {
+          this.groundMesh.material.dispose();
         }
-        let h = sum / weightSum;
+        this.groundMesh = null;
+      }
+      if (this.skirtMesh) {
+        this.terrainGroup.remove(this.skirtMesh);
+        this.skirtMesh.geometry.dispose();
+        this.skirtMesh = null;
+      }
+      if (this.waterMesh) {
+        this.terrainGroup.remove(this.waterMesh);
+        this.waterMesh.geometry.dispose();
+        this.waterMesh = null;
+      }
+      while (this.transportGroup.children.length > 0) {
+        const child = this.transportGroup.children.pop()!;
+        this.transportGroup.remove(child);
+      }
 
-        // Level terrain around military bases so compounds sit flush on graded earth pads
-        for (const base of bases) {
-          const dist = Math.hypot(gx - base.x, gz - base.y);
-          if (dist <= base.radius + 0.9) {
-            h = 0.3;
-            break;
-          } else if (dist <= base.radius + 2.6) {
-            const t = (dist - (base.radius + 0.9)) / 1.7;
-            const smoothT = t * t * (3 - 2 * t);
-            h = 0.3 * (1 - smoothT) + h * smoothT;
-          }
+      // 1. Compute smoothed heightmap at 2x resolution with realistic ridges, riverbanks, and base plateaus
+      const cols = this.subWidth + 1;
+      const rows = this.subHeight + 1;
+      this.heightGrid = new Float32Array(cols * rows);
+
+      const rawCellHeight = (gx: number, gz: number): number => {
+        const cx = Math.max(0, Math.min(this.gridWidth - 1, Math.floor(gx)));
+        const cz = Math.max(0, Math.min(this.gridHeight - 1, Math.floor(gz)));
+        const row = terrain[cz];
+        const cell = row ? row[cx] : 'grass';
+
+        if (cell === 'bridge_road' || cell === 'bridge_rail') {
+          return -0.42;
         }
 
-        this.heightGrid[rz * cols + rx] = h;
-      }
-    }
+        let h = BASE_ELEVATION[cell] ?? 0.26;
 
-    // 2. Build Playable Ground PlaneGeometry
-    const geom = new THREE.PlaneGeometry(this.gridWidth, this.gridHeight, this.subWidth, this.subHeight);
-    geom.rotateX(-Math.PI / 2);
-    geom.translate(this.gridWidth / 2, 0, this.gridHeight / 2);
+        // Multi-octave natural topographic relief
+        const wave1 = Math.sin(gx * 0.19 + gz * 0.15) * 0.09 + Math.cos(gx * 0.33 - gz * 0.27) * 0.06;
+        const wave2 = Math.sin(gx * 0.62 - gz * 0.48) * 0.035;
 
-    const posAttr = geom.attributes.position as THREE.BufferAttribute;
-    for (let i = 0; i < posAttr.count; i++) {
-      const vx = posAttr.getX(i);
-      const vz = posAttr.getZ(i);
-      const rx = Math.max(0, Math.min(this.subWidth, Math.round((vx / this.gridWidth) * this.subWidth)));
-      const rz = Math.max(0, Math.min(this.subHeight, Math.round((vz / this.gridHeight) * this.subHeight)));
-      posAttr.setY(i, this.heightGrid[rz * cols + rx]);
-    }
+        if (cell === 'mountain' || cell === 'snow') {
+          const ridge = Math.abs(Math.sin(gx * 0.48 + gz * 0.38) * Math.cos(gx * 0.25 - gz * 0.3)) * 1.35;
+          h += ridge + wave1 * 2.6 + wave2 * 2.0;
+        } else if (cell === 'hills' || cell === 'rock') {
+          h += Math.sin(gx * 0.34 + gz * 0.29) * 0.38 + wave1 * 1.5 + wave2;
+        } else if (cell === 'forest' || cell === 'pine_forest' || cell === 'forest_floor') {
+          h += wave1 * 1.25 + wave2;
+        } else if (cell !== 'water' && cell !== 'deep_water') {
+          h += wave1 * 0.75 + wave2 * 0.5;
+        }
 
-    // Compute vertex normals FIRST so we can use slope steepness (normal.y) for cliff rock shading
-    geom.computeVertexNormals();
-    const normAttr = geom.attributes.normal as THREE.BufferAttribute;
-    const colors = new Float32Array(posAttr.count * 3);
+        return Number.isFinite(h) ? h : 0.26;
+      };
 
-    for (let i = 0; i < posAttr.count; i++) {
-      const vx = posAttr.getX(i);
-      const vy = posAttr.getY(i);
-      const vz = posAttr.getZ(i);
-      const ny = normAttr.getY(i);
+      // Sample and smooth 3x3 neighborhood for natural rolling hills while keeping bases and highways level
+      for (let rz = 0; rz < rows; rz++) {
+        const gz = (rz / this.subHeight) * this.gridHeight;
+        for (let rx = 0; rx < cols; rx++) {
+          const gx = (rx / this.subWidth) * this.gridWidth;
 
-      // Bilinear blend of neighboring cell colors to eliminate boxy tile boundaries
-      const fx = Math.max(0, Math.min(this.gridWidth - 1.001, vx - 0.5));
-      const fz = Math.max(0, Math.min(this.gridHeight - 1.001, vz - 0.5));
-      const x0 = Math.floor(fx);
-      const z0 = Math.floor(fz);
-      const x1 = Math.min(this.gridWidth - 1, x0 + 1);
-      const z1 = Math.min(this.gridHeight - 1, z0 + 1);
-      const tx = fx - x0;
-      const tz = fz - z0;
+          let sum = 0;
+          let weightSum = 0;
+          for (let dz = -1; dz <= 1; dz++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const w = dx === 0 && dz === 0 ? 4 : 1;
+              const h_val = rawCellHeight(gx + dx * 0.42, gz + dz * 0.42);
+              sum += (Number.isFinite(h_val) ? h_val : 0.26) * w;
+              weightSum += w;
+            }
+          }
+          let h = sum / weightSum;
 
-      const c00 = TERRAIN_RGB[terrain[z0][x0]] || [0.23, 0.42, 0.18];
-      const c10 = TERRAIN_RGB[terrain[z0][x1]] || [0.23, 0.42, 0.18];
-      const c01 = TERRAIN_RGB[terrain[z1][x0]] || [0.23, 0.42, 0.18];
-      const c11 = TERRAIN_RGB[terrain[z1][x1]] || [0.23, 0.42, 0.18];
+          // Level terrain around military bases so compounds sit flush on graded earth pads
+          if (bases && Array.isArray(bases)) {
+            for (const base of bases) {
+              if (!base || typeof base.x !== 'number' || typeof base.y !== 'number') continue;
+              const dist = Math.hypot(gx - base.x, gz - base.y);
+              const bRadius = base.radius || 4.0;
+              if (dist <= bRadius + 0.9) {
+                h = 0.3;
+                break;
+              } else if (dist <= bRadius + 2.6) {
+                const t = (dist - (bRadius + 0.9)) / 1.7;
+                const smoothT = t * t * (3 - 2 * t);
+                h = 0.3 * (1 - smoothT) + h * (Number.isFinite(smoothT) ? smoothT : 1);
+              }
+            }
+          }
 
-      let r = (c00[0] * (1 - tx) + c10[0] * tx) * (1 - tz) + (c01[0] * (1 - tx) + c11[0] * tx) * tz;
-      let g = (c00[1] * (1 - tx) + c10[1] * tx) * (1 - tz) + (c01[1] * (1 - tx) + c11[1] * tx) * tz;
-      let b = (c00[2] * (1 - tx) + c10[2] * tx) * (1 - tz) + (c01[2] * (1 - tx) + c11[2] * tx) * tz;
-
-      // Organic micro-noise
-      const n =
-        Math.sin(vx * 1.4 + vz * 1.9) * 0.022 +
-        Math.cos(vx * 3.1 - vz * 2.7) * 0.015;
-      r += n;
-      g += n;
-      b += n * 0.8;
-
-      // Slope-based cliff rock exposure on steep hillsides & ridges
-      const slopeFactor = Math.max(0, Math.min(1, (0.89 - ny) / 0.26));
-      if (slopeFactor > 0.01 && vy > 0.05) {
-        const rockR = 0.43 + Math.sin(vy * 6.0) * 0.04;
-        const rockG = 0.41 + Math.sin(vy * 6.0) * 0.04;
-        const rockB = 0.38 + Math.sin(vy * 6.0) * 0.04;
-        r = r * (1 - slopeFactor) + rockR * slopeFactor;
-        g = g * (1 - slopeFactor) + rockG * slopeFactor;
-        b = b * (1 - slopeFactor) + rockB * slopeFactor;
+          this.heightGrid[rz * cols + rx] = Number.isFinite(h) ? h : 0.26;
+        }
       }
 
-      // High-altitude snow line & alpine scree
-      const cell = terrain[Math.min(this.gridHeight - 1, Math.floor(vz))][Math.min(this.gridWidth - 1, Math.floor(vx))];
-      if (vy > 3.6) {
-        const snowBlend = Math.min(1, (vy - 3.6) / 1.1) * Math.max(0.25, ny);
-        r = r * (1 - snowBlend) + 0.93 * snowBlend;
-        g = g * (1 - snowBlend) + 0.95 * snowBlend;
-        b = b * (1 - snowBlend) + 0.98 * snowBlend;
-      } else if (vy < 0.14 && vy > -0.24 && cell !== 'bridge_road' && cell !== 'bridge_rail') {
-        // Natural wet riverbank & shoreline transition
-        const shoreBlend = Math.max(0, Math.min(1, (0.14 - vy) / 0.36));
-        r = r * (1 - shoreBlend * 0.65) + 0.48 * (shoreBlend * 0.65);
-        g = g * (1 - shoreBlend * 0.65) + 0.41 * (shoreBlend * 0.65);
-        b = b * (1 - shoreBlend * 0.65) + 0.29 * (shoreBlend * 0.65);
+      // 2. Build Playable Ground PlaneGeometry
+      const geom = new THREE.PlaneGeometry(this.gridWidth, this.gridHeight, this.subWidth, this.subHeight);
+      geom.rotateX(-Math.PI / 2);
+      geom.translate(this.gridWidth / 2, 0, this.gridHeight / 2);
+
+      const posAttr = geom.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < posAttr.count; i++) {
+        const vx = posAttr.getX(i);
+        const vz = posAttr.getZ(i);
+        const rx = Math.max(0, Math.min(this.subWidth, Math.round((vx / this.gridWidth) * this.subWidth)));
+        const rz = Math.max(0, Math.min(this.subHeight, Math.round((vz / this.gridHeight) * this.subHeight)));
+        const val = this.heightGrid[rz * cols + rx];
+        posAttr.setY(i, Number.isFinite(val) ? val : 0.26);
+
+        // Sanity check vx/vz just in case translate/rotate failed
+        if (!Number.isFinite(vx)) posAttr.setX(i, 0);
+        if (!Number.isFinite(vz)) posAttr.setZ(i, 0);
       }
 
-      colors[i * 3] = Math.max(0, Math.min(1, r));
-      colors[i * 3 + 1] = Math.max(0, Math.min(1, g));
-      colors[i * 3 + 2] = Math.max(0, Math.min(1, b));
-    }
+      posAttr.needsUpdate = true;
+      geom.computeVertexNormals();
+      geom.computeBoundingBox();
+      geom.computeBoundingSphere();
 
-    geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-    const groundMat = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      map: this.detailTex,
-      bumpMap: this.bumpTex,
-      bumpScale: 0.065,
-      roughness: 0.86,
-      metalness: 0.04,
-    });
-
-    this.groundMesh = new THREE.Mesh(geom, groundMat);
-    this.groundMesh.receiveShadow = true;
-    this.groundMesh.name = 'battlefield_ground';
-    this.terrainGroup.add(this.groundMesh);
-
-    // 2B. Outer Valley Horizon Skirt (eliminates floating map edges in tactical low-pitch camera views)
-    const skirtGeom = new THREE.PlaneGeometry(this.gridWidth + 140, this.gridHeight + 140, 48, 36);
-    skirtGeom.rotateX(-Math.PI / 2);
-    skirtGeom.translate(this.gridWidth / 2, -0.35, this.gridHeight / 2);
-    const sPos = skirtGeom.attributes.position as THREE.BufferAttribute;
-    for (let i = 0; i < sPos.count; i++) {
-      const sx = sPos.getX(i);
-      const sz = sPos.getZ(i);
-      // Outside the playable [0..gridWidth, 0..gridHeight] bounds, sculpt rolling distant foothills
-      const dx = sx < 0 ? -sx : sx > this.gridWidth ? sx - this.gridWidth : 0;
-      const dz = sz < 0 ? -sz : sz > this.gridHeight ? sz - this.gridHeight : 0;
-      const edgeDist = Math.hypot(dx, dz);
-      if (edgeDist > 2 && sx < this.gridWidth + 5) {
-        const hill =
-          Math.sin(sx * 0.08 + sz * 0.07) * 1.4 +
-          Math.cos(sx * 0.14 - sz * 0.11) * 0.9 +
-          Math.min(5.5, edgeDist * 0.09);
-        sPos.setY(i, -0.2 + Math.max(0, hill));
-      } else {
-        sPos.setY(i, -0.85);
+      // Ensure bounding sphere is strictly finite and non-null
+      if (!geom.boundingSphere || !Number.isFinite(geom.boundingSphere.radius) || !Number.isFinite(geom.boundingSphere.center.x)) {
+        geom.boundingSphere = new THREE.Sphere(
+          new THREE.Vector3(this.gridWidth / 2, 0, this.gridHeight / 2),
+          Math.hypot(this.gridWidth, this.gridHeight)
+        );
       }
+      if (!geom.boundingBox || !Number.isFinite(geom.boundingBox.min.x)) {
+        geom.boundingBox = new THREE.Box3(
+          new THREE.Vector3(0, -10, 0),
+          new THREE.Vector3(this.gridWidth, 10, this.gridHeight)
+        );
+      }
+
+      const normAttr = geom.attributes.normal as THREE.BufferAttribute;
+      const colors = new Float32Array(posAttr.count * 3);
+
+      for (let i = 0; i < posAttr.count; i++) {
+        const vx = posAttr.getX(i);
+        const vy = posAttr.getY(i);
+        const vz = posAttr.getZ(i);
+        const rawNy = normAttr ? normAttr.getY(i) : 1.0;
+        const ny = Number.isFinite(rawNy) ? rawNy : 1.0;
+
+        // Bilinear blend of neighboring cell colors to eliminate boxy tile boundaries
+        const fx = Math.max(0, Math.min(this.gridWidth - 1.001, vx - 0.5));
+        const fz = Math.max(0, Math.min(this.gridHeight - 1.001, vz - 0.5));
+        const x0 = Math.floor(fx);
+        const z0 = Math.floor(fz);
+        const x1 = Math.min(this.gridWidth - 1, x0 + 1);
+        const z1 = Math.min(this.gridHeight - 1, z0 + 1);
+        const tx = fx - x0;
+        const tz = fz - z0;
+
+        const cell00 = terrain[z0]?.[x0] || 'grass';
+        const cell10 = terrain[z0]?.[x1] || 'grass';
+        const cell01 = terrain[z1]?.[x0] || 'grass';
+        const cell11 = terrain[z1]?.[x1] || 'grass';
+
+        const c00 = TERRAIN_RGB[cell00] || [0.23, 0.42, 0.18];
+        const c10 = TERRAIN_RGB[cell10] || [0.23, 0.42, 0.18];
+        const c01 = TERRAIN_RGB[cell01] || [0.23, 0.42, 0.18];
+        const c11 = TERRAIN_RGB[cell11] || [0.23, 0.42, 0.18];
+
+        let r = (c00[0] * (1 - tx) + c10[0] * tx) * (1 - tz) + (c01[0] * (1 - tx) + c11[0] * tx) * tz;
+        let g = (c00[1] * (1 - tx) + c10[1] * tx) * (1 - tz) + (c01[1] * (1 - tx) + c11[1] * tx) * tz;
+        let b = (c00[2] * (1 - tx) + c10[2] * tx) * (1 - tz) + (c01[2] * (1 - tx) + c11[2] * tx) * tz;
+
+        // Organic micro-noise
+        const n_raw =
+          Math.sin(vx * 1.4 + vz * 1.9) * 0.022 +
+          Math.cos(vx * 3.1 - vz * 2.7) * 0.015;
+        const n = Number.isFinite(n_raw) ? n_raw : 0;
+        r += n;
+        g += n;
+        b += n * 0.8;
+
+        // Slope-based cliff rock exposure on steep hillsides & ridges
+        const rawSlope = (0.89 - ny) / 0.26;
+        const slopeFactor = Number.isFinite(rawSlope) ? Math.max(0, Math.min(1, rawSlope)) : 0;
+        if (slopeFactor > 0.01 && vy > 0.05) {
+          const rockR = 0.43 + Math.sin(vy * 6.0) * 0.04;
+          const rockG = 0.41 + Math.sin(vy * 6.0) * 0.04;
+          const rockB = 0.38 + Math.sin(vy * 6.0) * 0.04;
+          r = r * (1 - slopeFactor) + (Number.isFinite(rockR) ? rockR : 0.4) * slopeFactor;
+          g = g * (1 - slopeFactor) + (Number.isFinite(rockG) ? rockG : 0.4) * slopeFactor;
+          b = b * (1 - slopeFactor) + (Number.isFinite(rockB) ? rockB : 0.4) * slopeFactor;
+        }
+
+        // High-altitude snow line & alpine scree
+        const cell = terrain[Math.min(this.gridHeight - 1, Math.floor(vz))]?.[Math.min(this.gridWidth - 1, Math.floor(vx))];
+        if (vy > 3.6) {
+          const snowBlend = Math.min(1, (vy - 3.6) / 1.1) * Math.max(0.25, ny);
+          r = r * (1 - snowBlend) + 0.93 * snowBlend;
+          g = g * (1 - snowBlend) + 0.95 * snowBlend;
+          b = b * (1 - snowBlend) + 0.98 * snowBlend;
+        } else if (vy < 0.14 && vy > -0.24 && cell !== 'bridge_road' && cell !== 'bridge_rail') {
+          // Natural wet riverbank & shoreline transition
+          const shoreBlend = Math.max(0, Math.min(1, (0.14 - vy) / 0.36));
+          r = r * (1 - shoreBlend * 0.65) + 0.48 * (shoreBlend * 0.65);
+          g = g * (1 - shoreBlend * 0.65) + 0.41 * (shoreBlend * 0.65);
+          b = b * (1 - shoreBlend * 0.65) + 0.29 * (shoreBlend * 0.65);
+        }
+
+        colors[i * 3] = Number.isFinite(r) ? Math.max(0, Math.min(1, r)) : 0.23;
+        colors[i * 3 + 1] = Number.isFinite(g) ? Math.max(0, Math.min(1, g)) : 0.43;
+        colors[i * 3 + 2] = Number.isFinite(b) ? Math.max(0, Math.min(1, b)) : 0.18;
+      }
+
+      geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+      let groundMat: THREE.Material;
+      try {
+        groundMat = new THREE.MeshStandardMaterial({
+          vertexColors: true,
+          map: this.detailTex || null,
+          bumpMap: this.bumpTex || null,
+          bumpScale: 0.065,
+          roughness: 0.86,
+          metalness: 0.04,
+          side: THREE.FrontSide,
+        });
+      } catch (matErr) {
+        console.warn('[Terrain3D] Texture map binding failed, using fallback vertex-colored material:', matErr);
+        groundMat = new THREE.MeshStandardMaterial({
+          vertexColors: true,
+          roughness: 0.86,
+          metalness: 0.04,
+          side: THREE.FrontSide,
+        });
+      }
+
+      this.groundMesh = new THREE.Mesh(geom, groundMat);
+      this.groundMesh.receiveShadow = true;
+      this.groundMesh.frustumCulled = false;
+      this.groundMesh.name = 'battlefield_ground';
+      this.terrainGroup.add(this.groundMesh);
+
+      // Explicitly mark textures for update to ensure they upload to GPU
+      if (this.detailTex) this.detailTex.needsUpdate = true;
+      if (this.bumpTex) this.bumpTex.needsUpdate = true;
+      if (this.waterTex) this.waterTex.needsUpdate = true;
+
+      // 2B. Outer Valley Horizon Skirt (eliminates floating map edges in tactical low-pitch camera views)
+      const skirtGeom = new THREE.PlaneGeometry(this.gridWidth + 140, this.gridHeight + 140, 48, 36);
+      skirtGeom.rotateX(-Math.PI / 2);
+      skirtGeom.translate(this.gridWidth / 2, -0.35, this.gridHeight / 2);
+      const sPos = skirtGeom.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < sPos.count; i++) {
+        const sx = sPos.getX(i);
+        const sz = sPos.getZ(i);
+        const dx = sx < 0 ? -sx : sx > this.gridWidth ? sx - this.gridWidth : 0;
+        const dz = sz < 0 ? -sz : sz > this.gridHeight ? sz - this.gridHeight : 0;
+        const edgeDist = Math.hypot(dx, dz);
+        if (edgeDist > 2 && sx < this.gridWidth + 5) {
+          const hill_raw =
+            Math.sin(sx * 0.08 + sz * 0.07) * 1.4 +
+            Math.cos(sx * 0.14 - sz * 0.11) * 0.9 +
+            Math.min(5.5, edgeDist * 0.09);
+          const hill = Number.isFinite(hill_raw) ? hill_raw : 0;
+          sPos.setY(i, -0.2 + Math.max(0, hill));
+        } else {
+          sPos.setY(i, -0.85);
+        }
+      }
+      skirtGeom.computeVertexNormals();
+      skirtGeom.computeBoundingBox();
+      skirtGeom.computeBoundingSphere();
+
+      const skirtMat = new THREE.MeshStandardMaterial({
+        color: 0x263c24,
+        map: this.detailTex || null,
+        roughness: 0.92,
+        metalness: 0.02,
+        side: THREE.FrontSide,
+      });
+      this.skirtMesh = new THREE.Mesh(skirtGeom, skirtMat);
+      this.skirtMesh.receiveShadow = true;
+      this.skirtMesh.frustumCulled = false;
+      this.terrainGroup.add(this.skirtMesh);
+
+      // 3. Build Realistic Glistening River & Ocean Water Plane
+      const waterGeom = new THREE.PlaneGeometry(this.gridWidth + 120, this.gridHeight + 120, 72, 54);
+      waterGeom.rotateX(-Math.PI / 2);
+      waterGeom.translate(this.gridWidth / 2, -0.09, this.gridHeight / 2);
+      waterGeom.computeVertexNormals();
+      waterGeom.computeBoundingBox();
+      waterGeom.computeBoundingSphere();
+
+      const waterMat = new THREE.MeshStandardMaterial({
+        color: 0x16698a,
+        map: this.waterTex || null,
+        bumpMap: this.waterTex || null,
+        bumpScale: 0.03,
+        roughness: 0.14,
+        metalness: 0.78,
+        transparent: true,
+        opacity: 0.86,
+        side: THREE.DoubleSide,
+      });
+
+      this.waterMesh = new THREE.Mesh(waterGeom, waterMat);
+      this.waterMesh.receiveShadow = true;
+      this.waterMesh.frustumCulled = false;
+      this.waterMesh.name = 'battlefield_water';
+      this.terrainGroup.add(this.waterMesh);
+
+      // 4. Build 3D Roads, Highways, Guardrails, Bridges, and Railway Networks
+      this.buildTransportNetwork(terrain);
+
+      console.log(`[Terrain3D] Successfully constructed 3D battlefield ground (${this.gridWidth}x${this.gridHeight}, vertices: ${posAttr.count}).`);
+    } catch (err) {
+      console.error('[Terrain3D] Unexpected error building 3D terrain:', err);
     }
-    skirtGeom.computeVertexNormals();
-    const skirtMat = new THREE.MeshStandardMaterial({
-      color: 0x263c24,
-      map: this.detailTex,
-      roughness: 0.92,
-      metalness: 0.02,
-    });
-    this.skirtMesh = new THREE.Mesh(skirtGeom, skirtMat);
-    this.skirtMesh.receiveShadow = true;
-    this.terrainGroup.add(this.skirtMesh);
-
-    // 3. Build Realistic Glistening River & Ocean Water Plane
-    const waterGeom = new THREE.PlaneGeometry(this.gridWidth + 120, this.gridHeight + 120, 72, 54);
-    waterGeom.rotateX(-Math.PI / 2);
-    waterGeom.translate(this.gridWidth / 2, -0.09, this.gridHeight / 2);
-
-    const waterMat = new THREE.MeshStandardMaterial({
-      color: 0x16698a,
-      map: this.waterTex,
-      bumpMap: this.waterTex,
-      bumpScale: 0.03,
-      roughness: 0.14,
-      metalness: 0.78,
-      transparent: true,
-      opacity: 0.86,
-    });
-
-    this.waterMesh = new THREE.Mesh(waterGeom, waterMat);
-    this.waterMesh.receiveShadow = true;
-    this.waterMesh.name = 'battlefield_water';
-    this.terrainGroup.add(this.waterMesh);
-
-    // 4. Build 3D Roads, Highways, Guardrails, Bridges, and Railway Networks
-    this.buildTransportNetwork(terrain);
   }
 
   public groundHeightAt(x: number, z: number, terrain?: TerrainType[][]): number {

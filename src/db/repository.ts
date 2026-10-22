@@ -40,7 +40,7 @@ export async function verifyPostgresConnection(): Promise<{ connected: boolean; 
     const existingMaps = await db.select().from(maps).limit(1);
     return { connected: true, tablesCount: 9 + (existingMaps.length >= 0 ? 0 : 0) };
   } catch (err: any) {
-    console.error('Database Error in verifyPostgresConnection:', err);
+    console.warn('Database Notice in verifyPostgresConnection:', err?.message || err);
     return { connected: false, tablesCount: 0, error: err?.message || 'Unknown DB error' };
   }
 }
@@ -296,8 +296,8 @@ export async function syncStateToPostgres(state: {
       }
     });
     return true;
-  } catch (err) {
-    console.error('Database Error in syncStateToPostgres:', err);
+  } catch (err: any) {
+    console.warn('Database Notice in syncStateToPostgres:', err?.message || err);
     return false;
   }
 }
@@ -378,8 +378,8 @@ export async function loadStateFromPostgres() {
       battleReports: loadedReports,
       kv: kvMap,
     };
-  } catch (err) {
-    console.error('Database Error in loadStateFromPostgres:', err);
+  } catch (err: any) {
+    console.warn('Database Notice in loadStateFromPostgres:', err?.message || err);
     return null;
   }
 }
@@ -444,8 +444,8 @@ export async function persistBaseAndUnitsTransaction(base: Base, updatedUnits: U
           });
       }
     });
-  } catch (err) {
-    console.error('Database Error in persistBaseAndUnitsTransaction:', err);
+  } catch (err: any) {
+    console.warn('Database Notice in persistBaseAndUnitsTransaction:', err?.message || err);
   }
 }
 
@@ -476,8 +476,8 @@ export async function persistUserTransaction(uid: string, passwordHash: string, 
           updatedAt: now,
         },
       });
-  } catch (err) {
-    console.error('Database Error in persistUserTransaction:', err);
+  } catch (err: any) {
+    console.warn('Database Notice in persistUserTransaction:', err?.message || err);
   }
 }
 
@@ -514,7 +514,7 @@ export async function persistAllianceTransaction(alliance: Alliance | null, dele
           },
         });
     }
-  } catch (err) {
-    console.error('Database Error in persistAllianceTransaction:', err);
+  } catch (err: any) {
+    console.warn('Database Notice in persistAllianceTransaction:', err?.message || err);
   }
 }

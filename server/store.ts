@@ -334,6 +334,7 @@ export class GameStore {
   private startTime: number = Date.now();
   private activeLocks = new Set<string>();
   private postgresInitialized = false;
+  private isPostgresSyncing = false;
   private lastPostgresSyncAt = 0;
   private reservedSpawns = new Map<string, { mapId: string; x: number; y: number; radius: number; expiresAt: number }>();
   private terrainByMap = new Map<string, any[][]>();
@@ -413,35 +414,40 @@ export class GameStore {
   }
 
   public async syncToDatabaseNow(): Promise<boolean> {
-    if (!isPostgresConfigured()) return false;
-    const ok = await syncStateToPostgres({
-      users: this.data.users,
-      tokens: this.data.tokens,
-      adminSessions: this.data.adminSessions,
-      maps: this.data.maps,
-      envObjectsByMap: this.data.envObjectsByMap || { map_riverfront_assault: this.data.envObjects },
-      bases: this.data.bases,
-      units: this.data.units,
-      alliances: this.data.alliances,
-      chat: this.data.chat,
-      battleReports: this.data.battleReports || [],
-      kv: {
-        economyConfig: this.data.economyConfig,
-        catalogState: this.data.catalogState,
-        systemSettings: this.data.systemSettings,
-        configHistory: this.data.configHistory,
-        announcements: this.data.announcements,
-        auditLogs: this.data.auditLogs,
-        matches: this.data.matches,
-        supportTickets: this.data.supportTickets || [],
-        exploredByUserMap: this.data.exploredByUserMap || {},
-      },
-    });
-    if (ok) {
-      this.lastPostgresSyncAt = Date.now();
-      this.postgresInitialized = true;
+    if (!isPostgresConfigured() || this.isPostgresSyncing) return false;
+    this.isPostgresSyncing = true;
+    try {
+      const ok = await syncStateToPostgres({
+        users: this.data.users,
+        tokens: this.data.tokens,
+        adminSessions: this.data.adminSessions,
+        maps: this.data.maps,
+        envObjectsByMap: this.data.envObjectsByMap || { map_riverfront_assault: this.data.envObjects },
+        bases: this.data.bases,
+        units: this.data.units,
+        alliances: this.data.alliances,
+        chat: this.data.chat,
+        battleReports: this.data.battleReports || [],
+        kv: {
+          economyConfig: this.data.economyConfig,
+          catalogState: this.data.catalogState,
+          systemSettings: this.data.systemSettings,
+          configHistory: this.data.configHistory,
+          announcements: this.data.announcements,
+          auditLogs: this.data.auditLogs,
+          matches: this.data.matches,
+          supportTickets: this.data.supportTickets || [],
+          exploredByUserMap: this.data.exploredByUserMap || {},
+        },
+      });
+      if (ok) {
+        this.lastPostgresSyncAt = Date.now();
+        this.postgresInitialized = true;
+      }
+      return ok;
+    } finally {
+      this.isPostgresSyncing = false;
     }
-    return ok;
   }
 
   public async getStorageStatus() {
