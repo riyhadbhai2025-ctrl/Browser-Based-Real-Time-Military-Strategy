@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import {
   AdminRole,
@@ -190,10 +191,25 @@ export class GameStore {
     return Date.now() - this.startTime;
   }
 
+  private resolveBootstrapSecret(envKey: string, nonProdFallback: string): string {
+    const fromEnv = process.env[envKey]?.trim();
+    if (fromEnv && fromEnv.length >= 8) {
+      return fromEnv;
+    }
+    if (process.env.NODE_ENV === 'production') {
+      const generated = crypto.randomBytes(18).toString('hex');
+      console.warn(
+        `[Security] ${envKey} not configured in production environment; generated strong ephemeral bootstrap credential.`
+      );
+      return generated;
+    }
+    return nonProdFallback;
+  }
+
   private ensureAdminBootstrapUsers(data: PersistentData) {
     const now = Date.now();
     const bootstrapUsername = process.env.ADMIN_BOOTSTRAP_USERNAME || 'Commander';
-    const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD || 'admin123';
+    const bootstrapPassword = this.resolveBootstrapSecret('ADMIN_BOOTSTRAP_PASSWORD', 'admin123');
 
     // Ensure player_default is super_admin
     if (data.users['player_default']) {
@@ -233,7 +249,7 @@ export class GameStore {
         role: 'game_admin',
         score: 3620,
         level: 9,
-        defaultPass: 'gameadmin123',
+        defaultPass: this.resolveBootstrapSecret('GAME_ADMIN_BOOTSTRAP_PASSWORD', 'gameadmin123'),
       },
       {
         id: 'admin_sentinel_mod',
@@ -243,7 +259,7 @@ export class GameStore {
         role: 'moderator',
         score: 2150,
         level: 6,
-        defaultPass: 'moderator123',
+        defaultPass: this.resolveBootstrapSecret('MODERATOR_BOOTSTRAP_PASSWORD', 'moderator123'),
       },
       {
         id: 'admin_telemetry',
@@ -253,7 +269,7 @@ export class GameStore {
         role: 'analyst',
         score: 1840,
         level: 5,
-        defaultPass: 'analyst123',
+        defaultPass: this.resolveBootstrapSecret('ANALYST_BOOTSTRAP_PASSWORD', 'analyst123'),
       },
       {
         id: 'player_striker',
@@ -425,6 +441,13 @@ export class GameStore {
     if (!parsed.adminSessions) {
       parsed.adminSessions = {};
     }
+    if (!parsed.tokens) {
+      parsed.tokens = {};
+    }
+    // Remove legacy static backdoor token if present
+    if (parsed.tokens['default_commander_token']) {
+      delete parsed.tokens['default_commander_token'];
+    }
 
     this.ensureAdminBootstrapUsers(parsed);
     return parsed as PersistentData;
@@ -456,7 +479,7 @@ export class GameStore {
     // Create default commander account so user can jump right in or register new ones
     const defaultUserId = 'player_default';
     const bootstrapUsername = process.env.ADMIN_BOOTSTRAP_USERNAME || 'Commander';
-    const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD || 'admin123';
+    const bootstrapPassword = this.resolveBootstrapSecret('ADMIN_BOOTSTRAP_PASSWORD', 'admin123');
     const homeBase = bases[0];
     homeBase.ownerId = defaultUserId;
     homeBase.ownerName = bootstrapUsername;
@@ -733,9 +756,7 @@ export class GameStore {
           profile: defaultProfile,
         },
       },
-      tokens: {
-        default_commander_token: defaultUserId,
-      },
+      tokens: {},
       adminSessions: {},
       bases,
       units: starterUnits,
@@ -1001,9 +1022,24 @@ export class GameStore {
     return null;
   }
 
+  public revokeToken(token: string) {
+    let changed = false;
+    if (this.data.tokens[token]) {
+      delete this.data.tokens[token];
+      changed = true;
+    }
+    if (this.data.adminSessions[token]) {
+      delete this.data.adminSessions[token];
+      changed = true;
+    }
+    if (changed) {
+      this.saveData();
+    }
+  }
+
   public revokeUserSessions(userId: string) {
     for (const [tok, uid] of Object.entries(this.data.tokens)) {
-      if (uid === userId && tok !== 'default_commander_token') {
+      if (uid === userId) {
         delete this.data.tokens[tok];
       }
     }

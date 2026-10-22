@@ -7,7 +7,7 @@
         "username": "Commander",
         "email": "commander@frontline.mil",
         "rank": "Supreme Commander",
-        "score": 4850,
+        "score": 4915,
         "level": 12,
         "avatar": "shield",
         "allianceId": "alliance_vanguard",
@@ -15,10 +15,10 @@
         "homeBaseId": "base_alpha_home",
         "totalBasesCaptured": 2,
         "totalUnitsProduced": 8,
-        "totalUnitsDestroyed": 14,
-        "totalResourcesHarvested": 24500,
+        "totalUnitsDestroyed": 15,
+        "totalResourcesHarvested": 76909,
         "joinedAt": 1792400605689,
-        "lastLoginAt": 1792659806148,
+        "lastLoginAt": 1792661704822,
         "beginnerProtectionUntil": 1792663405689,
         "isAdmin": true,
         "adminRole": "super_admin",
@@ -74,7 +74,7 @@
         "totalUnitsDestroyed": 8,
         "totalResourcesHarvested": 96750,
         "joinedAt": 1791450205729,
-        "lastLoginAt": 1792659806083,
+        "lastLoginAt": 1792661704748,
         "beginnerProtectionUntil": 0,
         "isAdmin": true,
         "adminRole": "moderator",
@@ -130,7 +130,7 @@
         "totalUnitsDestroyed": 8,
         "totalResourcesHarvested": 132300,
         "joinedAt": 1791450205729,
-        "lastLoginAt": 1792656205729,
+        "lastLoginAt": 1792661704946,
         "beginnerProtectionUntil": 0,
         "isAdmin": false,
         "adminRole": null,
@@ -167,6 +167,22 @@
         "banReason": null,
         "moderationHistory": [
           {
+            "id": "mod_1792661704870",
+            "action": "unban",
+            "adminId": "player_default",
+            "adminUsername": "Commander",
+            "reason": "Appeal approved in automated test",
+            "timestamp": 1792661704870
+          },
+          {
+            "id": "mod_1792661704830",
+            "action": "ban",
+            "adminId": "player_default",
+            "adminUsername": "Commander",
+            "reason": "Confirmed automated resource exploit",
+            "timestamp": 1792661704830
+          },
+          {
             "id": "mod_1792659806194",
             "action": "unban",
             "adminId": "player_default",
@@ -184,13 +200,124 @@
           }
         ]
       }
+    },
+    "user_1792661704999_e3a1db3c": {
+      "passwordHash": "$2b$08$CjyMD.FO5wF3H5X8GUHJSOUCdgeWR0CducI0GX0/lyz7mkOM7/uWi",
+      "profile": {
+        "id": "user_1792661704999_e3a1db3c",
+        "username": "Vanguard_04967",
+        "email": "vanguard_04967@frontline.mil",
+        "rank": "Second Lieutenant",
+        "score": 100,
+        "level": 1,
+        "avatar": "scout_operator",
+        "homeBaseId": "base_home_user_1792661704999_e3a1db3c",
+        "totalBasesCaptured": 0,
+        "totalUnitsProduced": 2,
+        "totalUnitsDestroyed": 0,
+        "totalResourcesHarvested": 5000,
+        "joinedAt": 1792661704999,
+        "lastLoginAt": 1792661704999,
+        "beginnerProtectionUntil": 1792834504999,
+        "isAdmin": false,
+        "adminRole": null,
+        "status": "active",
+        "suspendedUntil": null,
+        "banReason": null,
+        "moderationHistory": []
+      }
+    },
+    "user_1792661705036_2ecffab3": {
+      "passwordHash": "$2b$08$9mCFmJMNmbhJFtggi3HnJuW8WNYUWDjEtLkTIrlhQe/8Ca0RaiaSa",
+      "profile": {
+        "id": "user_1792661705036_2ecffab3",
+        "username": "Recruit_301D",
+        "email": "recruit_301d@guest.frontline.mil",
+        "rank": "Second Lieutenant",
+        "score": 100,
+        "level": 1,
+        "avatar": "scout_operator",
+        "homeBaseId": "base_home_user_1792661705036_2ecffab3",
+        "totalBasesCaptured": 0,
+        "totalUnitsProduced": 2,
+        "totalUnitsDestroyed": 0,
+        "totalResourcesHarvested": 5000,
+        "joinedAt": 1792661705036,
+        "lastLoginAt": 1792661705036,
+        "beginnerProtectionUntil": 1792834505036,
+        "isAdmin": false,
+        "adminRole": null,
+        "status": "active",
+        "suspendedUntil": null,
+        "banReason": null,
+        "moderationHistory": []
+      }
+    },
+    "user_1792661705077_497abab2": {
+      "passwordHash": "$2b$08$M47k1xCKjzz3Ttfazs6XteAV0d2BrUp2OT2e0RZ8uOPllpXV674f6",
+      "profile": {
+        "id": "user_1792661705077_497abab2",
+        "username": "AlphaCmdr_5046",
+        "email": "alphacmdr_5046@frontline.mil",
+        "rank": "Second Lieutenant",
+        "score": 777,
+        "level": 1,
+        "avatar": "scout_operator",
+        "homeBaseId": "base_home_user_1792661705077_497abab2",
+        "totalBasesCaptured": 0,
+        "totalUnitsProduced": 2,
+        "totalUnitsDestroyed": 0,
+        "totalResourcesHarvested": 5000,
+        "joinedAt": 1792661705077,
+        "lastLoginAt": 1792661705164,
+        "beginnerProtectionUntil": 1792834505077,
+        "isAdmin": false,
+        "adminRole": null,
+        "status": "active",
+        "suspendedUntil": null,
+        "banReason": null,
+        "moderationHistory": []
+      }
+    },
+    "user_1792661705128_87abda70": {
+      "passwordHash": "$2b$08$0yZdAPsro.Q9NdMQNPz3Ru8ljbZ1eEsUQY94dE/c7qrPWVHN/3ZZS",
+      "profile": {
+        "id": "user_1792661705128_87abda70",
+        "username": "BravoCmdr_5046",
+        "email": "bravocmdr_5046@frontline.mil",
+        "rank": "Second Lieutenant",
+        "score": 100,
+        "level": 1,
+        "avatar": "scout_operator",
+        "homeBaseId": "base_home_user_1792661705128_87abda70",
+        "totalBasesCaptured": 0,
+        "totalUnitsProduced": 2,
+        "totalUnitsDestroyed": 0,
+        "totalResourcesHarvested": 5000,
+        "joinedAt": 1792661705128,
+        "lastLoginAt": 1792661705128,
+        "beginnerProtectionUntil": 1792834505128,
+        "isAdmin": false,
+        "adminRole": null,
+        "status": "active",
+        "suspendedUntil": null,
+        "banReason": null,
+        "moderationHistory": []
+      }
     }
   },
   "tokens": {
-    "default_commander_token": "player_default",
     "adm_1792659806031_qvpm7yzsnp_tb3sgd4mr2": "player_default",
     "adm_1792659806080_sgve6kqrum_zz80j082bp": "admin_sentinel_mod",
-    "adm_1792659806146_sqoi7bruel_s4gmcg771k": "player_default"
+    "adm_1792659806146_sqoi7bruel_s4gmcg771k": "player_default",
+    "adm_1792661704701_tra37b7iyg_kq0iktben9": "player_default",
+    "adm_1792661704746_cxowe5bvqu_oxejeyjr4f": "admin_sentinel_mod",
+    "adm_1792661704820_d22c20na20_yrcfr3hmzp": "player_default",
+    "token_user_1792661704999_e3a1db3c_72c48512fb726d5ad367dd26084b2121": "user_1792661704999_e3a1db3c",
+    "token_user_1792661705036_2ecffab3_830c3d4786b7bd744a7f04f3d2064c01": "user_1792661705036_2ecffab3",
+    "token_user_1792661705077_497abab2_c342b89cb6be43f059272adc1fcd3f09": "user_1792661705077_497abab2",
+    "token_user_1792661705128_87abda70_a0c455483ce09d3719cef89e7f613899": "user_1792661705128_87abda70",
+    "token_user_1792661705077_497abab2_db035d7268b15ea22d3e6997cb336b24": "user_1792661705077_497abab2"
   },
   "adminSessions": {
     "adm_1792659806031_qvpm7yzsnp_tb3sgd4mr2": {
@@ -212,6 +339,26 @@
       "expiresAt": 1792688606080,
       "lastActiveAt": 1792659806109,
       "ipAddress": "127.0.0.1"
+    },
+    "adm_1792661704701_tra37b7iyg_kq0iktben9": {
+      "token": "adm_1792661704701_tra37b7iyg_kq0iktben9",
+      "userId": "player_default",
+      "username": "Commander",
+      "role": "super_admin",
+      "createdAt": 1792661704701,
+      "expiresAt": 1792690504701,
+      "lastActiveAt": 1792661704701,
+      "ipAddress": "127.0.0.1"
+    },
+    "adm_1792661704746_cxowe5bvqu_oxejeyjr4f": {
+      "token": "adm_1792661704746_cxowe5bvqu_oxejeyjr4f",
+      "userId": "admin_sentinel_mod",
+      "username": "Sentinel_Mod",
+      "role": "moderator",
+      "createdAt": 1792661704746,
+      "expiresAt": 1792690504746,
+      "lastActiveAt": 1792661704778,
+      "ipAddress": "127.0.0.1"
     }
   },
   "bases": [
@@ -225,17 +372,17 @@
       "x": 14,
       "y": 28,
       "radius": 4,
-      "health": 3500,
+      "health": 100,
       "maxHealth": 3500,
-      "defenseShield": 1200,
+      "defenseShield": 0,
       "maxShield": 1200,
       "captureProgress": 0,
       "isProtected": true,
       "resources": {
-        "concrete": 3500,
-        "steel": 3000,
-        "aluminum": 1800,
-        "fuel": 2200
+        "concrete": 15000,
+        "steel": 12000,
+        "aluminum": 8000,
+        "fuel": 10000
       },
       "storageCap": {
         "concrete": 15000,
@@ -244,12 +391,12 @@
         "fuel": 10000
       },
       "productionRates": {
-        "concrete": 12,
-        "steel": 10,
-        "aluminum": 6,
-        "fuel": 8
+        "concrete": 10.9,
+        "steel": 9.5,
+        "aluminum": 6.4,
+        "fuel": 8.3
       },
-      "lastResourceUpdate": 1792659805683,
+      "lastResourceUpdate": 1792661699197,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -348,10 +495,10 @@
       "maxShield": 800,
       "captureProgress": 0,
       "resources": {
-        "concrete": 2200,
-        "steel": 3400,
-        "aluminum": 900,
-        "fuel": 1600
+        "concrete": 12000,
+        "steel": 12605.74499999999,
+        "aluminum": 364.4449999999977,
+        "fuel": 8000
       },
       "storageCap": {
         "concrete": 12000,
@@ -360,12 +507,12 @@
         "fuel": 8000
       },
       "productionRates": {
-        "concrete": 8,
-        "steel": 15,
-        "aluminum": 4,
-        "fuel": 7
+        "concrete": 10.9,
+        "steel": 11.5,
+        "aluminum": 1.5,
+        "fuel": 8.3
       },
-      "lastResourceUpdate": 1792659805683,
+      "lastResourceUpdate": 1792661699197,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -396,6 +543,38 @@
           "level": 2,
           "health": 450,
           "maxHealth": 450
+        },
+        {
+          "id": "bld_1792660516092_echk",
+          "type": "concrete_works",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
+        },
+        {
+          "id": "bld_1792660640045_0n7w",
+          "type": "fuel_refinery",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
+        },
+        {
+          "id": "bld_1792660826454_ltnx",
+          "type": "repair_depot",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
+        },
+        {
+          "id": "bld_1792661181168_619w",
+          "type": "sam_launcher",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
         }
       ]
     },
@@ -403,21 +582,21 @@
       "id": "base_air_eagle",
       "name": "Eaglecrest Air Wing Base",
       "type": "air",
-      "ownerId": "neutral",
-      "ownerName": "Independent Defense Corps",
+      "ownerId": "enemy_insurgent",
+      "ownerName": "Kodiak PMC",
       "x": 32,
       "y": 16,
       "radius": 4,
-      "health": 2600,
+      "health": 1560,
       "maxHealth": 2600,
-      "defenseShield": 600,
+      "defenseShield": 300,
       "maxShield": 600,
       "captureProgress": 0,
       "resources": {
-        "concrete": 1500,
-        "steel": 1500,
-        "aluminum": 2500,
-        "fuel": 2800
+        "concrete": 10000,
+        "steel": 8242.384999999978,
+        "aluminum": 7482.632000000067,
+        "fuel": 9192.312900000054
       },
       "storageCap": {
         "concrete": 10000,
@@ -426,12 +605,12 @@
         "fuel": 12000
       },
       "productionRates": {
-        "concrete": 5,
-        "steel": 5,
-        "aluminum": 12,
-        "fuel": 10
+        "concrete": 10.9,
+        "steel": 9.5,
+        "aluminum": 6.4,
+        "fuel": 8.3
       },
-      "lastResourceUpdate": 1792659805683,
+      "lastResourceUpdate": 1792661699197,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -462,8 +641,49 @@
           "level": 2,
           "health": 500,
           "maxHealth": 500
+        },
+        {
+          "id": "bld_1792660589664_4yr1",
+          "type": "concrete_works",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
+        },
+        {
+          "id": "bld_1792660627957_28ol",
+          "type": "steel_foundry",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
+        },
+        {
+          "id": "bld_1792660675307_i5kd",
+          "type": "fuel_refinery",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
+        },
+        {
+          "id": "bld_1792660691448_1foa",
+          "type": "vulcan_turret",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
+        },
+        {
+          "id": "bld_1792660798234_cdru",
+          "type": "repair_depot",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
         }
-      ]
+      ],
+      "capturingPlayerId": null
     },
     {
       "id": "base_harbor_trident",
@@ -476,14 +696,14 @@
       "radius": 4,
       "health": 3000,
       "maxHealth": 3000,
-      "defenseShield": 800,
+      "defenseShield": 420,
       "maxShield": 800,
       "captureProgress": 0,
       "resources": {
-        "concrete": 2000,
-        "steel": 2800,
-        "aluminum": 1500,
-        "fuel": 2400
+        "concrete": 4999.075000000013,
+        "steel": 5799.075000000056,
+        "aluminum": 3299.4450000000243,
+        "fuel": 4799.260000000054
       },
       "storageCap": {
         "concrete": 12000,
@@ -492,12 +712,12 @@
         "fuel": 10000
       },
       "productionRates": {
-        "concrete": 6,
-        "steel": 11,
-        "aluminum": 5,
-        "fuel": 9
+        "concrete": 2.5,
+        "steel": 2.5,
+        "aluminum": 1.5,
+        "fuel": 2
       },
-      "lastResourceUpdate": 1792659805683,
+      "lastResourceUpdate": 1792661699197,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -540,10 +760,10 @@
       "maxShield": 700,
       "captureProgress": 0,
       "resources": {
-        "concrete": 2500,
-        "steel": 3600,
-        "aluminum": 1200,
-        "fuel": 2000
+        "concrete": 12000,
+        "steel": 11817.49799999996,
+        "aluminum": 1474.4450000000015,
+        "fuel": 9000
       },
       "storageCap": {
         "concrete": 12000,
@@ -552,12 +772,12 @@
         "fuel": 9000
       },
       "productionRates": {
-        "concrete": 9,
-        "steel": 14,
-        "aluminum": 4,
-        "fuel": 8
+        "concrete": 10.9,
+        "steel": 9.5,
+        "aluminum": 1.5,
+        "fuel": 8.3
       },
-      "lastResourceUpdate": 1792659805683,
+      "lastResourceUpdate": 1792661699197,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -581,6 +801,46 @@
           "level": 2,
           "health": 450,
           "maxHealth": 450
+        },
+        {
+          "id": "bld_1792660516093_ycrr",
+          "type": "concrete_works",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
+        },
+        {
+          "id": "bld_1792660553358_fdm3",
+          "type": "steel_foundry",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
+        },
+        {
+          "id": "bld_1792660600760_la8x",
+          "type": "fuel_refinery",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
+        },
+        {
+          "id": "bld_1792660656168_23g0",
+          "type": "sam_launcher",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
+        },
+        {
+          "id": "bld_1792660713599_44md",
+          "type": "repair_depot",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
         }
       ]
     },
@@ -599,10 +859,10 @@
       "maxShield": 1000,
       "captureProgress": 0,
       "resources": {
-        "concrete": 4000,
-        "steel": 4500,
-        "aluminum": 2000,
-        "fuel": 3000
+        "concrete": 13471.2509999999,
+        "steel": 10012.49799999995,
+        "aluminum": 1284.4449999999974,
+        "fuel": 9338.203600000052
       },
       "storageCap": {
         "concrete": 16000,
@@ -611,12 +871,12 @@
         "fuel": 12000
       },
       "productionRates": {
-        "concrete": 12,
-        "steel": 14,
-        "aluminum": 8,
-        "fuel": 10
+        "concrete": 10.9,
+        "steel": 9.5,
+        "aluminum": 1.5,
+        "fuel": 8.3
       },
-      "lastResourceUpdate": 1792659805683,
+      "lastResourceUpdate": 1792661699197,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -647,6 +907,38 @@
           "level": 2,
           "health": 500,
           "maxHealth": 500
+        },
+        {
+          "id": "bld_1792660516093_gnac",
+          "type": "concrete_works",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
+        },
+        {
+          "id": "bld_1792660553358_s3df",
+          "type": "steel_foundry",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
+        },
+        {
+          "id": "bld_1792660600760_a1vz",
+          "type": "fuel_refinery",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
+        },
+        {
+          "id": "bld_1792660713600_mql1",
+          "type": "repair_depot",
+          "level": 2,
+          "health": 1000,
+          "maxHealth": 1000,
+          "isConstructing": false
         }
       ]
     },
@@ -665,10 +957,10 @@
       "maxShield": 500,
       "captureProgress": 0,
       "resources": {
-        "concrete": 1200,
-        "steel": 1400,
-        "aluminum": 600,
-        "fuel": 4500
+        "concrete": 4199.074999999983,
+        "steel": 4399.074999999993,
+        "aluminum": 2399.445000000015,
+        "fuel": 15000
       },
       "storageCap": {
         "concrete": 8000,
@@ -677,12 +969,12 @@
         "fuel": 15000
       },
       "productionRates": {
-        "concrete": 4,
-        "steel": 5,
-        "aluminum": 2,
-        "fuel": 16
+        "concrete": 2.5,
+        "steel": 2.5,
+        "aluminum": 1.5,
+        "fuel": 10.1
       },
-      "lastResourceUpdate": 1792659805683,
+      "lastResourceUpdate": 1792661699197,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -708,43 +1000,408 @@
           "maxHealth": 350
         }
       ]
+    },
+    {
+      "id": "base_home_user_1792661704999_e3a1db3c",
+      "name": "Vanguard_04967's Forward Redoubt",
+      "type": "home",
+      "ownerId": "user_1792661704999_e3a1db3c",
+      "ownerName": "Vanguard_04967",
+      "allianceId": null,
+      "x": 12,
+      "y": 42,
+      "radius": 4,
+      "health": 3500,
+      "maxHealth": 3500,
+      "defenseShield": 1200,
+      "maxShield": 1200,
+      "captureProgress": 0,
+      "isProtected": true,
+      "resources": {
+        "concrete": 2500,
+        "steel": 2000,
+        "aluminum": 1200,
+        "fuel": 1500
+      },
+      "storageCap": {
+        "concrete": 10000,
+        "steel": 8000,
+        "aluminum": 5000,
+        "fuel": 6000
+      },
+      "productionRates": {
+        "concrete": 2.5,
+        "steel": 2.5,
+        "aluminum": 1.5,
+        "fuel": 2
+      },
+      "lastResourceUpdate": 1792661704999,
+      "constructionQueue": [],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_user_1792661704999_e3a1db3c",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_cw_user_1792661704999_e3a1db3c",
+          "type": "concrete_works",
+          "level": 2,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_sf_user_1792661704999_e3a1db3c",
+          "type": "steel_foundry",
+          "level": 2,
+          "health": 650,
+          "maxHealth": 650
+        },
+        {
+          "id": "b_as_user_1792661704999_e3a1db3c",
+          "type": "aluminum_smelter",
+          "level": 2,
+          "health": 500,
+          "maxHealth": 500
+        },
+        {
+          "id": "b_fr_user_1792661704999_e3a1db3c",
+          "type": "fuel_refinery",
+          "level": 2,
+          "health": 550,
+          "maxHealth": 550
+        },
+        {
+          "id": "b_br_user_1792661704999_e3a1db3c",
+          "type": "barracks",
+          "level": 1,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_vf_user_1792661704999_e3a1db3c",
+          "type": "vehicle_factory",
+          "level": 2,
+          "health": 900,
+          "maxHealth": 900
+        },
+        {
+          "id": "b_vt_user_1792661704999_e3a1db3c",
+          "type": "vulcan_turret",
+          "level": 2,
+          "health": 450,
+          "maxHealth": 450
+        }
+      ]
+    },
+    {
+      "id": "base_home_user_1792661705036_2ecffab3",
+      "name": "Recruit_301D's Forward Redoubt",
+      "type": "home",
+      "ownerId": "user_1792661705036_2ecffab3",
+      "ownerName": "Recruit_301D",
+      "allianceId": null,
+      "x": 24,
+      "y": 22,
+      "radius": 4,
+      "health": 3500,
+      "maxHealth": 3500,
+      "defenseShield": 1200,
+      "maxShield": 1200,
+      "captureProgress": 0,
+      "isProtected": true,
+      "resources": {
+        "concrete": 2500,
+        "steel": 2000,
+        "aluminum": 1200,
+        "fuel": 1500
+      },
+      "storageCap": {
+        "concrete": 10000,
+        "steel": 8000,
+        "aluminum": 5000,
+        "fuel": 6000
+      },
+      "productionRates": {
+        "concrete": 2.5,
+        "steel": 2.5,
+        "aluminum": 1.5,
+        "fuel": 2
+      },
+      "lastResourceUpdate": 1792661705036,
+      "constructionQueue": [],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_user_1792661705036_2ecffab3",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_cw_user_1792661705036_2ecffab3",
+          "type": "concrete_works",
+          "level": 2,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_sf_user_1792661705036_2ecffab3",
+          "type": "steel_foundry",
+          "level": 2,
+          "health": 650,
+          "maxHealth": 650
+        },
+        {
+          "id": "b_as_user_1792661705036_2ecffab3",
+          "type": "aluminum_smelter",
+          "level": 2,
+          "health": 500,
+          "maxHealth": 500
+        },
+        {
+          "id": "b_fr_user_1792661705036_2ecffab3",
+          "type": "fuel_refinery",
+          "level": 2,
+          "health": 550,
+          "maxHealth": 550
+        },
+        {
+          "id": "b_br_user_1792661705036_2ecffab3",
+          "type": "barracks",
+          "level": 1,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_vf_user_1792661705036_2ecffab3",
+          "type": "vehicle_factory",
+          "level": 2,
+          "health": 900,
+          "maxHealth": 900
+        },
+        {
+          "id": "b_vt_user_1792661705036_2ecffab3",
+          "type": "vulcan_turret",
+          "level": 2,
+          "health": 450,
+          "maxHealth": 450
+        }
+      ]
+    },
+    {
+      "id": "base_home_user_1792661705077_497abab2",
+      "name": "AlphaCmdr_5046's Forward Redoubt",
+      "type": "home",
+      "ownerId": "user_1792661705077_497abab2",
+      "ownerName": "AlphaCmdr_5046",
+      "allianceId": null,
+      "x": 52,
+      "y": 48,
+      "radius": 4,
+      "health": 3500,
+      "maxHealth": 3500,
+      "defenseShield": 1200,
+      "maxShield": 1200,
+      "captureProgress": 0,
+      "isProtected": true,
+      "resources": {
+        "concrete": 2300,
+        "steel": 1760,
+        "aluminum": 1140,
+        "fuel": 1380
+      },
+      "storageCap": {
+        "concrete": 10000,
+        "steel": 8000,
+        "aluminum": 5000,
+        "fuel": 6000
+      },
+      "productionRates": {
+        "concrete": 2.5,
+        "steel": 2.5,
+        "aluminum": 1.5,
+        "fuel": 2
+      },
+      "lastResourceUpdate": 1792661705077,
+      "constructionQueue": [
+        {
+          "id": "order_1792661705133_ktw9",
+          "baseId": "base_home_user_1792661705077_497abab2",
+          "buildingType": "concrete_works",
+          "targetLevel": 3,
+          "startTime": 1792661705133,
+          "finishTime": 1792661729133,
+          "cost": {
+            "concrete": 200,
+            "steel": 240,
+            "aluminum": 60,
+            "fuel": 120
+          }
+        }
+      ],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_user_1792661705077_497abab2",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_cw_user_1792661705077_497abab2",
+          "type": "concrete_works",
+          "level": 2,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_sf_user_1792661705077_497abab2",
+          "type": "steel_foundry",
+          "level": 2,
+          "health": 650,
+          "maxHealth": 650
+        },
+        {
+          "id": "b_as_user_1792661705077_497abab2",
+          "type": "aluminum_smelter",
+          "level": 2,
+          "health": 500,
+          "maxHealth": 500
+        },
+        {
+          "id": "b_fr_user_1792661705077_497abab2",
+          "type": "fuel_refinery",
+          "level": 2,
+          "health": 550,
+          "maxHealth": 550
+        },
+        {
+          "id": "b_br_user_1792661705077_497abab2",
+          "type": "barracks",
+          "level": 1,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_vf_user_1792661705077_497abab2",
+          "type": "vehicle_factory",
+          "level": 2,
+          "health": 900,
+          "maxHealth": 900
+        },
+        {
+          "id": "b_vt_user_1792661705077_497abab2",
+          "type": "vulcan_turret",
+          "level": 2,
+          "health": 450,
+          "maxHealth": 450
+        }
+      ]
+    },
+    {
+      "id": "base_home_user_1792661705128_87abda70",
+      "name": "BravoCmdr_5046's Forward Redoubt",
+      "type": "home",
+      "ownerId": "user_1792661705128_87abda70",
+      "ownerName": "BravoCmdr_5046",
+      "allianceId": null,
+      "x": 28,
+      "y": 53,
+      "radius": 4,
+      "health": 3500,
+      "maxHealth": 3500,
+      "defenseShield": 1200,
+      "maxShield": 1200,
+      "captureProgress": 0,
+      "isProtected": true,
+      "resources": {
+        "concrete": 2500,
+        "steel": 2000,
+        "aluminum": 1200,
+        "fuel": 1500
+      },
+      "storageCap": {
+        "concrete": 10000,
+        "steel": 8000,
+        "aluminum": 5000,
+        "fuel": 6000
+      },
+      "productionRates": {
+        "concrete": 2.5,
+        "steel": 2.5,
+        "aluminum": 1.5,
+        "fuel": 2
+      },
+      "lastResourceUpdate": 1792661705128,
+      "constructionQueue": [],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_user_1792661705128_87abda70",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_cw_user_1792661705128_87abda70",
+          "type": "concrete_works",
+          "level": 2,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_sf_user_1792661705128_87abda70",
+          "type": "steel_foundry",
+          "level": 2,
+          "health": 650,
+          "maxHealth": 650
+        },
+        {
+          "id": "b_as_user_1792661705128_87abda70",
+          "type": "aluminum_smelter",
+          "level": 2,
+          "health": 500,
+          "maxHealth": 500
+        },
+        {
+          "id": "b_fr_user_1792661705128_87abda70",
+          "type": "fuel_refinery",
+          "level": 2,
+          "health": 550,
+          "maxHealth": 550
+        },
+        {
+          "id": "b_br_user_1792661705128_87abda70",
+          "type": "barracks",
+          "level": 1,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_vf_user_1792661705128_87abda70",
+          "type": "vehicle_factory",
+          "level": 2,
+          "health": 900,
+          "maxHealth": 900
+        },
+        {
+          "id": "b_vt_user_1792661705128_87abda70",
+          "type": "vulcan_turret",
+          "level": 2,
+          "health": 450,
+          "maxHealth": 450
+        }
+      ]
     }
   ],
   "units": [
-    {
-      "id": "unit_starter_1",
-      "type": "rifle_infantry",
-      "ownerId": "player_default",
-      "ownerName": "Commander",
-      "allianceId": "alliance_vanguard",
-      "x": 17,
-      "y": 29,
-      "rotation": 0,
-      "health": 340,
-      "maxHealth": 340,
-      "command": "idle",
-      "path": [],
-      "lastAttackTime": 0,
-      "kills": 1,
-      "homeBaseId": "base_alpha_home"
-    },
-    {
-      "id": "unit_starter_2",
-      "type": "titan_mbt",
-      "ownerId": "player_default",
-      "ownerName": "Commander",
-      "allianceId": "alliance_vanguard",
-      "x": 16,
-      "y": 31,
-      "rotation": 0.4,
-      "health": 1100,
-      "maxHealth": 1100,
-      "command": "idle",
-      "path": [],
-      "lastAttackTime": 0,
-      "kills": 3,
-      "homeBaseId": "base_alpha_home"
-    },
     {
       "id": "unit_starter_3",
       "type": "ironclad_apc",
@@ -753,12 +1410,12 @@
       "allianceId": "alliance_vanguard",
       "x": 12,
       "y": 31,
-      "rotation": 0.8,
+      "rotation": -0.9199117154455786,
       "health": 650,
       "maxHealth": 650,
       "command": "idle",
       "path": [],
-      "lastAttackTime": 0,
+      "lastAttackTime": 1792660615163,
       "kills": 1,
       "homeBaseId": "base_alpha_home"
     },
@@ -770,46 +1427,12 @@
       "allianceId": "alliance_vanguard",
       "x": 12,
       "y": 26,
-      "rotation": 1.2,
-      "health": 380,
+      "rotation": 0.016321674337143325,
+      "health": 347,
       "maxHealth": 380,
       "command": "idle",
       "path": [],
-      "lastAttackTime": 0,
-      "kills": 0,
-      "homeBaseId": "base_alpha_home"
-    },
-    {
-      "id": "unit_starter_5",
-      "type": "goliath_howitzer",
-      "ownerId": "player_default",
-      "ownerName": "Commander",
-      "allianceId": "alliance_vanguard",
-      "x": 17,
-      "y": 26,
-      "rotation": 0.2,
-      "health": 480,
-      "maxHealth": 480,
-      "command": "idle",
-      "path": [],
-      "lastAttackTime": 0,
-      "kills": 4,
-      "homeBaseId": "base_alpha_home"
-    },
-    {
-      "id": "unit_starter_6",
-      "type": "dominator_conquest",
-      "ownerId": "player_default",
-      "ownerName": "Commander",
-      "allianceId": "alliance_vanguard",
-      "x": 11,
-      "y": 26,
-      "rotation": 0,
-      "health": 900,
-      "maxHealth": 900,
-      "command": "idle",
-      "path": [],
-      "lastAttackTime": 0,
+      "lastAttackTime": 1792660614557,
       "kills": 0,
       "homeBaseId": "base_alpha_home"
     },
@@ -860,6 +1483,369 @@
       "lastAttackTime": 0,
       "kills": 1,
       "homeBaseId": "base_tank_armory"
+    },
+    {
+      "id": "unit_1792660523139_g9sx",
+      "type": "titan_mbt",
+      "ownerId": "enemy_insurgent",
+      "ownerName": "Kodiak PMC",
+      "x": 16.275701113284725,
+      "y": 21,
+      "rotation": 1.8851188136387527,
+      "health": 675,
+      "maxHealth": 1100,
+      "command": "attack",
+      "path": [],
+      "lastAttackTime": 1792661700002,
+      "kills": 1,
+      "homeBaseId": "base_enemy_stronghold",
+      "targetUnitId": null,
+      "targetBaseId": "base_alpha_home"
+    },
+    {
+      "id": "unit_1792660531196_z6nv",
+      "type": "vanguard_scout",
+      "ownerId": "enemy_insurgent",
+      "ownerName": "Kodiak PMC",
+      "x": 17.71570111328472,
+      "y": 21,
+      "rotation": 2.0587905299043587,
+      "health": 280,
+      "maxHealth": 280,
+      "command": "attack",
+      "path": [],
+      "lastAttackTime": 1792661699398,
+      "kills": 0,
+      "homeBaseId": "base_enemy_stronghold",
+      "targetUnitId": null,
+      "targetBaseId": "base_alpha_home"
+    },
+    {
+      "id": "unit_1792660542267_zrg9",
+      "type": "dominator_conquest",
+      "ownerId": "enemy_insurgent",
+      "ownerName": "Kodiak PMC",
+      "x": 18.435701113284715,
+      "y": 21,
+      "rotation": 3.141592653589793,
+      "health": 900,
+      "maxHealth": 900,
+      "command": "attack",
+      "path": [],
+      "lastAttackTime": 1792660576040,
+      "kills": 0,
+      "homeBaseId": "base_enemy_stronghold",
+      "targetUnitId": null,
+      "targetBaseId": "base_alpha_home"
+    },
+    {
+      "id": "unit_1792660552350_tokq",
+      "type": "vanguard_scout",
+      "ownerId": "enemy_insurgent",
+      "ownerName": "Kodiak PMC",
+      "x": 16.995701113284724,
+      "y": 21,
+      "rotation": 1.9751691665802864,
+      "health": 280,
+      "maxHealth": 280,
+      "command": "attack",
+      "path": [],
+      "lastAttackTime": 1792661700002,
+      "kills": 0,
+      "homeBaseId": "base_enemy_stronghold",
+      "targetUnitId": null,
+      "targetBaseId": "base_alpha_home"
+    },
+    {
+      "id": "unit_1792660568480_em14",
+      "type": "skyguard_aa",
+      "ownerId": "enemy_insurgent",
+      "ownerName": "Kodiak PMC",
+      "x": 22.13568425909958,
+      "y": 20.34698734542422,
+      "rotation": 2.3867556776208545,
+      "health": 520,
+      "maxHealth": 520,
+      "command": "attack",
+      "path": [],
+      "lastAttackTime": 1792661699701,
+      "kills": 0,
+      "homeBaseId": "base_enemy_stronghold",
+      "targetUnitId": null,
+      "targetBaseId": "base_alpha_home"
+    },
+    {
+      "id": "unit_1792660576558_st4y",
+      "type": "vanguard_scout",
+      "ownerId": "enemy_insurgent",
+      "ownerName": "Kodiak PMC",
+      "allianceId": "alli_dominion",
+      "x": 47,
+      "y": 53,
+      "rotation": -1.5707963267948966,
+      "health": 280,
+      "maxHealth": 280,
+      "command": "patrol",
+      "path": [],
+      "lastAttackTime": 0,
+      "kills": 0,
+      "homeBaseId": "base_tank_armory",
+      "targetUnitId": null,
+      "targetBaseId": null
+    },
+    {
+      "id": "unit_1792660578570_vdy3",
+      "type": "ironclad_apc",
+      "ownerId": "enemy_insurgent",
+      "ownerName": "Kodiak PMC",
+      "x": 19.15570111328471,
+      "y": 21,
+      "rotation": 2.2056199289145315,
+      "health": 650,
+      "maxHealth": 650,
+      "command": "attack",
+      "path": [],
+      "lastAttackTime": 1792661699902,
+      "kills": 0,
+      "homeBaseId": "base_enemy_stronghold",
+      "targetUnitId": null,
+      "targetBaseId": "base_alpha_home"
+    },
+    {
+      "id": "unit_1792660596730_h1um",
+      "type": "goliath_howitzer",
+      "ownerId": "enemy_insurgent",
+      "ownerName": "Kodiak PMC",
+      "x": 22.387089137457302,
+      "y": 21.503969302532536,
+      "rotation": 2.4825778860898593,
+      "health": 480,
+      "maxHealth": 480,
+      "command": "attack",
+      "path": [],
+      "lastAttackTime": 1792661697786,
+      "kills": 2,
+      "homeBaseId": "base_enemy_stronghold",
+      "targetUnitId": null,
+      "targetBaseId": "base_alpha_home"
+    },
+    {
+      "id": "unit_1792660600760_2huj",
+      "type": "titan_mbt",
+      "ownerId": "enemy_insurgent",
+      "ownerName": "Kodiak PMC",
+      "x": 19.875701113284705,
+      "y": 21,
+      "rotation": 2.2690959777073623,
+      "health": 1100,
+      "maxHealth": 1100,
+      "command": "attack",
+      "path": [],
+      "lastAttackTime": 1792661699600,
+      "kills": 0,
+      "homeBaseId": "base_enemy_stronghold",
+      "targetUnitId": null,
+      "targetBaseId": "base_alpha_home"
+    },
+    {
+      "id": "unit_1792660629971_0q4j",
+      "type": "hawk_scout_heli",
+      "ownerId": "enemy_insurgent",
+      "ownerName": "Kodiak PMC",
+      "x": 66,
+      "y": 32,
+      "rotation": 0.47646741947369803,
+      "health": 380,
+      "maxHealth": 380,
+      "command": "patrol",
+      "path": [],
+      "lastAttackTime": 0,
+      "kills": 0,
+      "homeBaseId": "base_air_eagle",
+      "targetUnitId": null,
+      "targetBaseId": null
+    },
+    {
+      "id": "unit_1792660634005_qtp2",
+      "type": "hawk_scout_heli",
+      "ownerId": "enemy_insurgent",
+      "ownerName": "Kodiak PMC",
+      "x": 53,
+      "y": 25,
+      "rotation": 0.4636476090008061,
+      "health": 380,
+      "maxHealth": 380,
+      "command": "patrol",
+      "path": [],
+      "lastAttackTime": 0,
+      "kills": 0,
+      "homeBaseId": "base_air_eagle",
+      "targetUnitId": null,
+      "targetBaseId": null
+    },
+    {
+      "id": "unit_1792660640045_utm1",
+      "type": "vanguard_scout",
+      "ownerId": "enemy_insurgent",
+      "ownerName": "Kodiak PMC",
+      "x": 65,
+      "y": 32,
+      "rotation": 1.5707963267948966,
+      "health": 280,
+      "maxHealth": 280,
+      "command": "patrol",
+      "path": [],
+      "lastAttackTime": 0,
+      "kills": 0,
+      "homeBaseId": "base_enemy_stronghold",
+      "targetUnitId": null,
+      "targetBaseId": null
+    },
+    {
+      "id": "unit_1792660644073_0grg",
+      "type": "hawk_scout_heli",
+      "ownerId": "enemy_insurgent",
+      "ownerName": "Kodiak PMC",
+      "x": 48,
+      "y": 47,
+      "rotation": 1.1737168815699177,
+      "health": 380,
+      "maxHealth": 380,
+      "command": "patrol",
+      "path": [],
+      "lastAttackTime": 0,
+      "kills": 0,
+      "homeBaseId": "base_air_eagle",
+      "targetUnitId": null,
+      "targetBaseId": null
+    },
+    {
+      "id": "unit_scout_1792661704999_e0d017",
+      "type": "vanguard_scout",
+      "ownerId": "user_1792661704999_e3a1db3c",
+      "ownerName": "Vanguard_04967",
+      "x": 14,
+      "y": 44,
+      "rotation": 0,
+      "health": 280,
+      "maxHealth": 280,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 0,
+      "kills": 0,
+      "homeBaseId": "base_home_user_1792661704999_e3a1db3c"
+    },
+    {
+      "id": "unit_inf_1792661704999_d93362",
+      "type": "rifle_infantry",
+      "ownerId": "user_1792661704999_e3a1db3c",
+      "ownerName": "Vanguard_04967",
+      "x": 10,
+      "y": 44,
+      "rotation": 0,
+      "health": 340,
+      "maxHealth": 340,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 0,
+      "kills": 0,
+      "homeBaseId": "base_home_user_1792661704999_e3a1db3c"
+    },
+    {
+      "id": "unit_scout_1792661705036_b7232b",
+      "type": "vanguard_scout",
+      "ownerId": "user_1792661705036_2ecffab3",
+      "ownerName": "Recruit_301D",
+      "x": 26,
+      "y": 24,
+      "rotation": 0,
+      "health": 280,
+      "maxHealth": 280,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 0,
+      "kills": 0,
+      "homeBaseId": "base_home_user_1792661705036_2ecffab3"
+    },
+    {
+      "id": "unit_inf_1792661705036_6f9f1c",
+      "type": "rifle_infantry",
+      "ownerId": "user_1792661705036_2ecffab3",
+      "ownerName": "Recruit_301D",
+      "x": 22,
+      "y": 24,
+      "rotation": 0,
+      "health": 340,
+      "maxHealth": 340,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 0,
+      "kills": 0,
+      "homeBaseId": "base_home_user_1792661705036_2ecffab3"
+    },
+    {
+      "id": "unit_scout_1792661705077_97b740",
+      "type": "vanguard_scout",
+      "ownerId": "user_1792661705077_497abab2",
+      "ownerName": "AlphaCmdr_5046",
+      "x": 56,
+      "y": 51,
+      "rotation": 0,
+      "health": 280,
+      "maxHealth": 280,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 0,
+      "kills": 0,
+      "homeBaseId": "base_home_user_1792661705077_497abab2"
+    },
+    {
+      "id": "unit_inf_1792661705077_2df278",
+      "type": "rifle_infantry",
+      "ownerId": "user_1792661705077_497abab2",
+      "ownerName": "AlphaCmdr_5046",
+      "x": 50,
+      "y": 50,
+      "rotation": 0,
+      "health": 340,
+      "maxHealth": 340,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 0,
+      "kills": 0,
+      "homeBaseId": "base_home_user_1792661705077_497abab2"
+    },
+    {
+      "id": "unit_scout_1792661705128_d1289a",
+      "type": "vanguard_scout",
+      "ownerId": "user_1792661705128_87abda70",
+      "ownerName": "BravoCmdr_5046",
+      "x": 30,
+      "y": 55,
+      "rotation": 0,
+      "health": 280,
+      "maxHealth": 280,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 0,
+      "kills": 0,
+      "homeBaseId": "base_home_user_1792661705128_87abda70"
+    },
+    {
+      "id": "unit_inf_1792661705128_859be1",
+      "type": "rifle_infantry",
+      "ownerId": "user_1792661705128_87abda70",
+      "ownerName": "BravoCmdr_5046",
+      "x": 26,
+      "y": 55,
+      "rotation": 0,
+      "health": 340,
+      "maxHealth": 340,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 0,
+      "kills": 0,
+      "homeBaseId": "base_home_user_1792661705128_87abda70"
     }
   ],
   "envObjects": [
@@ -9226,9 +10212,42 @@
       "channel": "system",
       "content": "SECTOR ALERT: All forces report to Bridgehead.",
       "timestamp": 1792659806220
+    },
+    {
+      "id": "chat_cap_1792660576659",
+      "senderId": "system",
+      "senderName": "HQ War Net",
+      "channel": "system",
+      "content": "CRITICAL ALERT: Base 'Eaglecrest Air Wing Base' has been seized by Kodiak PMC!",
+      "coords": {
+        "x": 32,
+        "y": 16
+      },
+      "timestamp": 1792660576659
+    },
+    {
+      "id": "chat_ann_1792661704896",
+      "senderId": "system",
+      "senderName": "HIGH COMMAND [WARNING]",
+      "channel": "system",
+      "content": "SECTOR ALERT: All forces report to Bridgehead.",
+      "timestamp": 1792661704896
     }
   ],
   "notifications": [
+    {
+      "id": "notif_cap_1792660576659",
+      "userId": "enemy_insurgent",
+      "type": "capture",
+      "title": "Territory Captured!",
+      "message": "Base 'Eaglecrest Air Wing Base' successfully captured from Independent Defense Corps!",
+      "coords": {
+        "x": 32,
+        "y": 16
+      },
+      "timestamp": 1792660576659,
+      "read": false
+    },
     {
       "id": "notif_1",
       "userId": "player_default",
@@ -9250,7 +10269,7 @@
     "seed": 202610
   },
   "economyConfig": {
-    "version": 3,
+    "version": 5,
     "resourceGenerationMultiplier": 1,
     "baseGenerationRates": {
       "concrete": 2.5,
@@ -9277,10 +10296,90 @@
     "populationCapPerBase": 30,
     "maxGlobalUnits": 250,
     "captureSpeedPerTick": 5,
-    "updatedAt": 1792659806209,
+    "updatedAt": 1792661704888,
     "updatedBy": "Commander"
   },
   "configHistory": [
+    {
+      "version": 5,
+      "domain": "economy",
+      "timestamp": 1792661704888,
+      "adminId": "player_default",
+      "adminUsername": "Commander",
+      "reason": "Restore v1 baseline after test",
+      "snapshot": {
+        "version": 5,
+        "resourceGenerationMultiplier": 1,
+        "baseGenerationRates": {
+          "concrete": 2.5,
+          "steel": 2.5,
+          "aluminum": 1.5,
+          "fuel": 2
+        },
+        "startingResources": {
+          "concrete": 2500,
+          "steel": 2000,
+          "aluminum": 1200,
+          "fuel": 1500
+        },
+        "baseStorageCap": {
+          "concrete": 10000,
+          "steel": 8000,
+          "aluminum": 5000,
+          "fuel": 6000
+        },
+        "unitCostMultiplier": 1,
+        "buildingCostMultiplier": 1,
+        "unitProductionSpeedMultiplier": 1,
+        "buildingBuildSpeedMultiplier": 1,
+        "populationCapPerBase": 30,
+        "maxGlobalUnits": 250,
+        "captureSpeedPerTick": 5,
+        "updatedAt": 1792661704888,
+        "updatedBy": "Commander"
+      },
+      "changesSummary": "Rolled back to v1 baseline"
+    },
+    {
+      "version": 4,
+      "domain": "economy",
+      "timestamp": 1792661704879,
+      "adminId": "player_default",
+      "adminUsername": "Commander",
+      "reason": "Weekend 1.5x harvest boost",
+      "snapshot": {
+        "version": 4,
+        "resourceGenerationMultiplier": 1.5,
+        "baseGenerationRates": {
+          "concrete": 2.5,
+          "steel": 2.5,
+          "aluminum": 1.5,
+          "fuel": 2
+        },
+        "startingResources": {
+          "concrete": 2500,
+          "steel": 2000,
+          "aluminum": 1200,
+          "fuel": 1500
+        },
+        "baseStorageCap": {
+          "concrete": 10000,
+          "steel": 8000,
+          "aluminum": 5000,
+          "fuel": 6000
+        },
+        "unitCostMultiplier": 1,
+        "buildingCostMultiplier": 1,
+        "unitProductionSpeedMultiplier": 1,
+        "buildingBuildSpeedMultiplier": 1,
+        "populationCapPerBase": 30,
+        "maxGlobalUnits": 250,
+        "captureSpeedPerTick": 5,
+        "updatedAt": 1792661704879,
+        "updatedBy": "Commander"
+      },
+      "changesSummary": "Gen 1.5x | UnitCost 1x | BldCost 1x | Pop/Base 30"
+    },
     {
       "version": 3,
       "domain": "economy",
@@ -9464,6 +10563,19 @@
   ],
   "announcements": [
     {
+      "id": "ann_1792661704896_dh2o",
+      "title": "SECTOR ALERT",
+      "message": "All forces report to Bridgehead.",
+      "priority": "warning",
+      "published": true,
+      "startsAt": 1792661704896,
+      "expiresAt": null,
+      "createdBy": "player_default",
+      "createdByUsername": "Commander",
+      "createdAt": 1792661704896,
+      "updatedAt": 1792661704896
+    },
+    {
       "id": "ann_1792659806220_ymmv",
       "title": "SECTOR ALERT",
       "message": "All forces report to Bridgehead.",
@@ -9491,6 +10603,179 @@
     }
   ],
   "auditLogs": [
+    {
+      "id": "audit_1792661704906_dktca8",
+      "timestamp": 1792661704906,
+      "adminId": "player_default",
+      "adminUsername": "Commander",
+      "adminRole": "super_admin",
+      "action": "admin.logout",
+      "targetType": "auth",
+      "targetId": "player_default",
+      "reason": "Administrator signed out and revoked session token",
+      "status": "success",
+      "ipAddress": "127.0.0.1"
+    },
+    {
+      "id": "audit_1792661704898_wlxhci",
+      "timestamp": 1792661704898,
+      "adminId": "player_default",
+      "adminUsername": "Commander",
+      "adminRole": "super_admin",
+      "action": "announcement.create",
+      "targetType": "announcement",
+      "targetId": "ann_1792661704896_dh2o",
+      "reason": "Published warning announcement: SECTOR ALERT",
+      "status": "success",
+      "ipAddress": "127.0.0.1"
+    },
+    {
+      "id": "audit_1792661704890_dg1jrr",
+      "timestamp": 1792661704890,
+      "adminId": "player_default",
+      "adminUsername": "Commander",
+      "adminRole": "super_admin",
+      "action": "economy.rollback",
+      "targetType": "economy",
+      "targetId": "v5 (from v1)",
+      "reason": "Restore v1 baseline after test",
+      "status": "success",
+      "ipAddress": "127.0.0.1"
+    },
+    {
+      "id": "audit_1792661704882_c2wsdz",
+      "timestamp": 1792661704882,
+      "adminId": "player_default",
+      "adminUsername": "Commander",
+      "adminRole": "super_admin",
+      "action": "economy.update",
+      "targetType": "economy",
+      "targetId": "v4",
+      "reason": "Weekend 1.5x harvest boost",
+      "status": "success",
+      "ipAddress": "127.0.0.1",
+      "metadata": {
+        "version": 4,
+        "summary": "Gen 1.5x | UnitCost 1x | BldCost 1x | Pop/Base 30"
+      }
+    },
+    {
+      "id": "audit_1792661704872_4sd9bj",
+      "timestamp": 1792661704872,
+      "adminId": "player_default",
+      "adminUsername": "Commander",
+      "adminRole": "super_admin",
+      "action": "player.unban",
+      "targetType": "player",
+      "targetId": "player_ironwolf",
+      "reason": "Appeal approved in automated test",
+      "status": "success",
+      "ipAddress": "127.0.0.1"
+    },
+    {
+      "id": "audit_1792661704835_4qzgxu",
+      "timestamp": 1792661704835,
+      "adminId": "player_default",
+      "adminUsername": "Commander",
+      "adminRole": "super_admin",
+      "action": "player.ban",
+      "targetType": "player",
+      "targetId": "player_ironwolf",
+      "reason": "Confirmed automated resource exploit",
+      "status": "success",
+      "ipAddress": "127.0.0.1"
+    },
+    {
+      "id": "audit_1792661704822_tekj8l",
+      "timestamp": 1792661704822,
+      "adminId": "player_default",
+      "adminUsername": "Commander",
+      "adminRole": "super_admin",
+      "action": "admin.login.success",
+      "targetType": "auth",
+      "targetId": "player_default",
+      "reason": "Authenticated into Admin Command Center with role super_admin",
+      "status": "success",
+      "ipAddress": "127.0.0.1"
+    },
+    {
+      "id": "audit_1792661704778_jlm0f5",
+      "timestamp": 1792661704778,
+      "adminId": "admin_sentinel_mod",
+      "adminUsername": "Sentinel_Mod",
+      "adminRole": "moderator",
+      "action": "player.ban.denied",
+      "targetType": "player",
+      "targetId": "player_default",
+      "reason": "Attempted to moderate a super_admin without super_admin authority",
+      "status": "denied",
+      "ipAddress": "127.0.0.1"
+    },
+    {
+      "id": "audit_1792661704771_es9r5y",
+      "timestamp": 1792661704771,
+      "adminId": "admin_sentinel_mod",
+      "adminUsername": "Sentinel_Mod",
+      "adminRole": "moderator",
+      "action": "permission.denied:admins.manage",
+      "targetType": "system",
+      "targetId": "/api/admin/administrators/role",
+      "reason": "Role 'moderator' lacks required permission 'admins.manage'",
+      "status": "denied",
+      "ipAddress": "127.0.0.1"
+    },
+    {
+      "id": "audit_1792661704763_wpgufp",
+      "timestamp": 1792661704763,
+      "adminId": "admin_sentinel_mod",
+      "adminUsername": "Sentinel_Mod",
+      "adminRole": "moderator",
+      "action": "permission.denied:economy.edit",
+      "targetType": "system",
+      "targetId": "/api/admin/economy",
+      "reason": "Role 'moderator' lacks required permission 'economy.edit'",
+      "status": "denied",
+      "ipAddress": "127.0.0.1"
+    },
+    {
+      "id": "audit_1792661704748_53ysgx",
+      "timestamp": 1792661704748,
+      "adminId": "admin_sentinel_mod",
+      "adminUsername": "Sentinel_Mod",
+      "adminRole": "moderator",
+      "action": "admin.login.success",
+      "targetType": "auth",
+      "targetId": "admin_sentinel_mod",
+      "reason": "Authenticated into Admin Command Center with role moderator",
+      "status": "success",
+      "ipAddress": "127.0.0.1"
+    },
+    {
+      "id": "audit_1792661704703_o9m161",
+      "timestamp": 1792661704703,
+      "adminId": "player_default",
+      "adminUsername": "Commander",
+      "adminRole": "super_admin",
+      "action": "admin.login.success",
+      "targetType": "auth",
+      "targetId": "player_default",
+      "reason": "Authenticated into Admin Command Center with role super_admin",
+      "status": "success",
+      "ipAddress": "127.0.0.1"
+    },
+    {
+      "id": "audit_1792661704661_silmd7",
+      "timestamp": 1792661704661,
+      "adminId": "player_striker",
+      "adminUsername": "Striker_Actual",
+      "adminRole": "unknown",
+      "action": "admin.login.unauthorized_role",
+      "targetType": "auth",
+      "targetId": "player_striker",
+      "reason": "Non-admin player attempted to log into /admin console",
+      "status": "denied",
+      "ipAddress": "127.0.0.1"
+    },
     {
       "id": "audit_1792659806229_4r1bo9",
       "timestamp": 1792659806229,
@@ -9693,8 +10978,8 @@
         "enemy_insurgent"
       ],
       "winnerName": null,
-      "totalUnitsSpawned": 9,
-      "totalBasesCaptured": 2,
+      "totalUnitsSpawned": 32,
+      "totalBasesCaptured": 3,
       "terminationReason": null
     },
     {

@@ -18,13 +18,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch('/api/auth/guest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: 'Commander', password: 'admin123' }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Quick login failed');
+      if (!res.ok) throw new Error(data.error || 'Guest deployment failed');
       onSuccess(data.token, data.profile);
     } catch (err: any) {
       setError(err.message);
@@ -86,13 +85,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onSuccess }) => {
             </div>
           )}
 
-          {/* Quick Play CTA */}
+          {/* Non-Privileged Guest Quick Play CTA */}
           <button
             onClick={handleQuickPlay}
             disabled={loading}
             className="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-mono font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition shadow-lg shadow-blue-600/20"
           >
-            <span>Instant Deploy as Commander</span>
+            <span>Quick Deploy (Guest Recruit)</span>
             <ChevronRight className="w-4 h-4" />
           </button>
 

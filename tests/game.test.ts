@@ -275,3 +275,199 @@ test('9. Player Moderation, Banned User Gameplay Blocking, Economy Rollback, XSS
     assert.strictEqual(logoutRes.status, 200);
   });
 });
+
+test('10. GET /api/auth/me rejects missing/invalid tokens (401), blocks banned accounts (403), and never falls back to Commander', async () => {
+  resetRateLimiterForTests();
+  await withTestServer(async (baseUrl) => {
+    // 1. Missing Authorization header -> 401
+    const noTokenRes = await fetch(`${baseUrl}/api/auth/me`);
+    assert.strictEqual(noTokenRes.status, 401, 'Unauthenticated GET /api/auth/me must return 401');
+
+    // 2. Malformed Authorization header -> 401
+    const malformedRes = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { Authorization: 'Basic abc123' },
+    });
+    assert.strictEqual(malformedRes.status, 401, 'Malformed Authorization header must return 401');
+
+    // 3. Invalid or legacy default_commander_token -> 401
+    const legacyTokenRes = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { Authorization: 'Bearer default_commander_token' },
+    });
+    assert.strictEqual(legacyTokenRes.status, 401, 'Legacy static token must be rejected with 401');
+
+    // 4. Valid login returns token that resolves ONLY to that user
+    const strikerLogin = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'Striker_Actual', password: 'player123' }),
+    });
+    assert.strictEqual(strikerLogin.status, 200);
+    const strikerData = await strikerLogin.json();
+    assert.strictEqual(strikerData.profile.username, 'Striker_Actual');
+    assert.strictEqual(strikerData.profile.isAdmin, false);
+
+    const meRes = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${strikerData.token}` },
+    });
+    assert.strictEqual(meRes.status, 200);
+    const meBody = await meRes.json();
+    assert.strictEqual(meBody.profile.id, 'player_striker');
+    assert.strictEqual(meBody.profile.username, 'Striker_Actual');
+    assert.notStrictEqual(meBody.profile.id, 'player_default', 'Must never return Commander for another user token');
+
+    // 5. Logout revokes token so subsequent /api/auth/me returns 401
+    const logoutRes = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${strikerData.token}` },
+    });
+    assert.strictEqual(logoutRes.status, 200);
+
+    const afterLogoutMe = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${strikerData.token}` },
+    });
+    assert.strictEqual(afterLogoutMe.status, 401, 'Revoked token must return 401');
+  });
+});
+
+test('11. New Player Registration & Guest Quick Play create non-privileged accounts with individual home bases and cannot access Admin APIs', async () => {
+  resetRateLimiterForTests();
+  await withTestServer(async (baseUrl) => {
+    const uniqueCallsign = `Vanguard_${Date.now().toString().slice(-5)}`;
+
+    // 1. Register new player
+    const regRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: uniqueCallsign,
+        password: 'securePass99',
+        email: `${uniqueCallsign.toLowerCase()}@frontline.mil`,
+      }),
+    });
+    assert.strictEqual(regRes.status, 200, 'New player registration must succeed');
+    const regData = await regRes.json();
+    assert.ok(regData.token, 'Registration must return a session token');
+    assert.strictEqual(regData.profile.username, uniqueCallsign);
+    assert.strictEqual(regData.profile.isAdmin, false, 'Registered player must have isAdmin: false');
+    assert.strictEqual(regData.profile.adminRole, null, 'Registered player must have adminRole: null');
+    assert.strictEqual(regData.profile.status, 'active', 'Registered player must have status: active');
+    assert.ok(regData.profile.beginnerProtectionUntil > Date.now(), 'Beginner protection must be active');
+
+    // Verify individual home base and starter units were created in persistent store
+    const state = gameStore.getData();
+    const playerBase = state.bases.find((b) => b.id === regData.profile.homeBaseId);
+    assert.ok(playerBase, 'Registered player must have an individual home base');
+    assert.strictEqual(playerBase?.ownerId, regData.profile.id);
+    assert.ok(playerBase!.buildings.length >= 6, 'Home base must include starter buildings');
+    assert.ok(playerBase!.resources.concrete > 0 && playerBase!.resources.steel > 0, 'Home base has starting resources');
+
+    const playerUnits = state.units.filter((u) => u.ownerId === regData.profile.id);
+    assert.ok(playerUnits.length >= 1, 'Registered player must receive starter units');
+
+    // 2. Duplicate username registration is rejected
+    const dupRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: uniqueCallsign.toUpperCase(),
+        password: 'anotherPassword',
+      }),
+    });
+    assert.strictEqual(dupRes.status, 400, 'Case-insensitive duplicate username must return 400');
+
+    // 3. Guest Quick Play creates a non-privileged recruit account (never Commander)
+    const guestRes = await fetch(`${baseUrl}/api/auth/guest`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    assert.strictEqual(guestRes.status, 200, 'Guest quick deploy must succeed');
+    const guestData = await guestRes.json();
+    assert.notStrictEqual(guestData.profile.id, 'player_default', 'Guest quick play must never use Commander account');
+    assert.strictEqual(guestData.profile.isAdmin, false, 'Guest account must have isAdmin: false');
+    assert.strictEqual(guestData.profile.adminRole, null, 'Guest account must have adminRole: null');
+
+    // 4. Normal registered player and guest player cannot access /api/admin/*
+    const adminAttemptReg = await fetch(`${baseUrl}/api/admin/overview`, {
+      headers: { Authorization: `Bearer ${regData.token}` },
+    });
+    assert.ok(
+      adminAttemptReg.status === 401 || adminAttemptReg.status === 403,
+      'Normal registered player token must be rejected by /api/admin/overview'
+    );
+
+    const adminAttemptGuest = await fetch(`${baseUrl}/api/admin/overview`, {
+      headers: { Authorization: `Bearer ${guestData.token}` },
+    });
+    assert.ok(
+      adminAttemptGuest.status === 401 || adminAttemptGuest.status === 403,
+      'Guest player token must be rejected by /api/admin/overview'
+    );
+  });
+});
+
+test('12. Persistent player progress across logins and cross-player base/unit manipulation prevention', async () => {
+  const { gameSimulation } = await import('../server/simulation');
+  await withTestServer(async (baseUrl) => {
+    const callsignA = `AlphaCmdr_${Date.now().toString().slice(-4)}`;
+    const callsignB = `BravoCmdr_${Date.now().toString().slice(-4)}`;
+
+    const regA = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: callsignA, password: 'passAlpha123' }),
+    }).then((r) => r.json());
+
+    const regB = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: callsignB, password: 'passBravo123' }),
+    }).then((r) => r.json());
+
+    const userIdA = regA.profile.id;
+    const userIdB = regB.profile.id;
+    const baseIdA = regA.profile.homeBaseId;
+    const baseIdB = regB.profile.homeBaseId;
+
+    // 1. Player A can build on their own base
+    const ownBuild = gameSimulation.buildOrUpgrade(userIdA, baseIdA, 'concrete_works');
+    assert.strictEqual(ownBuild.success, true, 'Player A can upgrade their own base facility');
+
+    // 2. Player B CANNOT build on or produce units from Player A's base or Commander's base
+    const crossBuild = gameSimulation.buildOrUpgrade(userIdB, baseIdA, 'steel_foundry');
+    assert.strictEqual(crossBuild.success, false, 'Player B must not be able to build on Player A base');
+
+    const crossProduce = gameSimulation.produceUnit(userIdB, baseIdA, 'vanguard_scout');
+    assert.strictEqual(crossProduce.success, false, 'Player B must not be able to produce units at Player A base');
+
+    const commanderBaseBuild = gameSimulation.buildOrUpgrade(userIdB, 'base_0', 'steel_foundry');
+    assert.strictEqual(commanderBaseBuild.success, false, 'Normal player cannot build on Commander HQ');
+
+    // 3. Player B CANNOT issue move/attack commands to Player A's units
+    const state = gameStore.getData();
+    const unitA = state.units.find((u) => u.ownerId === userIdA)!;
+    assert.ok(unitA, 'Player A has a starter unit');
+    const origX = unitA.x;
+    const origY = unitA.y;
+
+    gameSimulation.commandUnits(userIdB, [unitA.id], 'move', 50, 50);
+    assert.strictEqual(unitA.path.length, 0, 'Player B cannot move Player A unit');
+    assert.strictEqual(unitA.x, origX);
+    assert.strictEqual(unitA.y, origY);
+
+    // 4. Player A retains persistent progress across logins
+    state.users[userIdA].profile.score = 777;
+    gameStore.saveData();
+
+    const reloginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: callsignA, password: 'passAlpha123' }),
+    });
+    assert.strictEqual(reloginRes.status, 200);
+    const reloginData = await reloginRes.json();
+    assert.strictEqual(reloginData.profile.id, userIdA);
+    assert.strictEqual(reloginData.profile.homeBaseId, baseIdA);
+    assert.strictEqual(reloginData.profile.score, 777, 'Persistent score and progress must be preserved across logins');
+  });
+});
+

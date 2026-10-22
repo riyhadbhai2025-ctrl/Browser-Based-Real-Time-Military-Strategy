@@ -16,6 +16,7 @@ import {
   Sun,
   Crosshair,
   Sliders,
+  LogOut,
 } from 'lucide-react';
 import { AIDifficulty, AtmospherePreset, Base, GraphicsQuality, PlayerProfile } from '../types/game';
 
@@ -44,6 +45,7 @@ interface TopBarProps {
   atmospherePreset?: AtmospherePreset;
   onChangeAtmospherePreset?: (p: AtmospherePreset) => void;
   onJumpToCoords?: (x: number, y: number) => void;
+  onLogout?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -71,6 +73,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   atmospherePreset = 'daylight',
   onChangeAtmospherePreset,
   onJumpToCoords,
+  onLogout,
 }) => {
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -294,16 +297,18 @@ export const TopBar: React.FC<TopBarProps> = ({
             <span className="hidden sm:inline">Armory</span>
           </button>
 
-          <button
-            onClick={onOpenAdmin}
-            className="px-2 py-1 text-xs rounded bg-amber-950/60 hover:bg-amber-900/70 border border-amber-700/50 text-amber-300 flex items-center gap-1 transition"
-            title="Admin Sandbox & Test Spawner"
-          >
-            <Terminal className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">Sandbox</span>
-          </button>
+          {(profile.isAdmin || profile.adminRole) && (
+            <button
+              onClick={onOpenAdmin}
+              className="px-2 py-1 text-xs rounded bg-amber-950/60 hover:bg-amber-900/70 border border-amber-700/50 text-amber-300 flex items-center gap-1 transition"
+              title="Admin Sandbox & Test Spawner"
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Sandbox</span>
+            </button>
+          )}
 
-          {onOpenAdminConsole && (
+          {onOpenAdminConsole && (profile.isAdmin || profile.adminRole) && (
             <button
               onClick={onOpenAdminConsole}
               className="px-2.5 py-1 text-xs rounded bg-blue-950/80 hover:bg-blue-900 border border-blue-600/60 text-cyan-200 flex items-center gap-1 font-mono transition"
@@ -337,6 +342,17 @@ export const TopBar: React.FC<TopBarProps> = ({
           >
             <Maximize2 className="w-3.5 h-3.5" />
           </button>
+
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              className="px-2 py-1 text-xs rounded bg-slate-900 hover:bg-rose-950/80 border border-slate-700 hover:border-rose-700/60 text-slate-300 hover:text-rose-200 flex items-center gap-1 transition"
+              title="Sign Out & Switch Account"
+            >
+              <LogOut className="w-3.5 h-3.5 text-rose-400" />
+              <span className="hidden xl:inline">Sign Out</span>
+            </button>
+          )}
         </div>
       </div>
 

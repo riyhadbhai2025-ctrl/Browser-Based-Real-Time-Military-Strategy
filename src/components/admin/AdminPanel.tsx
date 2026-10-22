@@ -800,60 +800,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
             </button>
           </form>
 
-          <div className="mt-5 pt-4 border-t border-slate-800/80 text-[11px] text-slate-400 space-y-1.5 font-mono">
-            <div className="text-slate-300 font-semibold">RBAC Test & Bootstrap Accounts:</div>
-            <div className="flex justify-between">
-              <span>Super Admin:</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginUsername('Commander');
-                  setLoginPassword('admin123');
-                }}
-                className="text-cyan-400 hover:underline"
-              >
-                Commander / admin123
-              </button>
+          <div className="mt-5 pt-4 border-t border-slate-800/80 text-[11px] text-slate-400 space-y-1 font-mono">
+            <div className="flex items-center gap-1.5 text-slate-300 font-semibold">
+              <Lock className="w-3.5 h-3.5 text-blue-400" />
+              <span>RBAC Protected Console</span>
             </div>
-            <div className="flex justify-between">
-              <span>Game Admin:</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginUsername('Valkyrie_Ops');
-                  setLoginPassword('gameadmin123');
-                }}
-                className="text-cyan-400 hover:underline"
-              >
-                Valkyrie_Ops / gameadmin123
-              </button>
-            </div>
-            <div className="flex justify-between">
-              <span>Moderator:</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginUsername('Sentinel_Mod');
-                  setLoginPassword('moderator123');
-                }}
-                className="text-cyan-400 hover:underline"
-              >
-                Sentinel_Mod / moderator123
-              </button>
-            </div>
-            <div className="flex justify-between">
-              <span>Analyst:</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setLoginUsername('Telemetry_Analyst');
-                  setLoginPassword('analyst123');
-                }}
-                className="text-cyan-400 hover:underline"
-              >
-                Telemetry_Analyst / analyst123
-              </button>
-            </div>
+            <p className="text-slate-400 leading-relaxed">
+              Access restricted to authorized staff accounts (<span className="text-slate-200">super_admin</span>,{' '}
+              <span className="text-slate-200">game_admin</span>, <span className="text-slate-200">moderator</span>,{' '}
+              <span className="text-slate-200">analyst</span>). All login attempts and actions are recorded in the
+              immutable audit log.
+            </p>
           </div>
         </div>
       </div>

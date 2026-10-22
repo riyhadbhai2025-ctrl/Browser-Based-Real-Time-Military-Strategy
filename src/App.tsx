@@ -105,20 +105,40 @@ export default function App() {
   const lastClickTimeRef = useRef<number>(0);
   const lastClickedUnitTypeRef = useRef<UnitType | null>(null);
 
-  // 1. Initial Profile Check
+  // 1. Initial Profile Check (Never falls back to player_default)
   useEffect(() => {
+    if (!token) {
+      setProfile(null);
+      setShowAuthModal(true);
+      return;
+    }
+
     fetch('/api/auth/me', {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: { Authorization: `Bearer ${token}` },
     })
-      .then((res) => (res.ok ? res.json() : null))
+      .then(async (res) => {
+        if (!res.ok) {
+          localStorage.removeItem('frontline_token');
+          setToken(null);
+          setProfile(null);
+          setShowAuthModal(true);
+          return null;
+        }
+        return res.json();
+      })
       .then((data) => {
         if (data?.profile) {
           setProfile(data.profile);
+          setShowAuthModal(false);
         } else {
+          setProfile(null);
           setShowAuthModal(true);
         }
       })
-      .catch(() => setShowAuthModal(true));
+      .catch(() => {
+        setProfile(null);
+        setShowAuthModal(true);
+      });
   }, [token]);
 
   // 2. Fetch World Terrain
@@ -148,16 +168,40 @@ export default function App() {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionDelay: 1000,
+      auth: token ? { token } : undefined,
     });
     socketRef.current = socket;
 
     socket.on('connect', () => {
       setConnected(true);
-      socket.emit('world:join', { token });
+      if (token) {
+        socket.emit('world:join', { token });
+      }
     });
 
     socket.on('disconnect', () => {
       setConnected(false);
+    });
+
+    socket.on('auth:error', () => {
+      localStorage.removeItem('frontline_token');
+      setToken(null);
+      setProfile(null);
+      setShowAuthModal(true);
+    });
+
+    socket.on('account:moderated', (payload?: { reason?: string }) => {
+      localStorage.removeItem('frontline_token');
+      setToken(null);
+      setProfile(null);
+      setShowAuthModal(true);
+      if (payload?.reason) {
+        setNotificationToast({
+          title: 'ACCOUNT ACCESS RESTRICTED',
+          message: payload.reason,
+        });
+        setTimeout(() => setNotificationToast(null), 6000);
+      }
     });
 
     socket.on('world:state', (state) => {
@@ -238,9 +282,10 @@ export default function App() {
   // --- COMMAND HELPERS ---
 
   const jumpToHome = useCallback(() => {
-    const homeBase = bases.find(
-      (b) => b.ownerId === (profile?.id || 'player_default') && b.type === 'home'
-    );
+    if (!profile?.id) return;
+    const homeBase =
+      bases.find((b) => b.ownerId === profile.id && b.type === 'home') ||
+      bases.find((b) => b.ownerId === profile.id);
     if (homeBase && rendererRef.current) {
       rendererRef.current.cameraX = homeBase.x;
       rendererRef.current.cameraY = homeBase.y;
@@ -313,7 +358,7 @@ export default function App() {
     rendererRef.current.updateWorld(
       bases,
       units,
-      profile?.id || 'player_default',
+      profile?.id || '',
       profile?.allianceId,
       envObjects
     );
@@ -443,7 +488,8 @@ export default function App() {
         }
       }
       if (e.code === 'Home') {
-        const myUnits = units.filter((u) => u.ownerId === (profile?.id || 'player_default'));
+        if (!profile?.id) return;
+        const myUnits = units.filter((u) => u.ownerId === profile.id);
         setSelectedUnitIds(new Set(myUnits.map((u) => u.id)));
         setSelectedBaseId(null);
         soundEngine.playCommandAck();
@@ -644,7 +690,7 @@ export default function App() {
     if (e.button === 0) {
       if (placingBuilding) return;
 
-      const currentUserId = profile?.id || 'player_default';
+      const currentUserId = profile?.id || '';
 
       if (isBoxSelecting.current && dragStartPos.current) {
         const insideUnits = renderer.getUnitsInScreenBox(
@@ -721,7 +767,8 @@ export default function App() {
     if (rightDragDistance.current > 12) return;
     if (selectedUnitIds.size === 0) return;
 
-    const currentUserId = profile?.id || 'player_default';
+    const currentUserId = profile?.id;
+    if (!currentUserId) return;
     const picked = renderer.pickEntityAtScreen(e.clientX, e.clientY);
 
     if (picked && picked.kind === 'unit' && picked.unit.ownerId !== currentUserId) {
@@ -823,13 +870,31 @@ export default function App() {
     });
   };
 
+  const handleLogout = useCallback(() => {
+    if (token) {
+      fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      }).catch(() => {});
+    }
+    localStorage.removeItem('frontline_token');
+    localStorage.removeItem('frontline_admin_token');
+    setToken(null);
+    setProfile(null);
+    setSelectedUnitIds(new Set());
+    setSelectedBaseId(null);
+    setShowAuthModal(true);
+  }, [token]);
+
   // Admin Sandbox tools
   const handleAdminSpawn = (unitType: UnitType, isHostile: boolean) => {
+    if (!profile?.id) return;
     const renderer = rendererRef.current;
     const targetX = Math.round(renderer ? renderer.cameraX + (Math.random() * 4 - 2) : 20);
     const targetY = Math.round(renderer ? renderer.cameraY + (Math.random() * 4 - 2) : 28);
-    const ownerId = isHostile ? 'enemy_insurgent' : profile?.id || 'player_default';
-    const authToken = localStorage.getItem('frontline_admin_token') || token || 'default_commander_token';
+    const ownerId = isHostile ? 'enemy_insurgent' : profile.id;
+    const authToken = localStorage.getItem('frontline_admin_token') || token || '';
+    if (!authToken) return;
 
     fetch('/api/admin/spawn_unit', {
       method: 'POST',
@@ -842,36 +907,42 @@ export default function App() {
   };
 
   const handleAdminBoost = (amount: number) => {
-    const homeBase = bases.find((b) => b.ownerId === (profile?.id || 'player_default'));
-    const authToken = localStorage.getItem('frontline_admin_token') || token || 'default_commander_token';
+    if (!profile?.id) return;
+    const homeBase = bases.find((b) => b.ownerId === profile.id);
+    const authToken = localStorage.getItem('frontline_admin_token') || token || '';
+    if (!authToken || !homeBase) return;
     fetch('/api/admin/boost_resources', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${authToken}`,
       },
-      body: JSON.stringify({ baseId: homeBase?.id, amount }),
+      body: JSON.stringify({ baseId: homeBase.id, amount }),
     }).catch(console.error);
   };
 
   const handleAdminRepairAll = () => {
+    if (!profile?.id) return;
     bases.forEach((b) => {
-      if (b.ownerId === (profile?.id || 'player_default')) {
+      if (b.ownerId === profile.id) {
         handleRepairBase(b.id);
       }
     });
   };
 
-  const activeHomeBase =
-    bases.find((b) => b.ownerId === (profile?.id || 'player_default') && b.type === 'home') || bases[0];
+  const currentUserId = profile?.id || '';
+  const activeHomeBase = currentUserId
+    ? bases.find((b) => b.ownerId === currentUserId && b.type === 'home') ||
+      bases.find((b) => b.ownerId === currentUserId)
+    : undefined;
 
   const selectedBase = bases.find((b) => b.id === selectedBaseId);
   const selectedUnitsList = units.filter((u) => selectedUnitIds.has(u.id));
-  const playerUnits = units.filter((u) => u.ownerId === (profile?.id || 'player_default'));
+  const playerUnits = currentUserId ? units.filter((u) => u.ownerId === currentUserId) : [];
   const usedPopulation = playerUnits.reduce((sum, u) => sum + (UNIT_CATALOG[u.type]?.populationCost || 1), 0);
   const maxPopulation = Math.max(
     40,
-    bases.filter((b) => b.ownerId === (profile?.id || 'player_default')).length * 30
+    (currentUserId ? bases.filter((b) => b.ownerId === currentUserId).length : 1) * 30
   );
 
   if (isAdminRoute) {
@@ -928,6 +999,7 @@ export default function App() {
             rendererRef.current?.setAtmospherePreset(p);
           }}
           onJumpToCoords={jumpToCoords}
+          onLogout={handleLogout}
         />
       )}
 
@@ -982,7 +1054,7 @@ export default function App() {
       {selectedBase && !placingBuilding && (
         <BaseDrawer
           base={selectedBase}
-          currentUserId={profile?.id || 'player_default'}
+          currentUserId={currentUserId}
           onClose={() => setSelectedBaseId(null)}
           onBuild={handleBuild}
           onStartPlaceBuilding3D={handleStartPlaceBuilding3D}
