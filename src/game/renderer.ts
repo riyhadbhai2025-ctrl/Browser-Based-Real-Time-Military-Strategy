@@ -1,6 +1,16 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { Base, BuildingType, CombatEvent, EnvironmentObject, TerrainType, Unit, UnitType } from '../types/game';
+import {
+  AtmospherePreset,
+  Base,
+  BuildingType,
+  CombatEvent,
+  EnvironmentObject,
+  GraphicsQuality,
+  TerrainType,
+  Unit,
+  UnitType,
+} from '../types/game';
 import { assetManager } from './assets/assetManager';
 import { BUILDING_CATALOG, UNIT_CATALOG } from './catalog';
 import { Models3DRegistry } from './models3d';
@@ -28,6 +38,16 @@ export interface Explosion3D {
   maxRadius: number;
 }
 
+export interface DustPlume3D {
+  mesh: THREE.Mesh;
+  vx: number;
+  vy: number;
+  vz: number;
+  startTime: number;
+  durationMs: number;
+  startScale: number;
+}
+
 export interface FloatingDamageText {
   id: string;
   x: number;
@@ -52,6 +72,7 @@ interface UnitRenderState {
   group: THREE.Group;
   selectionRing: THREE.Mesh;
   rangeRing: THREE.Line;
+  muzzleFlash: THREE.Mesh;
   waypointLine: THREE.Line | null;
   waypointMarker: THREE.Mesh;
   displayX: number;
@@ -59,6 +80,7 @@ interface UnitRenderState {
   displayRot: number;
   turretRot: number;
   lastFireMs: number;
+  lastDustMs: number;
   teamColorHex: number;
   type: UnitType;
 }
@@ -78,7 +100,12 @@ export class TacticalRenderer {
   private renderer: THREE.WebGLRenderer;
   private scene: THREE.Scene;
   private camera: THREE.PerspectiveCamera;
+  private sunLight: THREE.DirectionalLight;
+  private hemiLight: THREE.HemisphereLight;
   private isSoftwareGl: boolean = false;
+
+  public graphicsQuality: GraphicsQuality = 'high';
+  public atmospherePreset: AtmospherePreset = 'daylight';
 
   private terrainSys: Terrain3DSystem;
   private modelsRegistry: Models3DRegistry;
@@ -98,22 +125,39 @@ export class TacticalRenderer {
 
   private projectiles: Projectile3D[] = [];
   private explosions: Explosion3D[] = [];
+  private dustPlumes: DustPlume3D[] = [];
   private damageTexts: FloatingDamageText[] = [];
   private flashLight: THREE.PointLight;
+
+  // Shared geometry/material for dust & smoke particles
+  private dustGeom = new THREE.DodecahedronGeometry(0.11, 0);
+  private dustMat = new THREE.MeshStandardMaterial({
+    color: 0xa89984,
+    roughness: 0.95,
+    transparent: true,
+    opacity: 0.45,
+  });
+  private damageSmokeMat = new THREE.MeshStandardMaterial({
+    color: 0x1e293b,
+    roughness: 0.96,
+    transparent: true,
+    opacity: 0.55,
+  });
 
   private currentUserId: string = 'player_default';
   private userAllianceId: string | null = 'alli_dominion';
 
   // Camera state (world grid coordinates 0..100, 0..75)
-  public cameraX: number = 18;
-  public cameraY: number = 29;
-  private smoothCamX: number = 18;
-  private smoothCamY: number = 29;
-  public zoom: number = 1.05; // 0.45 to 2.4
-  private smoothZoom: number = 1.05;
-  public cameraYaw: number = 0; // Orbit angle around Y axis (radians)
-  private smoothYaw: number = 0;
-  public cameraPitch: number = 0.92; // Angle from horizontal (0.55 to 1.45 radians)
+  // Default framed close to Fortress Alpha & combined-arms column like Alpha Force reference
+  public cameraX: number = 16.8;
+  public cameraY: number = 28.2;
+  private smoothCamX: number = 16.8;
+  private smoothCamY: number = 28.2;
+  public zoom: number = 1.42; // 0.42 (strategic) to 2.8 (close-up tactical)
+  private smoothZoom: number = 1.42;
+  public cameraYaw: number = -0.16; // Slight tactical angle toward riverfront
+  private smoothYaw: number = -0.16;
+  public cameraPitch: number = 0.72; // ~41 deg RTS perspective pitch
   public isStrategicOverview: boolean = false;
 
   // Selection & Interactive states
@@ -139,7 +183,7 @@ export class TacticalRenderer {
   // Pre-allocated math objects for zero-GC frame loop
   private raycaster = new THREE.Raycaster();
   private ndcVec = new THREE.Vector2();
-  private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.25);
+  private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.28);
   private planeIntersect = new THREE.Vector3();
   private projVec = new THREE.Vector3();
 
@@ -175,51 +219,51 @@ export class TacticalRenderer {
     this.renderer.setPixelRatio(this.isSoftwareGl ? 1.0 : Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(canvas.width || window.innerWidth, canvas.height || window.innerHeight, false);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.12;
+    this.renderer.toneMappingExposure = 1.18;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = !this.isSoftwareGl;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-    // Scene & Atmosphere Setup
+    // Scene & Daylight Atmosphere Setup (Alpha Force Riverfront Assault look)
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color(0x0b1522);
-    this.scene.fog = new THREE.FogExp2(0x0b1522, 0.0085);
+    this.scene.background = new THREE.Color(0x84a9c0);
+    this.scene.fog = new THREE.FogExp2(0x8fb2c7, 0.0068);
 
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.65;
+    this.scene.environmentIntensity = 0.72;
     pmrem.dispose();
 
     // Perspective RTS Camera
     this.camera = new THREE.PerspectiveCamera(
-      45,
+      42,
       (canvas.width || window.innerWidth) / Math.max(1, canvas.height || window.innerHeight),
       0.5,
-      160
+      190
     );
 
-    // Warm Sunlight + Cool Sky/Ground Hemisphere Light
-    const hemiLight = new THREE.HemisphereLight(0x93c5fd, 0x1e3a1e, 0.85);
-    this.scene.add(hemiLight);
+    // Warm Daylight Sunlight + Sky/Ground Hemisphere Light
+    this.hemiLight = new THREE.HemisphereLight(0xbbe0ff, 0x2d4225, 1.05);
+    this.scene.add(this.hemiLight);
 
-    const sunLight = new THREE.DirectionalLight(0xfff4d6, 2.5);
-    sunLight.position.set(35, 55, 25);
+    this.sunLight = new THREE.DirectionalLight(0xfff3d6, 2.85);
+    this.sunLight.position.set(42, 62, 32);
     if (!this.isSoftwareGl) {
-      sunLight.castShadow = true;
-      sunLight.shadow.mapSize.set(2048, 2048);
-      sunLight.shadow.camera.near = 5;
-      sunLight.shadow.camera.far = 140;
+      this.sunLight.castShadow = true;
+      this.sunLight.shadow.mapSize.set(2048, 2048);
+      this.sunLight.shadow.camera.near = 5;
+      this.sunLight.shadow.camera.far = 160;
       const d = 55;
-      sunLight.shadow.camera.left = -d;
-      sunLight.shadow.camera.right = d;
-      sunLight.shadow.camera.top = d;
-      sunLight.shadow.camera.bottom = -d;
-      sunLight.shadow.bias = -0.0005;
+      this.sunLight.shadow.camera.left = -d;
+      this.sunLight.shadow.camera.right = d;
+      this.sunLight.shadow.camera.top = d;
+      this.sunLight.shadow.camera.bottom = -d;
+      this.sunLight.shadow.bias = -0.0005;
     }
-    this.scene.add(sunLight);
+    this.scene.add(this.sunLight);
 
     // Muzzle / Explosion transient point light
-    this.flashLight = new THREE.PointLight(0xf97316, 0, 12);
+    this.flashLight = new THREE.PointLight(0xf97316, 0, 14);
     this.scene.add(this.flashLight);
 
     // Subsystems
@@ -246,6 +290,62 @@ export class TacticalRenderer {
         st.signature = '';
       });
     });
+  }
+
+  public setGraphicsQuality(quality: GraphicsQuality) {
+    this.graphicsQuality = quality;
+    if (this.isSoftwareGl) return;
+
+    if (quality === 'low') {
+      this.renderer.setPixelRatio(1.0);
+      this.renderer.shadowMap.enabled = false;
+    } else if (quality === 'medium') {
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
+      this.renderer.shadowMap.enabled = true;
+      this.sunLight.shadow.mapSize.set(1024, 1024);
+    } else if (quality === 'high') {
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
+      this.renderer.shadowMap.enabled = true;
+      this.sunLight.shadow.mapSize.set(2048, 2048);
+    } else {
+      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
+      this.renderer.shadowMap.enabled = true;
+      this.sunLight.shadow.mapSize.set(2048, 2048);
+    }
+    this.sunLight.shadow.map?.dispose();
+    this.sunLight.shadow.map = null;
+  }
+
+  public setAtmospherePreset(preset: AtmospherePreset) {
+    this.atmospherePreset = preset;
+    if (preset === 'daylight') {
+      this.scene.background = new THREE.Color(0x84a9c0);
+      this.scene.fog = new THREE.FogExp2(0x8fb2c7, 0.0068);
+      this.sunLight.color.setHex(0xfff3d6);
+      this.sunLight.intensity = 2.85;
+      this.sunLight.position.set(42, 62, 32);
+      this.hemiLight.color.setHex(0xbbe0ff);
+      this.hemiLight.groundColor.setHex(0x2d4225);
+      this.hemiLight.intensity = 1.05;
+    } else if (preset === 'golden_hour') {
+      this.scene.background = new THREE.Color(0xc98c63);
+      this.scene.fog = new THREE.FogExp2(0xc7926b, 0.0075);
+      this.sunLight.color.setHex(0xffb86c);
+      this.sunLight.intensity = 3.1;
+      this.sunLight.position.set(65, 32, 42);
+      this.hemiLight.color.setHex(0xfde68a);
+      this.hemiLight.groundColor.setHex(0x3a2e21);
+      this.hemiLight.intensity = 0.95;
+    } else {
+      this.scene.background = new THREE.Color(0x526575);
+      this.scene.fog = new THREE.FogExp2(0x5a6e7f, 0.0085);
+      this.sunLight.color.setHex(0xcbd5e1);
+      this.sunLight.intensity = 1.85;
+      this.sunLight.position.set(25, 68, 20);
+      this.hemiLight.color.setHex(0x94a3b8);
+      this.hemiLight.groundColor.setHex(0x1e293b);
+      this.hemiLight.intensity = 1.1;
+    }
   }
 
   public setTerrain(terrain: TerrainType[][]) {
@@ -302,14 +402,14 @@ export class TacticalRenderer {
 
       bases.forEach((b) => {
         if (b.ownerId === this.currentUserId || (this.userAllianceId && b.allianceId === this.userAllianceId)) {
-          this.revealFogCircle(b.x, b.y, b.radius + 7, w, h);
+          this.revealFogCircle(b.x, b.y, b.radius + 8, w, h);
         }
       });
 
       units.forEach((u) => {
         if (u.ownerId === this.currentUserId || (this.userAllianceId && u.allianceId === this.userAllianceId)) {
           const def = UNIT_CATALOG[u.type];
-          const vision = def?.visionRadius || 7;
+          const vision = def?.visionRadius || 8;
           this.revealFogCircle(Math.round(u.x), Math.round(u.y), vision, w, h);
         }
       });
@@ -346,7 +446,7 @@ export class TacticalRenderer {
     const now = performance.now();
     const targetY = this.terrainSys.groundHeightAt(evt.x, evt.y, this.terrain) + 0.35;
 
-    // 1. Trigger gun recoil and turret alignment on attacking unit
+    // 1. Trigger gun recoil, muzzle flash cone & turret alignment on attacking unit
     const attackerState = this.unitStates.get(evt.attackerId);
     let startPos = new THREE.Vector3(
       evt.attackerX ?? evt.x - 1.5,
@@ -361,9 +461,9 @@ export class TacticalRenderer {
         evt.x - attackerState.displayX
       );
       startPos.set(
-        attackerState.displayX,
-        attackerState.group.position.y + 0.35,
-        attackerState.displayZ
+        attackerState.displayX + Math.cos(attackerState.turretRot) * 0.65,
+        attackerState.group.position.y + 0.36,
+        attackerState.displayZ + Math.sin(attackerState.turretRot) * 0.65
       );
     } else if (evt.attackerX !== undefined && evt.attackerY !== undefined) {
       const ay = this.terrainSys.groundHeightAt(evt.attackerX, evt.attackerY, this.terrain);
@@ -372,7 +472,7 @@ export class TacticalRenderer {
 
     const endPos = new THREE.Vector3(evt.x, targetY, evt.y);
 
-    // 2. Spawn 3D Projectile / Missile / Tracer
+    // 2. Spawn 3D Projectile / Missile / Glowing Tracer Streak
     const isMissile =
       evt.attackerType.includes('sam') ||
       evt.attackerType.includes('cobra') ||
@@ -385,12 +485,12 @@ export class TacticalRenderer {
       evt.attackerType.includes('coastal');
 
     const projGeom = isMissile
-      ? new THREE.ConeGeometry(0.07, 0.38, 6)
-      : new THREE.SphereGeometry(isArtillery ? 0.11 : 0.065, 8, 8);
-    if (isMissile) projGeom.rotateX(Math.PI / 2);
+      ? new THREE.ConeGeometry(0.075, 0.44, 6)
+      : new THREE.CylinderGeometry(isArtillery ? 0.055 : 0.032, isArtillery ? 0.055 : 0.032, isArtillery ? 0.48 : 0.36, 6);
+    projGeom.rotateX(Math.PI / 2);
 
     const projMat = new THREE.MeshBasicMaterial({
-      color: isMissile ? 0x38bdf8 : isArtillery ? 0xf97316 : 0xfacc15,
+      color: isMissile ? 0x38bdf8 : isArtillery ? 0xf97316 : 0xfef08a,
     });
     const projMesh = new THREE.Mesh(projGeom, projMat);
     projMesh.position.copy(startPos);
@@ -402,8 +502,8 @@ export class TacticalRenderer {
       startPos,
       endPos,
       startTime: now,
-      durationMs: isArtillery ? 420 : isMissile ? 340 : 210,
-      arcHeight: isArtillery ? 2.4 : isMissile ? 0.85 : 0.15,
+      durationMs: isArtillery ? 420 : isMissile ? 340 : 190,
+      arcHeight: isArtillery ? 2.5 : isMissile ? 0.85 : 0.12,
       isMissile,
     });
 
@@ -416,10 +516,10 @@ export class TacticalRenderer {
       transparent: true,
       opacity: 0.95,
     });
-    const fireball = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 12), fbMat);
+    const fireball = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 12), fbMat);
     expGroup.add(fireball);
 
-    const swGeom = new THREE.RingGeometry(0.15, 0.32, 20);
+    const swGeom = new THREE.RingGeometry(0.16, 0.34, 20);
     swGeom.rotateX(-Math.PI / 2);
     const swMat = new THREE.MeshBasicMaterial({
       color: 0xf97316,
@@ -432,22 +532,22 @@ export class TacticalRenderer {
     expGroup.add(shockwave);
 
     const smokePuffs: { mesh: THREE.Mesh; vx: number; vy: number; vz: number }[] = [];
-    const puffCount = evt.isFatal ? 6 : 3;
+    const puffCount = this.graphicsQuality === 'low' ? 2 : evt.isFatal ? 6 : 3;
     for (let i = 0; i < puffCount; i++) {
       const sMat = new THREE.MeshStandardMaterial({
         color: 0x1e293b,
         roughness: 0.95,
         transparent: true,
-        opacity: 0.75,
+        opacity: 0.78,
       });
-      const sMesh = new THREE.Mesh(new THREE.DodecahedronGeometry(0.16, 0), sMat);
+      const sMesh = new THREE.Mesh(new THREE.DodecahedronGeometry(0.18, 0), sMat);
       expGroup.add(sMesh);
       const angle = (i / puffCount) * Math.PI * 2;
       smokePuffs.push({
         mesh: sMesh,
-        vx: Math.cos(angle) * 0.8,
-        vy: 1.1 + Math.random() * 0.8,
-        vz: Math.sin(angle) * 0.8,
+        vx: Math.cos(angle) * 0.85,
+        vy: 1.2 + Math.random() * 0.8,
+        vz: Math.sin(angle) * 0.85,
       });
     }
 
@@ -459,13 +559,13 @@ export class TacticalRenderer {
       shockwave,
       smokePuffs,
       startTime: now,
-      durationMs: evt.isFatal ? 780 : 460,
-      maxRadius: evt.isFatal ? 2.6 : 1.35,
+      durationMs: evt.isFatal ? 820 : 480,
+      maxRadius: evt.isFatal ? 2.7 : 1.4,
     });
 
     // Pulse transient point light
-    this.flashLight.position.copy(endPos).add(new THREE.Vector3(0, 1.2, 0));
-    this.flashLight.intensity = evt.isFatal ? 6.0 : 3.0;
+    this.flashLight.position.copy(endPos).add(new THREE.Vector3(0, 1.3, 0));
+    this.flashLight.intensity = evt.isFatal ? 6.5 : 3.2;
 
     // 4. Floating damage number in HUD overlay
     this.damageTexts.push({
@@ -577,9 +677,8 @@ export class TacticalRenderer {
     sx: number,
     sy: number
   ): { kind: 'unit'; unit: Unit } | { kind: 'base'; base: Base } | null {
-    // 1. Check units in screen space (handles elevated aircraft & ground vehicles cleanly)
     let bestUnit: Unit | null = null;
-    let bestUnitDist = 34; // pixel radius threshold
+    let bestUnitDist = 36;
 
     for (const u of this.units) {
       if (!this.isCellVisible(u.x, u.y)) continue;
@@ -598,7 +697,6 @@ export class TacticalRenderer {
       return { kind: 'unit', unit: bestUnit };
     }
 
-    // 2. Check bases on ground
     const worldPos = this.screenToWorld(sx, sy);
     const clickedBase = this.bases.find(
       (b) => Math.hypot(b.x - worldPos.x, b.y - worldPos.y) <= b.radius
@@ -632,7 +730,6 @@ export class TacticalRenderer {
     });
   }
 
-  // Validate 3D building placement coordinates inside a base's buildable zone
   public validateBuildingPlacement(
     base: Base,
     buildingType: BuildingType,
@@ -647,7 +744,6 @@ export class TacticalRenderer {
       return { isValid: false, reason: 'RESERVED FOR HQ CORE' };
     }
 
-    // Check terrain passability
     const cx = Math.floor(worldX);
     const cy = Math.floor(worldY);
     const cell = this.terrain[cy]?.[cx];
@@ -657,10 +753,9 @@ export class TacticalRenderer {
       }
     }
 
-    // Check overlap with existing placed buildings
     for (let i = 0; i < base.buildings.length; i++) {
       const b = base.buildings[i];
-      if (b.type === buildingType) continue; // Upgrading existing building is valid
+      if (b.type === buildingType) continue;
       const slot = this.getBuildingWorldPosition(base, b, i);
       if (Math.hypot(worldX - slot.x, worldY - slot.z) < 0.85) {
         return { isValid: false, reason: 'OVERLAPS EXISTING FACILITY' };
@@ -685,13 +780,13 @@ export class TacticalRenderer {
     let ring = 1;
     let ringIdx = idx;
     let countInRing = 6;
-    let ringDist = 1.65;
+    let ringDist = 1.68;
 
     if (idx >= 6 && idx < 18) {
       ring = 2;
       ringIdx = idx - 6;
       countInRing = 12;
-      ringDist = 2.75;
+      ringDist = 2.78;
     } else if (idx >= 18) {
       ring = 3;
       ringIdx = idx - 18;
@@ -711,7 +806,6 @@ export class TacticalRenderer {
     const elapsed = this.clock.getElapsedTime();
     const now = performance.now();
 
-    // Sync canvas resize if needed
     if (
       this.hudCanvas.width !== this.canvas.width ||
       this.hudCanvas.height !== this.canvas.height
@@ -724,8 +818,8 @@ export class TacticalRenderer {
     }
 
     // 1. Update Damped RTS Camera
-    const targetPitch = this.isStrategicOverview ? 1.38 : this.cameraPitch;
-    const targetZoom = this.isStrategicOverview ? 0.52 : this.zoom;
+    const targetPitch = this.isStrategicOverview ? 1.35 : this.cameraPitch;
+    const targetZoom = this.isStrategicOverview ? 0.48 : this.zoom;
 
     const damp = 1 - Math.exp(-12 * dt);
     this.smoothCamX += (this.cameraX - this.smoothCamX) * damp;
@@ -734,7 +828,7 @@ export class TacticalRenderer {
     this.smoothYaw += (this.cameraYaw - this.smoothYaw) * damp;
 
     const groundY = this.terrainSys.groundHeightAt(this.smoothCamX, this.smoothCamY, this.terrain);
-    const orbitDist = 23 / Math.max(0.4, this.smoothZoom);
+    const orbitDist = 23 / Math.max(0.38, this.smoothZoom);
     const horizDist = Math.cos(targetPitch) * orbitDist;
     const vertDist = Math.sin(targetPitch) * orbitDist;
 
@@ -745,19 +839,23 @@ export class TacticalRenderer {
     );
     this.camera.lookAt(this.smoothCamX, groundY, this.smoothCamY);
 
+    // Move directional shadow frustum with camera so shadows stay sharp anywhere on map
+    this.sunLight.target.position.set(this.smoothCamX, groundY, this.smoothCamY);
+    this.sunLight.target.updateMatrixWorld();
+
     // 2. Update Animated Water
     this.terrainSys.updateWater(elapsed);
 
     // 3. Sync & Animate 3D Military Bases
     this.syncBases3D(elapsed);
 
-    // 4. Sync & Animate 3D Units
+    // 4. Sync & Animate 3D Units (including Infantry stride, Tank turrets, Dust trails)
     this.syncUnits3D(dt, elapsed, now);
 
     // 5. Update 3D Building Placement Ghost
     this.syncPlacementGhost3D();
 
-    // 6. Update 3D Projectiles, Explosions & Transient Lights
+    // 6. Update 3D Projectiles, Explosions, Dust Plumes & Transient Lights
     this.updateCombatFX3D(dt, now);
 
     // 7. Render 3D WebGL Scene
@@ -792,48 +890,47 @@ export class TacticalRenderer {
         const gy = this.terrainSys.groundHeightAt(base.x, base.y, this.terrain);
         group.position.set(base.x, gy, base.y);
 
-        // Compound paved octagon foundation
-        const padGeom = new THREE.CylinderGeometry(base.radius, base.radius + 0.2, 0.06, 24);
+        // Compound paved military tarmac foundation + road apron
+        const padGeom = new THREE.CylinderGeometry(base.radius, base.radius + 0.25, 0.07, 28);
         const padMat = new THREE.MeshStandardMaterial({
-          color: 0x1e293b,
-          roughness: 0.85,
-          metalness: 0.15,
+          color: 0x262d38,
+          roughness: 0.84,
+          metalness: 0.14,
         });
         const padMesh = new THREE.Mesh(padGeom, padMat);
-        padMesh.position.y = 0.02;
+        padMesh.position.y = 0.025;
         padMesh.receiveShadow = true;
         group.add(padMesh);
 
-        // 3D Perimeter Wall Segments & Corner Guard Towers
+        // 3D Perimeter Fortification Wall & Corner Watchtowers
         const wallSegments = 16;
-        const wallMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.75 });
-        const accentMat = new THREE.MeshStandardMaterial({ color: teamHex, roughness: 0.4 });
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.78 });
+        const accentMat = new THREE.MeshStandardMaterial({ color: teamHex, roughness: 0.42 });
         for (let i = 0; i < wallSegments; i++) {
           const angle = (i / wallSegments) * Math.PI * 2;
-          // Leave South-East entrance gate open
-          if (angle > 0.45 && angle < 0.95) continue;
+          // Leave East/South-East gate open for vehicle access
+          if (angle > -0.25 && angle < 0.75) continue;
 
           const wx = Math.cos(angle) * base.radius;
           const wz = Math.sin(angle) * base.radius;
 
-          const wall = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.34, 1.15), wallMat);
-          wall.position.set(wx, 0.17, wz);
+          const wall = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.38, 1.18), wallMat);
+          wall.position.set(wx, 0.19, wz);
           wall.rotation.y = -angle;
           wall.castShadow = true;
           wall.receiveShadow = true;
           group.add(wall);
 
           if (i % 4 === 0) {
-            const tower = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.68, 0.42), wallMat);
-            tower.position.set(wx, 0.34, wz);
+            const tower = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.76, 0.46), wallMat);
+            tower.position.set(wx, 0.38, wz);
             tower.castShadow = true;
-            const roof = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.08, 0.46), accentMat);
-            roof.position.set(wx, 0.7, wz);
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.09, 0.52), accentMat);
+            roof.position.set(wx, 0.78, wz);
             group.add(tower, roof);
           }
         }
 
-        // Render all base buildings in 3D
         const nonHqBuildings = base.buildings.filter((b) => b.type !== 'command_center');
         const hq = base.buildings.find((b) => b.type === 'command_center');
         if (hq) {
@@ -848,7 +945,6 @@ export class TacticalRenderer {
           group.add(bMesh);
         });
 
-        // Also render active construction queue items that aren't in base.buildings yet
         base.constructionQueue.forEach((order, qIdx) => {
           if (!base.buildings.some((b) => b.type === order.buildingType)) {
             const pos = this.getBuildingWorldPosition(
@@ -863,18 +959,18 @@ export class TacticalRenderer {
         });
 
         // 3D Energy Defense Shield Dome
-        const shieldGeom = new THREE.SphereGeometry(base.radius * 1.05, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
+        const shieldGeom = new THREE.SphereGeometry(base.radius * 1.04, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
         const shieldMat = new THREE.MeshBasicMaterial({
-          color: 0x06b6d4,
+          color: 0x38bdf8,
           transparent: true,
-          opacity: 0.14,
+          opacity: 0.1,
           wireframe: true,
         });
         const shieldMesh = new THREE.Mesh(shieldGeom, shieldMat);
         group.add(shieldMesh);
 
         // Selection Ring
-        const selGeom = new THREE.RingGeometry(base.radius + 0.15, base.radius + 0.35, 36);
+        const selGeom = new THREE.RingGeometry(base.radius + 0.15, base.radius + 0.36, 36);
         selGeom.rotateX(-Math.PI / 2);
         const selRing = new THREE.Mesh(
           selGeom,
@@ -888,18 +984,16 @@ export class TacticalRenderer {
         this.baseStates.set(base.id, st);
       }
 
-      // Animate rotating radars & turrets inside the base
       st.group.traverse((obj) => {
         if (obj.name === 'radar') {
           obj.rotation.y = elapsed * 1.1;
         }
       });
 
-      st.shieldMesh.visible = base.defenseShield > 0;
+      st.shieldMesh.visible = base.defenseShield > 0 && this.selectedBaseId === base.id;
       st.selectionRing.visible = this.selectedBaseId === base.id;
     }
 
-    // Cleanup removed bases
     for (const [id, st] of this.baseStates.entries()) {
       if (!activeBaseIds.has(id)) {
         this.basesRoot.remove(st.group);
@@ -918,7 +1012,7 @@ export class TacticalRenderer {
       const isPlayer = unit.ownerId === this.currentUserId;
       const isAllied = this.userAllianceId && unit.allianceId === this.userAllianceId;
       const isEnemy = unit.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied);
-      const teamHex = isPlayer ? 0x38bdf8 : isAllied ? 0x34d399 : isEnemy ? 0xf87171 : 0xfbbf24;
+      const teamHex = isPlayer ? 0x2563eb : isAllied ? 0x10b981 : isEnemy ? 0xdc2626 : 0xd97706;
 
       let st = this.unitStates.get(unit.id);
       if (!st || st.teamColorHex !== teamHex) {
@@ -930,15 +1024,28 @@ export class TacticalRenderer {
 
         const meshGroup = this.modelsRegistry.createUnitMesh(unit.type, teamHex);
 
-        // Selection ring on ground/hull
-        const ringGeom = new THREE.RingGeometry(0.48, 0.58, 24);
+        // Tactical Ground Selection Ring
+        const ringGeom = new THREE.RingGeometry(0.46, 0.56, 28);
         ringGeom.rotateX(-Math.PI / 2);
         const selectionRing = new THREE.Mesh(
           ringGeom,
-          new THREE.MeshBasicMaterial({ color: 0x22d3ee, side: THREE.DoubleSide })
+          new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide })
         );
         selectionRing.position.y = 0.04;
         meshGroup.add(selectionRing);
+
+        // 3D Muzzle Flash Cone attached to unit
+        const flashGeom = new THREE.ConeGeometry(0.11, 0.34, 8);
+        flashGeom.rotateZ(-Math.PI / 2);
+        const flashMat = new THREE.MeshBasicMaterial({
+          color: 0xfef08a,
+          transparent: true,
+          opacity: 0.92,
+        });
+        const muzzleFlash = new THREE.Mesh(flashGeom, flashMat);
+        muzzleFlash.position.set(0.75, 0.34, 0);
+        muzzleFlash.visible = false;
+        meshGroup.add(muzzleFlash);
 
         // Attack range circle when selected
         const uDef = UNIT_CATALOG[unit.type];
@@ -971,6 +1078,7 @@ export class TacticalRenderer {
           group: meshGroup,
           selectionRing,
           rangeRing,
+          muzzleFlash,
           waypointLine: null,
           waypointMarker,
           displayX: unit.x,
@@ -978,13 +1086,13 @@ export class TacticalRenderer {
           displayRot: unit.rotation,
           turretRot: unit.rotation,
           lastFireMs: 0,
+          lastDustMs: 0,
           teamColorHex: teamHex,
           type: unit.type,
         };
         this.unitStates.set(unit.id, st);
       }
 
-      // Visibility check via Fog of War
       const visible = this.isCellVisible(unit.x, unit.y);
       st.group.visible = visible;
       if (!visible) {
@@ -993,9 +1101,12 @@ export class TacticalRenderer {
         continue;
       }
 
-      // Smoothly interpolate position & rotation
+      const prevX = st.displayX;
+      const prevZ = st.displayZ;
       st.displayX += (unit.x - st.displayX) * posLerp;
       st.displayZ += (unit.y - st.displayZ) * posLerp;
+      const moveDelta = Math.hypot(st.displayX - prevX, st.displayZ - prevZ);
+      const isMoving = moveDelta > 0.002 || (unit.path && unit.path.length > 0);
 
       let angleDiff = unit.rotation - st.displayRot;
       while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
@@ -1007,44 +1118,89 @@ export class TacticalRenderer {
 
       if (uDef?.category === 'air') {
         const hover = Math.sin(elapsed * 3.2 + st.displayX) * 0.08;
-        st.group.position.set(st.displayX, gy + 2.6 + hover, st.displayZ);
-        // Bank aircraft slightly when turning
-        st.group.rotation.set(angleDiff * 0.35, -st.displayRot, -0.08);
-        st.selectionRing.position.y = -2.55;
-        st.rangeRing.position.y = -2.52;
+        st.group.position.set(st.displayX, gy + 2.55 + hover, st.displayZ);
+        st.group.rotation.set(angleDiff * 0.35, -st.displayRot, isMoving ? -0.12 : -0.04);
+        st.selectionRing.position.y = -2.5;
+        st.rangeRing.position.y = -2.47;
       } else if (uDef?.category === 'naval') {
         const bob = Math.sin(elapsed * 2.2 + st.displayX) * 0.03;
         st.group.position.set(st.displayX, -0.08 + bob, st.displayZ);
         st.group.rotation.set(0, -st.displayRot, 0);
       } else {
+        // Subtle suspension vibration when ground vehicles move over terrain
+        const suspPitch = isMoving && unit.type !== 'rifle_infantry' ? Math.sin(elapsed * 16 + st.displayX * 3) * 0.025 : 0;
         st.group.position.set(st.displayX, gy, st.displayZ);
-        st.group.rotation.set(0, -st.displayRot, 0);
+        st.group.rotation.set(0, -st.displayRot, suspPitch);
+
+        // Spawn dust plume behind moving ground vehicles
+        if (
+          isMoving &&
+          unit.type !== 'rifle_infantry' &&
+          this.graphicsQuality !== 'low' &&
+          now - st.lastDustMs > 140
+        ) {
+          st.lastDustMs = now;
+          this.spawnDustPlume(
+            st.displayX - Math.cos(st.displayRot) * 0.48,
+            gy + 0.08,
+            st.displayZ - Math.sin(st.displayRot) * 0.48,
+            false
+          );
+        }
       }
 
-      // Animate sub-parts (rotors, radar, turret aim, gun recoil)
+      // Emit damage smoke plume if unit is heavily damaged (< 50% HP)
+      if (unit.health < (uDef?.maxHealth || unit.maxHealth) * 0.5 && now - st.lastDustMs > 260) {
+        st.lastDustMs = now;
+        this.spawnDustPlume(st.displayX, st.group.position.y + 0.38, st.displayZ, true);
+      }
+
+      // Animate Rifle Infantry Squad leg stride
+      if (unit.type === 'rifle_infantry') {
+        for (let sIdx = 0; sIdx < 4; sIdx++) {
+          const soldier = st.group.getObjectByName(`soldier_${sIdx}`);
+          if (soldier) {
+            const legL = soldier.getObjectByName('legL');
+            const legR = soldier.getObjectByName('legR');
+            if (legL && legR) {
+              const stride = isMoving ? Math.sin(elapsed * 14 + sIdx * 1.6) * 0.55 : 0;
+              legL.rotation.z = stride;
+              legR.rotation.z = -stride;
+            }
+          }
+        }
+      }
+
+      // Animate Helicopter Rotors & Radar Dishes
       const rotor = st.group.getObjectByName('rotor');
       if (rotor) {
-        rotor.rotation.y = elapsed * 18;
+        rotor.rotation.y = elapsed * 20;
       }
       const radar = st.group.getObjectByName('radar');
       if (radar) {
-        radar.rotation.y = elapsed * 2.5;
+        radar.rotation.y = elapsed * 2.6;
       }
 
+      // Animate Turret Aiming & Barrel Recoil + Muzzle Flash
       const turret = st.group.getObjectByName('turret');
       if (turret) {
-        if (now - st.lastFireMs < 1500) {
+        if (now - st.lastFireMs < 1800) {
           turret.rotation.y = -(st.turretRot - st.displayRot);
         } else {
-          turret.rotation.y *= 0.9;
+          turret.rotation.y *= 0.92;
         }
+      }
+
+      const fireElapsed = now - st.lastFireMs;
+      st.muzzleFlash.visible = fireElapsed < 110;
+      if (st.muzzleFlash.visible) {
+        st.muzzleFlash.rotation.y = -(st.turretRot - st.displayRot);
       }
 
       const barrel = st.group.getObjectByName('barrel');
       if (barrel) {
-        const recoilElapsed = now - st.lastFireMs;
-        if (recoilElapsed < 180) {
-          const kick = Math.sin((recoilElapsed / 180) * Math.PI) * 0.12;
+        if (fireElapsed < 180) {
+          const kick = Math.sin((fireElapsed / 180) * Math.PI) * 0.13;
           barrel.position.x = -kick;
         } else {
           barrel.position.x = 0;
@@ -1079,7 +1235,7 @@ export class TacticalRenderer {
           const lineMat = new THREE.LineBasicMaterial({
             color: unit.command === 'attack' ? 0xf43f5e : 0x22d3ee,
             transparent: true,
-            opacity: 0.75,
+            opacity: 0.78,
           });
           st.waypointLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pathPoints), lineMat);
           this.fxRoot.add(st.waypointLine);
@@ -1090,7 +1246,6 @@ export class TacticalRenderer {
       }
     }
 
-    // Remove destroyed units
     for (const [id, st] of this.unitStates.entries()) {
       if (!activeIds.has(id)) {
         this.unitsRoot.remove(st.group);
@@ -1099,6 +1254,28 @@ export class TacticalRenderer {
         this.unitStates.delete(id);
       }
     }
+  }
+
+  private spawnDustPlume(x: number, y: number, z: number, isDamageSmoke: boolean) {
+    if (this.dustPlumes.length > 80) return;
+    const mat = (isDamageSmoke ? this.damageSmokeMat : this.dustMat).clone();
+    const mesh = new THREE.Mesh(this.dustGeom, mat);
+    mesh.position.set(
+      x + (Math.random() - 0.5) * 0.18,
+      y,
+      z + (Math.random() - 0.5) * 0.18
+    );
+    this.fxRoot.add(mesh);
+
+    this.dustPlumes.push({
+      mesh,
+      vx: (Math.random() - 0.5) * 0.25,
+      vy: isDamageSmoke ? 0.65 + Math.random() * 0.35 : 0.28 + Math.random() * 0.2,
+      vz: (Math.random() - 0.5) * 0.25,
+      startTime: performance.now(),
+      durationMs: isDamageSmoke ? 950 : 580,
+      startScale: isDamageSmoke ? 0.9 : 0.75,
+    });
   }
 
   private syncPlacementGhost3D() {
@@ -1143,14 +1320,12 @@ export class TacticalRenderer {
   }
 
   private updateCombatFX3D(dt: number, now: number) {
-    // Decay point light flash
     if (this.flashLight.intensity > 0.05) {
       this.flashLight.intensity *= Math.exp(-14 * dt);
     } else {
       this.flashLight.intensity = 0;
     }
 
-    // Update ballistic projectiles
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i];
       const t = (now - p.startTime) / p.durationMs;
@@ -1164,7 +1339,6 @@ export class TacticalRenderer {
       }
     }
 
-    // Update 3D explosions
     for (let i = this.explosions.length - 1; i >= 0; i--) {
       const ex = this.explosions[i];
       const t = (now - ex.startTime) / ex.durationMs;
@@ -1188,6 +1362,23 @@ export class TacticalRenderer {
         });
       }
     }
+
+    // Update vehicle dust & damage smoke plumes
+    for (let i = this.dustPlumes.length - 1; i >= 0; i--) {
+      const dp = this.dustPlumes[i];
+      const t = (now - dp.startTime) / dp.durationMs;
+      if (t >= 1) {
+        this.fxRoot.remove(dp.mesh);
+        (dp.mesh.material as THREE.Material).dispose();
+        this.dustPlumes.splice(i, 1);
+      } else {
+        dp.mesh.position.x += dp.vx * dt;
+        dp.mesh.position.y += dp.vy * dt;
+        dp.mesh.position.z += dp.vz * dt;
+        dp.mesh.scale.setScalar(dp.startScale + t * 1.45);
+        (dp.mesh.material as THREE.MeshStandardMaterial).opacity = Math.max(0, 0.48 * (1 - t));
+      }
+    }
   }
 
   private renderHudOverlay(now: number) {
@@ -1199,7 +1390,7 @@ export class TacticalRenderer {
 
     // 1. Base Labels, Health Bars, Shield Bars & Capture Progress
     for (const base of this.bases) {
-      const sp = this.worldToScreen(base.x, base.y, 1.85);
+      const sp = this.worldToScreen(base.x, base.y, 1.9);
       if (!sp.visible) continue;
 
       const isPlayer = base.ownerId === this.currentUserId;
@@ -1209,14 +1400,17 @@ export class TacticalRenderer {
 
       const hpPct = Math.max(0, base.health / base.maxHealth);
       const shieldPct = base.maxShield > 0 ? Math.max(0, base.defenseShield / base.maxShield) : 0;
-      const barW = 86;
+      const barW = 92;
       const barH = 5;
 
       // Base Name Tag
       ctx.font = 'bold 11px "Chakra Petch", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(2, 6, 23, 0.85)';
-      ctx.fillRect(sp.x - barW / 2 - 4, sp.y - 22, barW + 8, 28);
+      ctx.fillStyle = 'rgba(9, 14, 23, 0.88)';
+      ctx.fillRect(sp.x - barW / 2 - 6, sp.y - 23, barW + 12, 29);
+      ctx.strokeStyle = isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(sp.x - barW / 2 - 6, sp.y - 23, barW + 12, 29);
 
       ctx.fillStyle = isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
       ctx.fillText(base.name, sp.x, sp.y - 10);
@@ -1247,30 +1441,49 @@ export class TacticalRenderer {
       }
     }
 
-    // 2. Unit Health Bars & Control Group Badges
+    // 2. Unit Health Bars & Faction Badges (Always show subtle tactical health bar like Alpha Force reference)
     for (const unit of this.units) {
       if (!this.isCellVisible(unit.x, unit.y)) continue;
       const st = this.unitStates.get(unit.id);
       const ux = st ? st.displayX : unit.x;
       const uz = st ? st.displayZ : unit.y;
       const uDef = UNIT_CATALOG[unit.type];
-      const alt = uDef?.category === 'air' ? 3.15 : 0.78;
+      const alt = uDef?.category === 'air' ? 3.15 : 0.72;
 
       const sp = this.worldToScreen(ux, uz, alt);
       if (!sp.visible) continue;
 
       const isSelected = this.selectedUnitIds.has(unit.id);
+      const isPlayer = unit.ownerId === this.currentUserId;
+      const isAllied = this.userAllianceId && unit.allianceId === this.userAllianceId;
+      const isEnemy = unit.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied);
+
       const maxHp = uDef?.maxHealth || unit.maxHealth;
       const hpPct = Math.max(0, unit.health / maxHp);
 
-      if (isSelected || hpPct < 0.99) {
-        const uBarW = isSelected ? 38 : 30;
-        const uBarH = isSelected ? 4 : 3;
+      if (isSelected || hpPct < 0.99 || this.smoothZoom >= 1.1) {
+        const uBarW = isSelected ? 42 : 32;
+        const uBarH = isSelected ? 4.5 : 3.5;
 
         ctx.fillStyle = 'rgba(2, 6, 23, 0.9)';
         ctx.fillRect(sp.x - uBarW / 2 - 1, sp.y - 1, uBarW + 2, uBarH + 2);
-        ctx.fillStyle = hpPct > 0.5 ? '#22c55e' : hpPct > 0.25 ? '#eab308' : '#ef4444';
+
+        const barColor = isEnemy
+          ? '#ef4444'
+          : hpPct > 0.5
+          ? '#22c55e'
+          : hpPct > 0.25
+          ? '#eab308'
+          : '#ef4444';
+        ctx.fillStyle = barColor;
         ctx.fillRect(sp.x - uBarW / 2, sp.y, uBarW * hpPct, uBarH);
+
+        if (isSelected) {
+          ctx.font = 'bold 9px "JetBrains Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.fillStyle = '#e2e8f0';
+          ctx.fillText(uDef?.name.split(' ')[0].toUpperCase() || unit.type, sp.x, sp.y - 4);
+        }
       }
     }
 
@@ -1327,7 +1540,6 @@ export class TacticalRenderer {
     }
   }
 
-  // Draw High-Quality Radar Minimap with 3D Camera Frustum Footprint
   public drawMinimap(minimapCanvas: HTMLCanvasElement) {
     const mCtx = minimapCanvas.getContext('2d');
     if (!mCtx || this.terrain.length === 0) return;
@@ -1352,8 +1564,7 @@ export class TacticalRenderer {
     this.bases.forEach((b) => {
       const isPlayer = b.ownerId === this.currentUserId;
       const isAllied = this.userAllianceId && b.allianceId === this.userAllianceId;
-      const isEnemy =
-        base.ownerIsEnemy(b.ownerId, isPlayer, !!isAllied);
+      const isEnemy = base.ownerIsEnemy(b.ownerId, isPlayer, !!isAllied);
 
       mCtx.fillStyle = isPlayer ? '#3b82f6' : isAllied ? '#10b981' : isEnemy ? '#ef4444' : '#f59e0b';
       mCtx.beginPath();
@@ -1386,8 +1597,8 @@ export class TacticalRenderer {
     });
 
     // 3D Camera Frustum Box on Minimap
-    const viewSpanX = 24 / Math.max(0.45, this.smoothZoom);
-    const viewSpanY = 18 / Math.max(0.45, this.smoothZoom);
+    const viewSpanX = 24 / Math.max(0.42, this.smoothZoom);
+    const viewSpanY = 18 / Math.max(0.42, this.smoothZoom);
 
     mCtx.save();
     mCtx.translate(this.smoothCamX * cellW, this.smoothCamY * cellH);

@@ -15,6 +15,27 @@ export const STARTER_RESOURCES = {
 };
 
 export const UNIT_CATALOG: Record<UnitType, UnitDefinition> = {
+  rifle_infantry: {
+    type: 'rifle_infantry',
+    name: 'Rifle Infantry Squad',
+    category: 'ground',
+    role: 'Tactical Assault & Sector Capture',
+    description: 'Four-soldier mechanized rifle fireteam equipped with assault carbines, light anti-armor rockets, and tactical comms for capturing enemy outposts.',
+    cost: { concrete: 30, steel: 60, aluminum: 20, fuel: 25 },
+    trainTimeSec: 5,
+    populationCost: 1,
+    maxHealth: 340,
+    armor: 12,
+    speed: 3.1,
+    attackRange: 4.6,
+    attackDamage: 28,
+    cooldownSec: 0.75,
+    targets: ['ground', 'air', 'rail'],
+    visionRadius: 8.5,
+    fuelBurnPerSec: 0.05,
+    canCaptureBase: true,
+    requiredBuilding: 'barracks',
+  },
   vanguard_scout: {
     type: 'vanguard_scout',
     name: 'Vanguard Scout Buggy',

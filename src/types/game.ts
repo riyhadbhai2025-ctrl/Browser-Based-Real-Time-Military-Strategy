@@ -11,8 +11,12 @@ export type BaseType = 'home' | 'tank' | 'air' | 'harbor' | 'rail';
 
 export type UnitCategory = 'ground' | 'air' | 'naval' | 'rail';
 
+export type GraphicsQuality = 'low' | 'medium' | 'high' | 'ultra';
+export type AtmospherePreset = 'daylight' | 'golden_hour' | 'overcast';
+
 export type UnitType =
   // Ground
+  | 'rifle_infantry'
   | 'vanguard_scout'
   | 'ironclad_apc'
   | 'titan_mbt'

@@ -4,16 +4,19 @@ import { TacticalRenderer } from './game/renderer';
 import { soundEngine } from './game/audio';
 import {
   AIDifficulty,
+  AtmospherePreset,
   Base,
   BuildingType,
   ChatMessage,
   CombatEvent,
   EnvironmentObject,
+  GraphicsQuality,
   PlayerProfile,
   TerrainType,
   Unit,
   UnitType,
 } from './types/game';
+import { UNIT_CATALOG } from './game/catalog';
 import { TopBar } from './components/TopBar';
 import { Minimap } from './components/Minimap';
 import { CommandBar } from './components/CommandBar';
@@ -53,13 +56,15 @@ export default function App() {
   const [controlGroups, setControlGroups] = useState<Record<number, string[]>>({});
   const [placingBuilding, setPlacingBuilding] = useState<{ baseId: string; buildingType: BuildingType } | null>(null);
   const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>('medium');
+  const [graphicsQuality, setGraphicsQuality] = useState<GraphicsQuality>('high');
+  const [atmospherePreset, setAtmospherePreset] = useState<AtmospherePreset>('daylight');
 
   // Modals & UI States
   const [muted, setMuted] = useState<boolean>(false);
   const [fogEnabled, setFogEnabled] = useState<boolean>(true);
   const [repairVisualsActive, setRepairVisualsActive] = useState<boolean>(true);
   const [isStrategicOverview, setIsStrategicOverview] = useState<boolean>(false);
-  const [cameraCoords, setCameraCoords] = useState<{ x: number; y: number }>({ x: 18, y: 29 });
+  const [cameraCoords, setCameraCoords] = useState<{ x: number; y: number }>({ x: 16.8, y: 28.2 });
   const [showAdmin, setShowAdmin] = useState<boolean>(false);
   const [showAlliance, setShowAlliance] = useState<boolean>(false);
   const [showIntel, setShowIntel] = useState<boolean>(false);
@@ -831,6 +836,12 @@ export default function App() {
 
   const selectedBase = bases.find((b) => b.id === selectedBaseId);
   const selectedUnitsList = units.filter((u) => selectedUnitIds.has(u.id));
+  const playerUnits = units.filter((u) => u.ownerId === (profile?.id || 'player_default'));
+  const usedPopulation = playerUnits.reduce((sum, u) => sum + (UNIT_CATALOG[u.type]?.populationCost || 1), 0);
+  const maxPopulation = Math.max(
+    40,
+    bases.filter((b) => b.ownerId === (profile?.id || 'player_default')).length * 30
+  );
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans select-none">
@@ -850,6 +861,7 @@ export default function App() {
         <TopBar
           profile={profile}
           activeBase={activeHomeBase}
+          bases={bases}
           connected={connected}
           muted={muted}
           onToggleMute={() => {
@@ -863,10 +875,23 @@ export default function App() {
           onOpenTutorial={() => setShowTutorial(true)}
           onOpenShortcuts={() => setShowShortcuts(true)}
           alliedTag={alliances.find((a) => a.id === profile.allianceId)?.tag}
-          totalUnitsCount={units.filter((u) => u.ownerId === profile.id).length}
+          totalUnitsCount={playerUnits.length}
+          usedPopulation={usedPopulation}
+          maxPopulation={maxPopulation}
           aiDifficulty={aiDifficulty}
           onChangeAiDifficulty={handleChangeAiDifficulty}
           onResetSkirmish={handleResetSkirmish}
+          graphicsQuality={graphicsQuality}
+          onChangeGraphicsQuality={(q) => {
+            setGraphicsQuality(q);
+            rendererRef.current?.setGraphicsQuality(q);
+          }}
+          atmospherePreset={atmospherePreset}
+          onChangeAtmospherePreset={(p) => {
+            setAtmospherePreset(p);
+            rendererRef.current?.setAtmospherePreset(p);
+          }}
+          onJumpToCoords={jumpToCoords}
         />
       )}
 
@@ -886,6 +911,7 @@ export default function App() {
       {/* 4. Unit Command Bar & Squad Inspector (Bottom Center) */}
       <CommandBar
         selectedUnits={selectedUnitsList}
+        allPlayerUnitsCount={playerUnits.length}
         activeCommand={activeCommand}
         onSetCommand={(cmd) => {
           setActiveCommand(cmd);
@@ -894,6 +920,12 @@ export default function App() {
           }
         }}
         onSelectSingleUnit={(id) => setSelectedUnitIds(new Set([id]))}
+        onSelectAllUnits={() => {
+          setSelectedUnitIds(new Set(playerUnits.map((u) => u.id)));
+          setSelectedBaseId(null);
+          soundEngine.playCommandAck();
+        }}
+        onJumpToHome={jumpToHome}
         onFocusUnit={(u) => jumpToCoords(u.x, u.y)}
         controlGroups={controlGroups}
         onRecallGroup={(g) => {
