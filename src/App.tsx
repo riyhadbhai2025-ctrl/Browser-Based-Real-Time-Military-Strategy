@@ -2,7 +2,18 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { TacticalRenderer } from './game/renderer';
 import { soundEngine } from './game/audio';
-import { Base, ChatMessage, CombatEvent, EnvironmentObject, PlayerProfile, TerrainType, Unit, UnitType, BuildingType } from './types/game';
+import {
+  AIDifficulty,
+  Base,
+  BuildingType,
+  ChatMessage,
+  CombatEvent,
+  EnvironmentObject,
+  PlayerProfile,
+  TerrainType,
+  Unit,
+  UnitType,
+} from './types/game';
 import { TopBar } from './components/TopBar';
 import { Minimap } from './components/Minimap';
 import { CommandBar } from './components/CommandBar';
@@ -35,17 +46,20 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [combatLogs, setCombatLogs] = useState<CombatEvent[]>([]);
 
-  // Selection & Commands
+  // Selection, Commands & 3D Placement
   const [selectedUnitIds, setSelectedUnitIds] = useState<Set<string>>(new Set());
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
   const [activeCommand, setActiveCommand] = useState<'move' | 'attack' | 'hold' | 'patrol' | 'retreat' | 'stop'>('move');
   const [controlGroups, setControlGroups] = useState<Record<number, string[]>>({});
+  const [placingBuilding, setPlacingBuilding] = useState<{ baseId: string; buildingType: BuildingType } | null>(null);
+  const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>('medium');
 
   // Modals & UI States
   const [muted, setMuted] = useState<boolean>(false);
   const [fogEnabled, setFogEnabled] = useState<boolean>(true);
   const [repairVisualsActive, setRepairVisualsActive] = useState<boolean>(true);
-  const [cameraCoords, setCameraCoords] = useState<{ x: number; y: number }>({ x: 18, y: 30 });
+  const [isStrategicOverview, setIsStrategicOverview] = useState<boolean>(false);
+  const [cameraCoords, setCameraCoords] = useState<{ x: number; y: number }>({ x: 18, y: 29 });
   const [showAdmin, setShowAdmin] = useState<boolean>(false);
   const [showAlliance, setShowAlliance] = useState<boolean>(false);
   const [showIntel, setShowIntel] = useState<boolean>(false);
@@ -53,12 +67,15 @@ export default function App() {
   const [showShortcuts, setShowShortcuts] = useState<boolean>(false);
   const [notificationToast, setNotificationToast] = useState<{ title: string; message: string } | null>(null);
 
-  // Keys held tracking for camera pan
+  // Keys & Mouse tracking for 3D Camera
   const keysHeld = useRef<Set<string>>(new Set());
   const mousePos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const isRightDragging = useRef(false);
-  const lastRightPos = useRef<{ x: number; y: number } | null>(null);
+  const isMiddleRotating = useRef(false);
+  const lastDragPos = useRef<{ x: number; y: number } | null>(null);
   const rightDragDistance = useRef(0);
+  const lastClickTimeRef = useRef<number>(0);
+  const lastClickedUnitTypeRef = useRef<UnitType | null>(null);
 
   // 1. Initial Profile Check
   useEffect(() => {
@@ -81,16 +98,16 @@ export default function App() {
     fetch('/api/world/terrain')
       .then((res) => res.json())
       .then((data) => {
-        if (data.terrain) {
-          setTerrain(data.terrain);
-          if (rendererRef.current) {
-            rendererRef.current.setTerrain(data.terrain);
-          }
-        }
         if (data.envObjects) {
           setEnvObjects(data.envObjects);
           if (rendererRef.current) {
             rendererRef.current.envObjects = data.envObjects;
+          }
+        }
+        if (data.terrain) {
+          setTerrain(data.terrain);
+          if (rendererRef.current) {
+            rendererRef.current.setTerrain(data.terrain);
           }
         }
       })
@@ -134,10 +151,13 @@ export default function App() {
         rendererRef.current.addCombatEvent(evt);
       }
 
-      // Audio feedback based on attacker type
       if (evt.attackerType.includes('mbt') || evt.attackerType.includes('howitzer')) {
         soundEngine.playCannonShot();
-      } else if (evt.attackerType.includes('sam') || evt.attackerType.includes('cobra') || evt.attackerType.includes('jet')) {
+      } else if (
+        evt.attackerType.includes('sam') ||
+        evt.attackerType.includes('cobra') ||
+        evt.attackerType.includes('jet')
+      ) {
         soundEngine.playMissileLaunch();
       } else {
         soundEngine.playMachineGun();
@@ -189,9 +209,10 @@ export default function App() {
 
   // --- COMMAND HELPERS ---
 
-  // Jump camera to Home Base
   const jumpToHome = useCallback(() => {
-    const homeBase = bases.find((b) => b.ownerId === (profile?.id || 'player_default') && b.type === 'home');
+    const homeBase = bases.find(
+      (b) => b.ownerId === (profile?.id || 'player_default') && b.type === 'home'
+    );
     if (homeBase && rendererRef.current) {
       rendererRef.current.cameraX = homeBase.x;
       rendererRef.current.cameraY = homeBase.y;
@@ -200,7 +221,6 @@ export default function App() {
     }
   }, [bases, profile]);
 
-  // Jump camera to arbitrary coordinates
   const jumpToCoords = useCallback((x: number, y: number) => {
     if (rendererRef.current) {
       rendererRef.current.cameraX = x;
@@ -210,28 +230,30 @@ export default function App() {
     }
   }, []);
 
-  // Issue command to selected units
-  const issueUnitCommand = useCallback((
-    command: 'move' | 'attack' | 'hold' | 'patrol' | 'retreat' | 'stop',
-    targetX?: number,
-    targetY?: number,
-    targetUnitId?: string,
-    targetBaseId?: string
-  ) => {
-    if (selectedUnitIds.size === 0 || !socketRef.current) return;
+  const issueUnitCommand = useCallback(
+    (
+      command: 'move' | 'attack' | 'hold' | 'patrol' | 'retreat' | 'stop',
+      targetX?: number,
+      targetY?: number,
+      targetUnitId?: string,
+      targetBaseId?: string
+    ) => {
+      if (selectedUnitIds.size === 0 || !socketRef.current) return;
 
-    socketRef.current.emit('unit:command', {
-      unitIds: Array.from(selectedUnitIds),
-      command,
-      targetX,
-      targetY,
-      targetUnitId,
-      targetBaseId,
-    });
-    soundEngine.playCommandAck();
-  }, [selectedUnitIds]);
+      socketRef.current.emit('unit:command', {
+        unitIds: Array.from(selectedUnitIds),
+        command,
+        targetX,
+        targetY,
+        targetUnitId,
+        targetBaseId,
+      });
+      soundEngine.playCommandAck();
+    },
+    [selectedUnitIds]
+  );
 
-  // 4. Initialize Canvas Renderer
+  // 4. Initialize Three.js 3D Tactical Renderer
   useEffect(() => {
     if (!canvasRef.current) return;
     const canvas = canvasRef.current;
@@ -271,33 +293,42 @@ export default function App() {
     rendererRef.current.selectedBaseId = selectedBaseId;
     rendererRef.current.fogEnabled = fogEnabled;
     rendererRef.current.showRepairCranes = repairVisualsActive;
-  }, [bases, units, profile, selectedUnitIds, selectedBaseId, fogEnabled, envObjects, repairVisualsActive]);
+    rendererRef.current.isStrategicOverview = isStrategicOverview;
+  }, [bases, units, profile, selectedUnitIds, selectedBaseId, fogEnabled, envObjects, repairVisualsActive, isStrategicOverview]);
 
-  // 5. Continuous Keyboard Camera Pan Loop
+  // 5. Continuous Keyboard Camera Pan & Rotation Loop
   useEffect(() => {
     let animId: number;
     let lastTime = performance.now();
 
     const panLoop = (time: number) => {
-      const dt = Math.min(2.0, (time - lastTime) / 16.67); // Normalize to 60fps, cap at 2x
+      const dt = Math.min(2.0, (time - lastTime) / 16.67);
       lastTime = time;
 
       const renderer = rendererRef.current;
       if (renderer && keysHeld.current.size > 0) {
-        let vx = 0;
-        let vy = 0;
-        if (keysHeld.current.has('KeyW') || keysHeld.current.has('ArrowUp')) vy -= 1;
-        if (keysHeld.current.has('KeyS') || keysHeld.current.has('ArrowDown')) vy += 1;
-        if (keysHeld.current.has('KeyA') || keysHeld.current.has('ArrowLeft')) vx -= 1;
-        if (keysHeld.current.has('KeyD') || keysHeld.current.has('ArrowRight')) vx += 1;
+        let forward = 0;
+        let strafe = 0;
+        if (keysHeld.current.has('KeyW') || keysHeld.current.has('ArrowUp')) forward -= 1;
+        if (keysHeld.current.has('KeyS') || keysHeld.current.has('ArrowDown')) forward += 1;
+        if (keysHeld.current.has('KeyA') || keysHeld.current.has('ArrowLeft')) strafe -= 1;
+        if (keysHeld.current.has('KeyD') || keysHeld.current.has('ArrowRight')) strafe += 1;
 
-        if (vx !== 0 || vy !== 0) {
-          const mag = Math.hypot(vx, vy);
-          const speed = (0.55 * dt) / renderer.zoom;
-          renderer.cameraX += (vx / mag) * speed;
-          renderer.cameraY += (vy / mag) * speed;
+        if (keysHeld.current.has('KeyQ')) renderer.cameraYaw -= 0.028 * dt;
+        if (keysHeld.current.has('KeyE')) renderer.cameraYaw += 0.028 * dt;
 
-          // Clamp
+        if (forward !== 0 || strafe !== 0) {
+          const mag = Math.hypot(forward, strafe);
+          const speed = (0.52 * dt) / Math.max(0.5, renderer.zoom);
+          const nf = forward / mag;
+          const ns = strafe / mag;
+
+          const cosY = Math.cos(renderer.cameraYaw);
+          const sinY = Math.sin(renderer.cameraYaw);
+
+          renderer.cameraX += (ns * cosY + nf * sinY) * speed;
+          renderer.cameraY += (nf * cosY - ns * sinY) * speed;
+
           renderer.cameraX = Math.max(0, Math.min(100, renderer.cameraX));
           renderer.cameraY = Math.max(0, Math.min(75, renderer.cameraY));
           setCameraCoords({ x: renderer.cameraX, y: renderer.cameraY });
@@ -308,21 +339,22 @@ export default function App() {
     animId = requestAnimationFrame(panLoop);
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't capture when typing in an input
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
 
-      // Prevent scrolling for navigation keys
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'PageUp', 'PageDown', 'Home', 'End'].includes(e.code)) {
+      if (
+        ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'PageUp', 'PageDown', 'Home', 'End'].includes(
+          e.code
+        )
+      ) {
         e.preventDefault();
       }
 
       keysHeld.current.add(e.code);
 
-      // Number keys for control groups
-      if (e.key >= '1' && e.key <= '5') {
+      // Number keys 1-9 for Squad Control Groups
+      if (e.key >= '1' && e.key <= '9') {
         const groupNum = parseInt(e.key, 10);
         if (e.ctrlKey || e.metaKey) {
-          // Assign selected units to group
           e.preventDefault();
           setControlGroups((prev) => ({
             ...prev,
@@ -330,7 +362,6 @@ export default function App() {
           }));
           soundEngine.playCommandAck();
         } else {
-          // Recall group
           const unitIds = controlGroups[groupNum] || [];
           if (unitIds.length > 0) {
             setSelectedUnitIds(new Set(unitIds));
@@ -342,34 +373,40 @@ export default function App() {
 
       // Hotkey shortcuts
       if (e.code === 'KeyM') setActiveCommand('move');
-      if (e.code === 'KeyA') setActiveCommand('attack');
       if (e.code === 'KeyH') {
         setActiveCommand('hold');
         issueUnitCommand('hold');
       }
-      if (e.code === 'KeyS') {
-        setActiveCommand('stop');
-        issueUnitCommand('stop');
+      if (e.code === 'KeyP') setActiveCommand('patrol');
+      if (e.code === 'KeyN' && rendererRef.current) {
+        rendererRef.current.cameraYaw = 0;
+        rendererRef.current.cameraPitch = 0.92;
+      }
+      if (e.code === 'KeyV') {
+        setIsStrategicOverview((prev) => !prev);
+      }
+      if (e.code === 'KeyF') {
+        setFogEnabled((prev) => !prev);
+      }
+      if (e.code === 'KeyC') {
+        const firstId = Array.from(selectedUnitIds)[0];
+        const u = units.find((unit) => unit.id === firstId);
+        if (u) jumpToCoords(u.x, u.y);
       }
       if (e.code === 'KeyR') {
-        // Toggle Repair Cranes
         const nextState = !repairVisualsActive;
         setRepairVisualsActive(nextState);
         setNotificationToast({
           title: 'REPAIR VISUALS',
-          message: nextState ? 'Repair activity ENABLED' : 'Repair activity HIDDEN'
+          message: nextState ? 'Repair activity ENABLED' : 'Repair activity HIDDEN',
         });
         setTimeout(() => setNotificationToast(null), 2000);
       }
       if (e.code === 'Enter') {
-        // Open/Focus Chat
         const chatInput = document.getElementById('tactical-chat-input');
-        if (chatInput) {
-          chatInput.focus();
-        }
+        if (chatInput) chatInput.focus();
       }
       if (e.code === 'F11') {
-        // Toggle Fullscreen
         e.preventDefault();
         if (!document.fullscreenElement) {
           document.documentElement.requestFullscreen().catch(() => {});
@@ -378,25 +415,21 @@ export default function App() {
         }
       }
       if (e.code === 'Home') {
-        // Select all mobile units
-        const myUnits = units.filter(u => u.ownerId === (profile?.id || 'player_default'));
-        setSelectedUnitIds(new Set(myUnits.map(u => u.id)));
+        const myUnits = units.filter((u) => u.ownerId === (profile?.id || 'player_default'));
+        setSelectedUnitIds(new Set(myUnits.map((u) => u.id)));
         setSelectedBaseId(null);
         soundEngine.playCommandAck();
       }
       if (e.code === 'End') {
-        // Stop all units
         setActiveCommand('stop');
         issueUnitCommand('stop');
       }
       if (e.code === 'PageUp') {
-        // Flash units on minimap
         if (rendererRef.current) {
           rendererRef.current.flashUnitsUntil = Date.now() + 3500;
         }
       }
       if (e.code === 'PageDown') {
-        // Post coordinates to chat
         if (rendererRef.current && socketRef.current) {
           const worldPos = rendererRef.current.screenToWorld(mousePos.current.x, mousePos.current.y);
           const x = Math.round(worldPos.x);
@@ -404,18 +437,22 @@ export default function App() {
           socketRef.current.emit('chat:send', {
             content: `Tactical Coordinates: X ${x}, Y ${y}`,
             channel: 'global',
-            coords: { x, y }
+            coords: { x, y },
           });
         }
       }
       if (e.code === 'Space') {
-        // Jump camera to home base
         e.preventDefault();
         jumpToHome();
       }
       if (e.code === 'Escape') {
-        setSelectedUnitIds(new Set());
-        setSelectedBaseId(null);
+        if (placingBuilding) {
+          setPlacingBuilding(null);
+          if (rendererRef.current) rendererRef.current.placementGhost = null;
+        } else {
+          setSelectedUnitIds(new Set());
+          setSelectedBaseId(null);
+        }
       }
     };
 
@@ -431,55 +468,131 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [selectedUnitIds, controlGroups, repairVisualsActive, profile, units, jumpToHome, issueUnitCommand]);
+  }, [
+    selectedUnitIds,
+    controlGroups,
+    repairVisualsActive,
+    profile,
+    units,
+    jumpToHome,
+    jumpToCoords,
+    issueUnitCommand,
+    placingBuilding,
+  ]);
 
   // 6. Canvas Mouse & Pointer Event Handlers
   const isBoxSelecting = useRef(false);
   const dragStartPos = useRef<{ x: number; y: number } | null>(null);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    // Middle-click or Alt+Left-click orbits 3D camera
+    if (e.button === 1 || (e.button === 0 && e.altKey)) {
+      isMiddleRotating.current = true;
+      lastDragPos.current = { x: e.clientX, y: e.clientY };
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      return;
+    }
+
     if (e.button === 0) {
-      // Left click
+      // Check if in 3D Building Placement Mode
+      if (placingBuilding && rendererRef.current) {
+        const ghost = rendererRef.current.placementGhost;
+        const base = bases.find((b) => b.id === placingBuilding.baseId);
+        if (ghost && ghost.isValid && base) {
+          const offsetX = Math.round((ghost.worldX - base.x) * 10) / 10;
+          const offsetY = Math.round((ghost.worldY - base.y) * 10) / 10;
+          handleBuild(base.id, placingBuilding.buildingType, offsetX, offsetY);
+          setPlacingBuilding(null);
+          rendererRef.current.placementGhost = null;
+        } else {
+          soundEngine.playExplosion();
+        }
+        return;
+      }
+
       dragStartPos.current = { x: e.clientX, y: e.clientY };
       isBoxSelecting.current = false;
     } else if (e.button === 2) {
-      // Right click drag start
+      if (placingBuilding && rendererRef.current) {
+        setPlacingBuilding(null);
+        rendererRef.current.placementGhost = null;
+        return;
+      }
       isRightDragging.current = true;
-      lastRightPos.current = { x: e.clientX, y: e.clientY };
+      lastDragPos.current = { x: e.clientX, y: e.clientY };
       rightDragDistance.current = 0;
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     }
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!rendererRef.current) return;
+    const renderer = rendererRef.current;
+    if (!renderer) return;
     mousePos.current = { x: e.clientX, y: e.clientY };
 
-    // 1. Right Click Panning
-    if (isRightDragging.current && lastRightPos.current) {
-      const dx = e.clientX - lastRightPos.current.x;
-      const dy = e.clientY - lastRightPos.current.y;
-      rightDragDistance.current += Math.hypot(dx, dy);
-
-      const scale = 44 * rendererRef.current.zoom; // tileSize is 44
-      rendererRef.current.cameraX -= dx / scale;
-      rendererRef.current.cameraY -= dy / scale;
-
-      // Map bounds clamping
-      rendererRef.current.cameraX = Math.max(0, Math.min(100, rendererRef.current.cameraX));
-      rendererRef.current.cameraY = Math.max(0, Math.min(75, rendererRef.current.cameraY));
-      setCameraCoords({ x: rendererRef.current.cameraX, y: rendererRef.current.cameraY });
-
-      lastRightPos.current = { x: e.clientX, y: e.clientY };
-      return; // Skip box select if dragging map
+    // Update 3D Building Placement Ghost if active
+    if (placingBuilding) {
+      const worldPos = renderer.screenToWorld(e.clientX, e.clientY);
+      const base = bases.find((b) => b.id === placingBuilding.baseId);
+      if (base) {
+        const validation = renderer.validateBuildingPlacement(
+          base,
+          placingBuilding.buildingType,
+          worldPos.x,
+          worldPos.y
+        );
+        renderer.placementGhost = {
+          baseId: base.id,
+          buildingType: placingBuilding.buildingType,
+          worldX: worldPos.x,
+          worldY: worldPos.y,
+          isValid: validation.isValid,
+          reason: validation.reason,
+        };
+      }
+      return;
     }
 
-    // 2. Left Click Box Selection
+    // 1. Middle-Mouse / Alt-Drag 3D Camera Orbit & Pitch
+    if (isMiddleRotating.current && lastDragPos.current) {
+      const dx = e.clientX - lastDragPos.current.x;
+      const dy = e.clientY - lastDragPos.current.y;
+      renderer.cameraYaw += dx * 0.0065;
+      renderer.cameraPitch = Math.max(0.52, Math.min(1.42, renderer.cameraPitch + dy * 0.005));
+      lastDragPos.current = { x: e.clientX, y: e.clientY };
+      return;
+    }
+
+    // 2. Right-Click Camera Panning
+    if (isRightDragging.current && lastDragPos.current) {
+      const dx = e.clientX - lastDragPos.current.x;
+      const dy = e.clientY - lastDragPos.current.y;
+      rightDragDistance.current += Math.hypot(dx, dy);
+
+      const scale = 38 * renderer.zoom;
+      const cosY = Math.cos(renderer.cameraYaw);
+      const sinY = Math.sin(renderer.cameraYaw);
+
+      const moveX = -dx / scale;
+      const moveZ = -dy / scale;
+
+      renderer.cameraX += moveX * cosY + moveZ * sinY;
+      renderer.cameraY += moveZ * cosY - moveX * sinY;
+
+      renderer.cameraX = Math.max(0, Math.min(100, renderer.cameraX));
+      renderer.cameraY = Math.max(0, Math.min(75, renderer.cameraY));
+      setCameraCoords({ x: renderer.cameraX, y: renderer.cameraY });
+
+      lastDragPos.current = { x: e.clientX, y: e.clientY };
+      return;
+    }
+
+    // 3. Left-Click Box Selection
     if (dragStartPos.current && e.buttons === 1) {
       const dist = Math.hypot(e.clientX - dragStartPos.current.x, e.clientY - dragStartPos.current.y);
       if (dist > 8) {
         isBoxSelecting.current = true;
-        rendererRef.current.selectionBox = {
+        renderer.selectionBox = {
           startX: dragStartPos.current.x,
           startY: dragStartPos.current.y,
           currentX: e.clientX,
@@ -493,27 +606,25 @@ export default function App() {
     const renderer = rendererRef.current;
     if (!renderer) return;
 
-    if (e.button === 0) {
-      // Finished left click or box select
-      if (isBoxSelecting.current && dragStartPos.current) {
-        // Find units inside rectangle
-        const p1 = renderer.screenToWorld(
-          Math.min(dragStartPos.current.x, e.clientX),
-          Math.min(dragStartPos.current.y, e.clientY)
-        );
-        const p2 = renderer.screenToWorld(
-          Math.max(dragStartPos.current.x, e.clientX),
-          Math.max(dragStartPos.current.y, e.clientY)
-        );
+    if (isMiddleRotating.current) {
+      isMiddleRotating.current = false;
+      lastDragPos.current = null;
+      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
+      return;
+    }
 
-        const currentUserId = profile?.id || 'player_default';
-        const insideUnits = units.filter(
-          (u) =>
-            u.ownerId === currentUserId &&
-            u.x >= p1.x &&
-            u.x <= p2.x &&
-            u.y >= p1.y &&
-            u.y <= p2.y
+    if (e.button === 0) {
+      if (placingBuilding) return;
+
+      const currentUserId = profile?.id || 'player_default';
+
+      if (isBoxSelecting.current && dragStartPos.current) {
+        const insideUnits = renderer.getUnitsInScreenBox(
+          dragStartPos.current.x,
+          dragStartPos.current.y,
+          e.clientX,
+          e.clientY,
+          currentUserId
         );
 
         if (insideUnits.length > 0) {
@@ -522,14 +633,25 @@ export default function App() {
           soundEngine.playCommandAck();
         }
       } else {
-        // Single click select: check unit or base under cursor
-        const worldPos = renderer.screenToWorld(e.clientX, e.clientY);
-        const clickedUnit = units.find(
-          (u) => Math.hypot(u.x - worldPos.x, u.y - worldPos.y) <= 0.85
-        );
+        // Single or Double click selection in 3D space
+        const picked = renderer.pickEntityAtScreen(e.clientX, e.clientY);
 
-        if (clickedUnit) {
-          if (e.shiftKey) {
+        if (picked && picked.kind === 'unit') {
+          const clickedUnit = picked.unit;
+          const now = Date.now();
+          const isDoubleClick =
+            now - lastClickTimeRef.current < 320 && lastClickedUnitTypeRef.current === clickedUnit.type;
+          lastClickTimeRef.current = now;
+          lastClickedUnitTypeRef.current = clickedUnit.type;
+
+          if (isDoubleClick && clickedUnit.ownerId === currentUserId) {
+            // Select all friendly units of the same type
+            const sameTypeUnits = units.filter(
+              (u) => u.ownerId === currentUserId && u.type === clickedUnit.type
+            );
+            setSelectedUnitIds(new Set(sameTypeUnits.map((u) => u.id)));
+            setSelectedBaseId(null);
+          } else if (e.shiftKey) {
             setSelectedUnitIds((prev) => {
               const next = new Set(prev);
               if (next.has(clickedUnit.id)) next.delete(clickedUnit.id);
@@ -541,22 +663,14 @@ export default function App() {
             setSelectedBaseId(null);
           }
           soundEngine.playCommandAck();
+        } else if (picked && picked.kind === 'base') {
+          setSelectedBaseId(picked.base.id);
+          setSelectedUnitIds(new Set());
+          soundEngine.playCommandAck();
         } else {
-          // Check base
-          const clickedBase = bases.find(
-            (b) => Math.hypot(b.x - worldPos.x, b.y - worldPos.y) <= b.radius
-          );
-
-          if (clickedBase) {
-            setSelectedBaseId(clickedBase.id);
+          if (!e.shiftKey) {
             setSelectedUnitIds(new Set());
-            soundEngine.playCommandAck();
-          } else {
-            // Clicked empty ground
-            if (!e.shiftKey) {
-              setSelectedUnitIds(new Set());
-              setSelectedBaseId(null);
-            }
+            setSelectedBaseId(null);
           }
         }
       }
@@ -565,9 +679,8 @@ export default function App() {
       isBoxSelecting.current = false;
       dragStartPos.current = null;
     } else if (e.button === 2) {
-      // Finished right click drag
       isRightDragging.current = false;
-      lastRightPos.current = null;
+      lastDragPos.current = null;
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
     }
   };
@@ -577,53 +690,57 @@ export default function App() {
     const renderer = rendererRef.current;
     if (!renderer) return;
 
-    // If we were dragging the camera significantly, don't issue a command
     if (rightDragDistance.current > 12) return;
     if (selectedUnitIds.size === 0) return;
 
-    const worldPos = renderer.screenToWorld(e.clientX, e.clientY);
-
-    // Check if right-clicked on an enemy unit
     const currentUserId = profile?.id || 'player_default';
-    const targetUnit = units.find(
-      (u) =>
-        u.ownerId !== currentUserId &&
-        Math.hypot(u.x - worldPos.x, u.y - worldPos.y) <= 1.2
-    );
+    const picked = renderer.pickEntityAtScreen(e.clientX, e.clientY);
 
-    if (targetUnit) {
-      issueUnitCommand('attack', undefined, undefined, targetUnit.id);
+    if (picked && picked.kind === 'unit' && picked.unit.ownerId !== currentUserId) {
+      issueUnitCommand('attack', undefined, undefined, picked.unit.id);
       return;
     }
 
-    // Check if right-clicked on an enemy base
-    const targetBase = bases.find(
-      (b) =>
-        b.ownerId !== currentUserId &&
-        Math.hypot(b.x - worldPos.x, b.y - worldPos.y) <= b.radius
-    );
-
-    if (targetBase) {
-      issueUnitCommand('attack', undefined, undefined, undefined, targetBase.id);
+    if (picked && picked.kind === 'base' && picked.base.ownerId !== currentUserId) {
+      issueUnitCommand('attack', undefined, undefined, undefined, picked.base.id);
       return;
     }
 
-    // Right clicked ground -> Move or Attack-Move
-    issueUnitCommand(activeCommand === 'attack' ? 'attack' : 'move', worldPos.x, worldPos.y);
+    const worldPos = renderer.screenToWorld(e.clientX, e.clientY);
+    issueUnitCommand(
+      activeCommand === 'attack' ? 'attack' : activeCommand === 'patrol' ? 'patrol' : 'move',
+      worldPos.x,
+      worldPos.y
+    );
   };
 
   const handleWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
     const renderer = rendererRef.current;
     if (!renderer) return;
-    const delta = e.deltaY < 0 ? 0.1 : -0.1;
-    renderer.zoom = Math.max(0.5, Math.min(2.0, renderer.zoom + delta));
+    const delta = e.deltaY < 0 ? 0.12 : -0.12;
+    renderer.zoom = Math.max(0.45, Math.min(2.4, renderer.zoom + delta));
   };
 
   // Base actions
-  const handleBuild = (baseId: string, buildingType: BuildingType) => {
-    socketRef.current?.emit('base:build', { baseId, buildingType }, (res: any) => {
+  const handleBuild = (baseId: string, buildingType: BuildingType, offsetX?: number, offsetY?: number) => {
+    socketRef.current?.emit('base:build', { baseId, buildingType, offsetX, offsetY }, (res: any) => {
       if (res?.success) soundEngine.playBuildComplete();
     });
+  };
+
+  const handleStartPlaceBuilding3D = (baseId: string, buildingType: BuildingType) => {
+    const base = bases.find((b) => b.id === baseId);
+    if (base && rendererRef.current) {
+      rendererRef.current.cameraX = base.x;
+      rendererRef.current.cameraY = base.y;
+      setCameraCoords({ x: base.x, y: base.y });
+    }
+    setPlacingBuilding({ baseId, buildingType });
+    setNotificationToast({
+      title: '3D FACILITY PLACEMENT',
+      message: 'Left-click inside base perimeter to construct, Right-click or Esc to cancel.',
+    });
+    setTimeout(() => setNotificationToast(null), 4000);
   };
 
   const handleProduceUnit = (baseId: string, unitType: UnitType) => {
@@ -635,6 +752,29 @@ export default function App() {
   const handleRepairBase = (baseId: string) => {
     socketRef.current?.emit('base:repair', { baseId }, (res: any) => {
       if (res?.success) soundEngine.playBuildComplete();
+    });
+  };
+
+  const handleChangeAiDifficulty = (difficulty: AIDifficulty) => {
+    setAiDifficulty(difficulty);
+    socketRef.current?.emit('ai:difficulty', { difficulty });
+    setNotificationToast({
+      title: 'AI COMMANDER UPDATED',
+      message: `Kodiak PMC tactical AI set to ${difficulty.toUpperCase()} difficulty.`,
+    });
+    setTimeout(() => setNotificationToast(null), 3000);
+  };
+
+  const handleResetSkirmish = () => {
+    socketRef.current?.emit('world:reset_skirmish', {}, () => {
+      setSelectedUnitIds(new Set());
+      setSelectedBaseId(null);
+      jumpToHome();
+      setNotificationToast({
+        title: 'NEW SKIRMISH INITIALIZED',
+        message: 'All sectors, bases, and forces reset to starting frontline positions.',
+      });
+      setTimeout(() => setNotificationToast(null), 3500);
     });
   };
 
@@ -686,16 +826,15 @@ export default function App() {
     });
   };
 
-  const activeHomeBase = bases.find(
-    (b) => b.ownerId === (profile?.id || 'player_default') && b.type === 'home'
-  ) || bases[0];
+  const activeHomeBase =
+    bases.find((b) => b.ownerId === (profile?.id || 'player_default') && b.type === 'home') || bases[0];
 
   const selectedBase = bases.find((b) => b.id === selectedBaseId);
   const selectedUnitsList = units.filter((u) => selectedUnitIds.has(u.id));
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans select-none">
-      {/* 1. Tactical RTS Canvas */}
+      {/* 1. Three.js 3D Tactical RTS Canvas */}
       <canvas
         ref={canvasRef}
         onPointerDown={handlePointerDown}
@@ -725,10 +864,13 @@ export default function App() {
           onOpenShortcuts={() => setShowShortcuts(true)}
           alliedTag={alliances.find((a) => a.id === profile.allianceId)?.tag}
           totalUnitsCount={units.filter((u) => u.ownerId === profile.id).length}
+          aiDifficulty={aiDifficulty}
+          onChangeAiDifficulty={handleChangeAiDifficulty}
+          onResetSkirmish={handleResetSkirmish}
         />
       )}
 
-      {/* 3. Radar Minimap (Bottom Left) */}
+      {/* 3. Radar Minimap & 3D Camera Controls (Bottom Left) */}
       <Minimap
         renderer={rendererRef.current}
         cameraCoords={cameraCoords}
@@ -737,9 +879,11 @@ export default function App() {
         onToggleFog={() => setFogEnabled(!fogEnabled)}
         showRepairCranes={repairVisualsActive}
         onToggleRepair={() => setRepairVisualsActive(!repairVisualsActive)}
+        isStrategicOverview={isStrategicOverview}
+        onToggleStrategicOverview={() => setIsStrategicOverview(!isStrategicOverview)}
       />
 
-      {/* 4. Unit Command Bar (Bottom Center) */}
+      {/* 4. Unit Command Bar & Squad Inspector (Bottom Center) */}
       <CommandBar
         selectedUnits={selectedUnitsList}
         activeCommand={activeCommand}
@@ -750,6 +894,7 @@ export default function App() {
           }
         }}
         onSelectSingleUnit={(id) => setSelectedUnitIds(new Set([id]))}
+        onFocusUnit={(u) => jumpToCoords(u.x, u.y)}
         controlGroups={controlGroups}
         onRecallGroup={(g) => {
           const ids = controlGroups[g];
@@ -766,12 +911,13 @@ export default function App() {
       />
 
       {/* 5. Base Management Drawer (Right Side) */}
-      {selectedBase && (
+      {selectedBase && !placingBuilding && (
         <BaseDrawer
           base={selectedBase}
           currentUserId={profile?.id || 'player_default'}
           onClose={() => setSelectedBaseId(null)}
           onBuild={handleBuild}
+          onStartPlaceBuilding3D={handleStartPlaceBuilding3D}
           onProduceUnit={handleProduceUnit}
           onRepairBase={handleRepairBase}
         />
@@ -791,7 +937,7 @@ export default function App() {
 
       {/* 7. Notification Toast */}
       {notificationToast && (
-        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-lg bg-slate-900/95 border border-cyan-500/60 shadow-2xl text-center pointer-events-none animate-bounce">
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-lg bg-slate-900 border border-cyan-500/60 shadow-2xl text-center pointer-events-none">
           <div className="text-xs font-bold font-mono text-cyan-300">{notificationToast.title}</div>
           <div className="text-[11px] text-slate-300">{notificationToast.message}</div>
         </div>

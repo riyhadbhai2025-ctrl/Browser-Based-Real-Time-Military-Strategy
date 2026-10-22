@@ -1,6 +1,20 @@
 import React from 'react';
-import { Shield, Battery, Box, Droplets, Volume2, VolumeX, Maximize2, Terminal, Users, Flag, Paintbrush, Keyboard } from 'lucide-react';
-import { Base, PlayerProfile } from '../types/game';
+import {
+  Shield,
+  Battery,
+  Box,
+  Droplets,
+  Volume2,
+  VolumeX,
+  Maximize2,
+  Terminal,
+  Users,
+  Flag,
+  Keyboard,
+  Cpu,
+  RotateCcw,
+} from 'lucide-react';
+import { AIDifficulty, Base, PlayerProfile } from '../types/game';
 
 interface TopBarProps {
   profile: PlayerProfile;
@@ -13,10 +27,11 @@ interface TopBarProps {
   onOpenIntel: () => void;
   onOpenTutorial: () => void;
   onOpenShortcuts: () => void;
-  onToggleMapEditor?: () => void;
-  isMapEditorOpen?: boolean;
   alliedTag?: string | null;
   totalUnitsCount: number;
+  aiDifficulty?: AIDifficulty;
+  onChangeAiDifficulty?: (diff: AIDifficulty) => void;
+  onResetSkirmish?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -30,10 +45,11 @@ export const TopBar: React.FC<TopBarProps> = ({
   onOpenIntel,
   onOpenTutorial,
   onOpenShortcuts,
-  onToggleMapEditor,
-  isMapEditorOpen,
   alliedTag,
   totalUnitsCount,
+  aiDifficulty = 'medium',
+  onChangeAiDifficulty,
+  onResetSkirmish,
 }) => {
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -48,7 +64,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   const rates = activeBase?.productionRates || { concrete: 0, steel: 0, aluminum: 0, fuel: 0 };
 
   return (
-    <header className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-3 py-1.5 bg-slate-950/90 backdrop-blur border-b border-slate-800 text-slate-100 select-none shadow-lg">
+    <header className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-3 py-1.5 bg-slate-950/95 border-b border-slate-800 text-slate-100 select-none shadow-lg">
       {/* Left: Player Profile & Rank */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2">
@@ -77,15 +93,22 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         {/* Connection status */}
         <div className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded bg-slate-900 border border-slate-800">
-          <span className={`w-2 h-2 rounded-full ${connected ? 'bg-emerald-500 shadow-emerald-500/50 shadow-sm animate-pulse' : 'bg-rose-500'}`} />
-          <span className="text-slate-400 text-[10px]">{connected ? 'ONLINE' : 'SYNCING'}</span>
+          <span
+            className={`w-2 h-2 rounded-full ${
+              connected ? 'bg-emerald-500 shadow-emerald-500/50 shadow-sm animate-pulse' : 'bg-rose-500'
+            }`}
+          />
+          <span className="text-slate-400 text-[10px] font-mono">{connected ? '3D LIVE' : 'SYNCING'}</span>
         </div>
       </div>
 
       {/* Center: Real-time Resources from active base */}
-      <div className="hidden md:flex items-center gap-3 bg-slate-900/80 px-3 py-1 rounded-md border border-slate-800/80">
+      <div className="hidden lg:flex items-center gap-3 bg-slate-900 px-3 py-1 rounded border border-slate-800">
         {/* Concrete */}
-        <div className="flex items-center gap-1.5" title={`Concrete: ${Math.round(res.concrete)} / ${cap.concrete} (+${rates.concrete}/s)`}>
+        <div
+          className="flex items-center gap-1.5"
+          title={`Concrete: ${Math.round(res.concrete)} / ${cap.concrete} (+${rates.concrete}/s)`}
+        >
           <Box className="w-3.5 h-3.5 text-stone-400" />
           <div className="text-xs font-mono">
             <span className="font-semibold text-stone-200">{Math.round(res.concrete)}</span>
@@ -96,7 +119,10 @@ export const TopBar: React.FC<TopBarProps> = ({
         <div className="w-px h-4 bg-slate-800" />
 
         {/* Steel */}
-        <div className="flex items-center gap-1.5" title={`Steel: ${Math.round(res.steel)} / ${cap.steel} (+${rates.steel}/s)`}>
+        <div
+          className="flex items-center gap-1.5"
+          title={`Steel: ${Math.round(res.steel)} / ${cap.steel} (+${rates.steel}/s)`}
+        >
           <Shield className="w-3.5 h-3.5 text-blue-400" />
           <div className="text-xs font-mono">
             <span className="font-semibold text-blue-200">{Math.round(res.steel)}</span>
@@ -107,7 +133,10 @@ export const TopBar: React.FC<TopBarProps> = ({
         <div className="w-px h-4 bg-slate-800" />
 
         {/* Aluminum */}
-        <div className="flex items-center gap-1.5" title={`Aluminum: ${Math.round(res.aluminum)} / ${cap.aluminum} (+${rates.aluminum}/s)`}>
+        <div
+          className="flex items-center gap-1.5"
+          title={`Aluminum: ${Math.round(res.aluminum)} / ${cap.aluminum} (+${rates.aluminum}/s)`}
+        >
           <Battery className="w-3.5 h-3.5 text-cyan-400" />
           <div className="text-xs font-mono">
             <span className="font-semibold text-cyan-200">{Math.round(res.aluminum)}</span>
@@ -118,7 +147,10 @@ export const TopBar: React.FC<TopBarProps> = ({
         <div className="w-px h-4 bg-slate-800" />
 
         {/* Fuel */}
-        <div className="flex items-center gap-1.5" title={`Fuel: ${Math.round(res.fuel)} / ${cap.fuel} (+${rates.fuel}/s)`}>
+        <div
+          className="flex items-center gap-1.5"
+          title={`Fuel: ${Math.round(res.fuel)} / ${cap.fuel} (+${rates.fuel}/s)`}
+        >
           <Droplets className="w-3.5 h-3.5 text-amber-400" />
           <div className="text-xs font-mono">
             <span className="font-semibold text-amber-200">{Math.round(res.fuel)}</span>
@@ -129,14 +161,49 @@ export const TopBar: React.FC<TopBarProps> = ({
         <div className="w-px h-4 bg-slate-800" />
 
         {/* Forces / Army Count */}
-        <div className="flex items-center gap-1.5 text-xs text-slate-300 font-mono" title="Total active units in field">
+        <div
+          className="flex items-center gap-1.5 text-xs text-slate-300 font-mono"
+          title="Total active units in field"
+        >
           <Users className="w-3.5 h-3.5 text-indigo-400" />
-          <span>{totalUnitsCount} DEPLOYED</span>
+          <span>{totalUnitsCount} UNITS</span>
         </div>
       </div>
 
-      {/* Right: Actions, Briefing, Admin Sandbox & Audio */}
+      {/* Right: AI Difficulty, Actions, Briefing, Admin Sandbox & Audio */}
       <div className="flex items-center gap-1.5">
+        {onChangeAiDifficulty && (
+          <div className="hidden xl:flex items-center gap-1 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 text-[10px] font-mono">
+            <Cpu className="w-3 h-3 text-rose-400" />
+            <span className="text-slate-400">AI:</span>
+            {(['easy', 'medium', 'hard'] as AIDifficulty[]).map((d) => (
+              <button
+                key={d}
+                onClick={() => onChangeAiDifficulty(d)}
+                className={`px-1.5 py-0.5 rounded uppercase transition ${
+                  aiDifficulty === d
+                    ? 'bg-rose-600 text-white font-bold'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+                title={`Set Kodiak PMC AI Difficulty to ${d.toUpperCase()}`}
+              >
+                {d.slice(0, 3)}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {onResetSkirmish && (
+          <button
+            onClick={onResetSkirmish}
+            className="px-2 py-1 text-xs rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 flex items-center gap-1 transition"
+            title="Reset 3D Skirmish Battlefield"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="hidden xl:inline">New Match</span>
+          </button>
+        )}
+
         <button
           onClick={onOpenTutorial}
           className="px-2.5 py-1 text-xs rounded bg-blue-900/60 hover:bg-blue-800 border border-blue-700/60 text-blue-200 flex items-center gap-1 transition"
@@ -163,27 +230,12 @@ export const TopBar: React.FC<TopBarProps> = ({
 
         <button
           onClick={onOpenAdmin}
-          className="px-2 py-1 text-xs rounded bg-amber-950/40 hover:bg-amber-900/60 border border-amber-700/50 text-amber-300 flex items-center gap-1 transition"
+          className="px-2 py-1 text-xs rounded bg-amber-950/60 hover:bg-amber-900/70 border border-amber-700/50 text-amber-300 flex items-center gap-1 transition"
           title="Admin Sandbox & Test Spawner"
         >
           <Terminal className="w-3.5 h-3.5" />
           <span className="hidden md:inline">Sandbox</span>
         </button>
-
-        {onToggleMapEditor && (
-          <button
-            onClick={onToggleMapEditor}
-            className={`px-2 py-1 text-xs rounded border transition flex items-center gap-1 ${
-              isMapEditorOpen
-                ? 'bg-amber-600 text-white border-amber-400 font-bold shadow-sm'
-                : 'bg-slate-900 hover:bg-slate-800 border-slate-700 text-amber-300'
-            }`}
-            title="Toggle Tactical World Map Designer"
-          >
-            <Paintbrush className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline">Map Designer</span>
-          </button>
-        )}
 
         <button
           onClick={onOpenShortcuts}
@@ -198,13 +250,17 @@ export const TopBar: React.FC<TopBarProps> = ({
           className="p-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 transition"
           title={muted ? 'Unmute Audio' : 'Mute Audio'}
         >
-          {muted ? <VolumeX className="w-3.5 h-3.5 text-rose-400" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-400" />}
+          {muted ? (
+            <VolumeX className="w-3.5 h-3.5 text-rose-400" />
+          ) : (
+            <Volume2 className="w-3.5 h-3.5 text-emerald-400" />
+          )}
         </button>
 
         <button
           onClick={toggleFullscreen}
           className="p-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 transition"
-          title="Toggle Fullscreen"
+          title="Toggle Fullscreen (F11)"
         >
           <Maximize2 className="w-3.5 h-3.5" />
         </button>

@@ -65,3 +65,16 @@ test('5. Base Conquest unit validation', () => {
   assert.strictEqual(dominator.canCaptureBase, true, 'Dominator Enforcer must be able to capture bases');
   assert.strictEqual(UNIT_CATALOG.vanguard_scout.canCaptureBase, undefined, 'Scout buggy cannot capture bases');
 });
+
+test('6. All 3D Unit and Building Catalog definitions have valid stats and categories', () => {
+  const unitKeys = Object.keys(UNIT_CATALOG);
+  assert.strictEqual(unitKeys.length, 13, 'All 13 military unit types are defined');
+  for (const key of unitKeys) {
+    const u = UNIT_CATALOG[key as keyof typeof UNIT_CATALOG];
+    assert.ok(u.maxHealth > 0 && u.speed > 0 && u.attackRange > 0, `Unit ${key} has valid 3D combat metrics`);
+  }
+
+  const buildingKeys = Object.keys(BUILDING_CATALOG);
+  assert.ok(buildingKeys.length >= 24, 'All 24+ military facility types are defined');
+});
+

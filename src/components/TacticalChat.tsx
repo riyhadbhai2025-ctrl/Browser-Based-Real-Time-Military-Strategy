@@ -44,7 +44,7 @@ export const TacticalChat: React.FC<TacticalChatProps> = ({
 
   return (
     <div
-      className={`absolute bottom-3 right-3 z-20 flex flex-col rounded-lg bg-slate-950/90 backdrop-blur-md border border-slate-800 shadow-2xl transition-all duration-200 select-none pointer-events-auto ${
+      className={`absolute bottom-3 right-3 z-20 flex flex-col rounded-lg bg-slate-950/95 border border-slate-800 shadow-2xl transition-all duration-200 select-none pointer-events-auto ${
         isCollapsed ? 'w-64 h-10' : 'w-80 md:w-96 h-72'
       }`}
     >

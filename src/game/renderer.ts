@@ -1,102 +1,276 @@
+import * as THREE from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { Base, BuildingType, CombatEvent, EnvironmentObject, TerrainType, Unit, UnitType } from '../types/game';
 import { assetManager } from './assets/assetManager';
 import { BUILDING_CATALOG, UNIT_CATALOG } from './catalog';
+import { Models3DRegistry } from './models3d';
+import { Terrain3DSystem } from './terrain3d';
 
-export interface VisualEffect {
+export interface Projectile3D {
   id: string;
-  type: 'explosion' | 'tracer' | 'missile' | 'flak' | 'smoke' | 'damage_text';
-  x: number;
-  y: number;
-  targetX?: number;
-  targetY?: number;
-  progress: number; // 0 to 1
-  durationMs: number;
+  mesh: THREE.Object3D;
+  startPos: THREE.Vector3;
+  endPos: THREE.Vector3;
   startTime: number;
-  color?: string;
-  size?: number;
-  text?: string;
+  durationMs: number;
+  arcHeight: number;
+  isMissile: boolean;
 }
 
-// Visual priority order for natural organic terrain edge blending
-const TERRAIN_PRIORITY: Record<TerrainType, number> = {
-  snow: 16,
-  mountain: 15,
-  rock: 14,
-  hills: 13,
-  pine_forest: 12,
-  forest: 11,
-  forest_floor: 10,
-  farmland: 9,
-  grass: 8,
-  light_grass: 7,
-  plains: 6,
-  dirt: 5,
-  mud: 4,
-  sand: 3,
-  marsh: 2,
-  swamp: 2,
-  water: 1,
-  deep_water: 0,
-  // Transport types handled on separate overlay layer
-  highway: 8,
-  road: 8,
-  rural_road: 8,
-  dirt_road: 5,
-  mud_track: 4,
-  damaged_road: 8,
-  railway: 8,
-  bridge_road: 8,
-  bridge_rail: 8,
-};
+export interface Explosion3D {
+  id: string;
+  group: THREE.Group;
+  fireball: THREE.Mesh;
+  shockwave: THREE.Mesh;
+  smokePuffs: { mesh: THREE.Mesh; vx: number; vy: number; vz: number }[];
+  startTime: number;
+  durationMs: number;
+  maxRadius: number;
+}
+
+export interface FloatingDamageText {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  text: string;
+  color: string;
+  startTime: number;
+  durationMs: number;
+}
+
+export interface PlacementGhostState {
+  baseId: string;
+  buildingType: BuildingType;
+  worldX: number;
+  worldY: number;
+  isValid: boolean;
+  reason?: string;
+}
+
+interface UnitRenderState {
+  group: THREE.Group;
+  selectionRing: THREE.Mesh;
+  rangeRing: THREE.Line;
+  waypointLine: THREE.Line | null;
+  waypointMarker: THREE.Mesh;
+  displayX: number;
+  displayZ: number;
+  displayRot: number;
+  turretRot: number;
+  lastFireMs: number;
+  teamColorHex: number;
+  type: UnitType;
+}
+
+interface BaseRenderState {
+  group: THREE.Group;
+  shieldMesh: THREE.Mesh;
+  selectionRing: THREE.Mesh;
+  signature: string;
+}
 
 export class TacticalRenderer {
   private canvas: HTMLCanvasElement;
-  private ctx: CanvasRenderingContext2D;
+  private hudCanvas: HTMLCanvasElement;
+  private hudCtx: CanvasRenderingContext2D;
+
+  private renderer: THREE.WebGLRenderer;
+  private scene: THREE.Scene;
+  private camera: THREE.PerspectiveCamera;
+  private isSoftwareGl: boolean = false;
+
+  private terrainSys: Terrain3DSystem;
+  private modelsRegistry: Models3DRegistry;
+
   private terrain: TerrainType[][] = [];
   private bases: Base[] = [];
   private units: Unit[] = [];
   public envObjects: EnvironmentObject[] = [];
-  private effects: VisualEffect[] = [];
+  private envPropsGroup: THREE.Group | null = null;
+  private lastEnvCount: number = -1;
+
+  private unitStates = new Map<string, UnitRenderState>();
+  private baseStates = new Map<string, BaseRenderState>();
+  private unitsRoot = new THREE.Group();
+  private basesRoot = new THREE.Group();
+  private fxRoot = new THREE.Group();
+
+  private projectiles: Projectile3D[] = [];
+  private explosions: Explosion3D[] = [];
+  private damageTexts: FloatingDamageText[] = [];
+  private flashLight: THREE.PointLight;
+
   private currentUserId: string = 'player_default';
   private userAllianceId: string | null = 'alli_dominion';
 
-  // Camera state
-  public cameraX: number = 20; // world cell
-  public cameraY: number = 30; // world cell
-  public zoom: number = 1.0; // 0.5 to 2.2
-  private tileSize: number = 44;
+  // Camera state (world grid coordinates 0..100, 0..75)
+  public cameraX: number = 18;
+  public cameraY: number = 29;
+  private smoothCamX: number = 18;
+  private smoothCamY: number = 29;
+  public zoom: number = 1.05; // 0.45 to 2.4
+  private smoothZoom: number = 1.05;
+  public cameraYaw: number = 0; // Orbit angle around Y axis (radians)
+  private smoothYaw: number = 0;
+  public cameraPitch: number = 0.92; // Angle from horizontal (0.55 to 1.45 radians)
+  public isStrategicOverview: boolean = false;
 
-  // Selection
+  // Selection & Interactive states
   public selectedUnitIds: Set<string> = new Set();
   public selectedBaseId: string | null = null;
   public selectionBox: { startX: number; startY: number; currentX: number; currentY: number } | null = null;
+  public placementGhost: PlacementGhostState | null = null;
+  private ghostGroup: THREE.Group | null = null;
+  private ghostType: BuildingType | null = null;
+  private ghostPerimeterRing: THREE.Mesh;
 
-  // Animation ticks
+  // Animation & Loop state
+  private running: boolean = false;
   private animFrameId: number | null = null;
-  private rotorAngle: number = 0;
-  private radarAngle: number = 0;
-  private waterOffset: number = 0;
-  private waveCycle: number = 0;
+  private clock = new THREE.Clock();
 
-  // Fog of war
+  // Fog of war & visual toggles
   public fogEnabled: boolean = true;
   public showRepairCranes: boolean = true;
   public flashUnitsUntil: number = 0;
   private exploredCells: Uint8Array | null = null;
 
+  // Pre-allocated math objects for zero-GC frame loop
+  private raycaster = new THREE.Raycaster();
+  private ndcVec = new THREE.Vector2();
+  private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.25);
+  private planeIntersect = new THREE.Vector3();
+  private projVec = new THREE.Vector3();
+
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    const ctx = canvas.getContext('2d', { alpha: false });
-    if (!ctx) throw new Error('Could not get 2D canvas context');
-    this.ctx = ctx;
     assetManager.init();
+
+    // Create 2D HUD overlay canvas for crisp screen-space bars, labels, and selection marquee
+    this.hudCanvas = document.createElement('canvas');
+    this.hudCanvas.className = 'absolute inset-0 w-full h-full pointer-events-none z-10';
+    this.hudCanvas.width = canvas.width || window.innerWidth;
+    this.hudCanvas.height = canvas.height || window.innerHeight;
+    if (canvas.parentElement) {
+      canvas.parentElement.appendChild(this.hudCanvas);
+    }
+    this.hudCtx = this.hudCanvas.getContext('2d')!;
+
+    // Detect Software WebGL before full configuration
+    const tempGl =
+      canvas.getContext('webgl2', { powerPreference: 'high-performance' }) ||
+      canvas.getContext('webgl', { powerPreference: 'high-performance' });
+    if (tempGl) {
+      const dbg = tempGl.getExtension('WEBGL_debug_renderer_info');
+      const rendererStr = dbg ? tempGl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '';
+      this.isSoftwareGl = /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(rendererStr);
+    }
+
+    this.renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: !this.isSoftwareGl,
+      powerPreference: 'high-performance',
+    });
+    this.renderer.setPixelRatio(this.isSoftwareGl ? 1.0 : Math.min(window.devicePixelRatio, 2));
+    this.renderer.setSize(canvas.width || window.innerWidth, canvas.height || window.innerHeight, false);
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.12;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.shadowMap.enabled = !this.isSoftwareGl;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    // Scene & Atmosphere Setup
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x0b1522);
+    this.scene.fog = new THREE.FogExp2(0x0b1522, 0.0085);
+
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.65;
+    pmrem.dispose();
+
+    // Perspective RTS Camera
+    this.camera = new THREE.PerspectiveCamera(
+      45,
+      (canvas.width || window.innerWidth) / Math.max(1, canvas.height || window.innerHeight),
+      0.5,
+      160
+    );
+
+    // Warm Sunlight + Cool Sky/Ground Hemisphere Light
+    const hemiLight = new THREE.HemisphereLight(0x93c5fd, 0x1e3a1e, 0.85);
+    this.scene.add(hemiLight);
+
+    const sunLight = new THREE.DirectionalLight(0xfff4d6, 2.5);
+    sunLight.position.set(35, 55, 25);
+    if (!this.isSoftwareGl) {
+      sunLight.castShadow = true;
+      sunLight.shadow.mapSize.set(2048, 2048);
+      sunLight.shadow.camera.near = 5;
+      sunLight.shadow.camera.far = 140;
+      const d = 55;
+      sunLight.shadow.camera.left = -d;
+      sunLight.shadow.camera.right = d;
+      sunLight.shadow.camera.top = d;
+      sunLight.shadow.camera.bottom = -d;
+      sunLight.shadow.bias = -0.0005;
+    }
+    this.scene.add(sunLight);
+
+    // Muzzle / Explosion transient point light
+    this.flashLight = new THREE.PointLight(0xf97316, 0, 12);
+    this.scene.add(this.flashLight);
+
+    // Subsystems
+    this.terrainSys = new Terrain3DSystem();
+    this.modelsRegistry = new Models3DRegistry();
+    this.scene.add(this.terrainSys.terrainGroup);
+    this.scene.add(this.basesRoot);
+    this.scene.add(this.unitsRoot);
+    this.scene.add(this.fxRoot);
+
+    // Base build-zone perimeter ring for 3D building placement
+    const ringGeom = new THREE.RingGeometry(3.8, 4.0, 48);
+    ringGeom.rotateX(-Math.PI / 2);
+    this.ghostPerimeterRing = new THREE.Mesh(
+      ringGeom,
+      new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide, transparent: true, opacity: 0.55 })
+    );
+    this.ghostPerimeterRing.visible = false;
+    this.scene.add(this.ghostPerimeterRing);
+
+    // Rebuild base meshes when Kenney GLB models finish loading
+    this.modelsRegistry.onModelsUpdated(() => {
+      this.baseStates.forEach((st) => {
+        st.signature = '';
+      });
+    });
   }
 
   public setTerrain(terrain: TerrainType[][]) {
     this.terrain = terrain;
     const h = terrain.length;
     const w = terrain[0]?.length || 0;
-    this.exploredCells = new Uint8Array(w * h);
+    if (!this.exploredCells || this.exploredCells.length !== w * h) {
+      this.exploredCells = new Uint8Array(w * h);
+    }
+    this.terrainSys.buildTerrain(this.terrain, this.bases);
+    this.rebuildEnvironmentProps();
+  }
+
+  private rebuildEnvironmentProps() {
+    if (this.terrain.length === 0) return;
+    if (this.envPropsGroup) {
+      this.scene.remove(this.envPropsGroup);
+    }
+    this.envPropsGroup = this.modelsRegistry.buildInstancedEnvironmentProps(
+      this.envObjects,
+      this.terrainSys,
+      this.terrain
+    );
+    this.scene.add(this.envPropsGroup);
+    this.lastEnvCount = this.envObjects.length;
   }
 
   public updateWorld(
@@ -106,27 +280,32 @@ export class TacticalRenderer {
     allianceId?: string | null,
     envObjects?: EnvironmentObject[]
   ) {
+    const firstBasesLoad = this.bases.length === 0 && bases.length > 0;
     this.bases = bases;
     this.units = units;
     this.currentUserId = userId;
     this.userAllianceId = allianceId || null;
-    if (envObjects) {
-      this.envObjects = envObjects;
+
+    if (firstBasesLoad && this.terrain.length > 0) {
+      this.terrainSys.buildTerrain(this.terrain, this.bases);
     }
 
-    // Update fog of war exploration based on player & allied vision
+    if (envObjects && envObjects.length !== this.lastEnvCount) {
+      this.envObjects = envObjects;
+      this.rebuildEnvironmentProps();
+    }
+
+    // Update fog of war exploration
     if (this.terrain.length > 0 && this.exploredCells) {
       const w = this.terrain[0].length;
       const h = this.terrain.length;
 
-      // Vision from friendly bases
       bases.forEach((b) => {
         if (b.ownerId === this.currentUserId || (this.userAllianceId && b.allianceId === this.userAllianceId)) {
-          this.revealFogCircle(b.x, b.y, b.radius + 6, w, h);
+          this.revealFogCircle(b.x, b.y, b.radius + 7, w, h);
         }
       });
 
-      // Vision from friendly units
       units.forEach((u) => {
         if (u.ownerId === this.currentUserId || (this.userAllianceId && u.allianceId === this.userAllianceId)) {
           const def = UNIT_CATALOG[u.type];
@@ -164,753 +343,972 @@ export class TacticalRenderer {
   }
 
   public addCombatEvent(evt: CombatEvent) {
-    const now = Date.now();
-    this.effects.push({
-      id: `fx_exp_${now}_${Math.random()}`,
-      type: 'explosion',
-      x: evt.x,
-      y: evt.y,
-      progress: 0,
-      durationMs: 400,
+    const now = performance.now();
+    const targetY = this.terrainSys.groundHeightAt(evt.x, evt.y, this.terrain) + 0.35;
+
+    // 1. Trigger gun recoil and turret alignment on attacking unit
+    const attackerState = this.unitStates.get(evt.attackerId);
+    let startPos = new THREE.Vector3(
+      evt.attackerX ?? evt.x - 1.5,
+      targetY + 0.2,
+      evt.attackerY ?? evt.y - 1.5
+    );
+
+    if (attackerState) {
+      attackerState.lastFireMs = now;
+      attackerState.turretRot = Math.atan2(
+        evt.y - attackerState.displayZ,
+        evt.x - attackerState.displayX
+      );
+      startPos.set(
+        attackerState.displayX,
+        attackerState.group.position.y + 0.35,
+        attackerState.displayZ
+      );
+    } else if (evt.attackerX !== undefined && evt.attackerY !== undefined) {
+      const ay = this.terrainSys.groundHeightAt(evt.attackerX, evt.attackerY, this.terrain);
+      startPos.set(evt.attackerX, ay + 0.55, evt.attackerY);
+    }
+
+    const endPos = new THREE.Vector3(evt.x, targetY, evt.y);
+
+    // 2. Spawn 3D Projectile / Missile / Tracer
+    const isMissile =
+      evt.attackerType.includes('sam') ||
+      evt.attackerType.includes('cobra') ||
+      evt.attackerType.includes('jet') ||
+      evt.attackerType.includes('bomber');
+    const isArtillery =
+      evt.attackerType.includes('howitzer') ||
+      evt.attackerType.includes('artillery') ||
+      evt.attackerType.includes('dreadnought') ||
+      evt.attackerType.includes('coastal');
+
+    const projGeom = isMissile
+      ? new THREE.ConeGeometry(0.07, 0.38, 6)
+      : new THREE.SphereGeometry(isArtillery ? 0.11 : 0.065, 8, 8);
+    if (isMissile) projGeom.rotateX(Math.PI / 2);
+
+    const projMat = new THREE.MeshBasicMaterial({
+      color: isMissile ? 0x38bdf8 : isArtillery ? 0xf97316 : 0xfacc15,
+    });
+    const projMesh = new THREE.Mesh(projGeom, projMat);
+    projMesh.position.copy(startPos);
+    this.fxRoot.add(projMesh);
+
+    this.projectiles.push({
+      id: `proj_${now}_${Math.random()}`,
+      mesh: projMesh,
+      startPos,
+      endPos,
       startTime: now,
-      size: evt.isFatal ? 38 : 22,
+      durationMs: isArtillery ? 420 : isMissile ? 340 : 210,
+      arcHeight: isArtillery ? 2.4 : isMissile ? 0.85 : 0.15,
+      isMissile,
     });
 
-    this.effects.push({
-      id: `fx_txt_${now}_${Math.random()}`,
-      type: 'damage_text',
-      x: evt.x,
-      y: evt.y,
-      progress: 0,
-      durationMs: 750,
+    // 3. Spawn 3D Explosion at impact
+    const expGroup = new THREE.Group();
+    expGroup.position.copy(endPos);
+
+    const fbMat = new THREE.MeshBasicMaterial({
+      color: evt.isFatal ? 0xff4500 : 0xfbbf24,
+      transparent: true,
+      opacity: 0.95,
+    });
+    const fireball = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 12), fbMat);
+    expGroup.add(fireball);
+
+    const swGeom = new THREE.RingGeometry(0.15, 0.32, 20);
+    swGeom.rotateX(-Math.PI / 2);
+    const swMat = new THREE.MeshBasicMaterial({
+      color: 0xf97316,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85,
+    });
+    const shockwave = new THREE.Mesh(swGeom, swMat);
+    shockwave.position.y = 0.05;
+    expGroup.add(shockwave);
+
+    const smokePuffs: { mesh: THREE.Mesh; vx: number; vy: number; vz: number }[] = [];
+    const puffCount = evt.isFatal ? 6 : 3;
+    for (let i = 0; i < puffCount; i++) {
+      const sMat = new THREE.MeshStandardMaterial({
+        color: 0x1e293b,
+        roughness: 0.95,
+        transparent: true,
+        opacity: 0.75,
+      });
+      const sMesh = new THREE.Mesh(new THREE.DodecahedronGeometry(0.16, 0), sMat);
+      expGroup.add(sMesh);
+      const angle = (i / puffCount) * Math.PI * 2;
+      smokePuffs.push({
+        mesh: sMesh,
+        vx: Math.cos(angle) * 0.8,
+        vy: 1.1 + Math.random() * 0.8,
+        vz: Math.sin(angle) * 0.8,
+      });
+    }
+
+    this.fxRoot.add(expGroup);
+    this.explosions.push({
+      id: `exp_${now}_${Math.random()}`,
+      group: expGroup,
+      fireball,
+      shockwave,
+      smokePuffs,
       startTime: now,
+      durationMs: evt.isFatal ? 780 : 460,
+      maxRadius: evt.isFatal ? 2.6 : 1.35,
+    });
+
+    // Pulse transient point light
+    this.flashLight.position.copy(endPos).add(new THREE.Vector3(0, 1.2, 0));
+    this.flashLight.intensity = evt.isFatal ? 6.0 : 3.0;
+
+    // 4. Floating damage number in HUD overlay
+    this.damageTexts.push({
+      id: `dmg_${now}_${Math.random()}`,
+      x: evt.x,
+      y: targetY + 0.5,
+      z: evt.y,
       text: `-${evt.damage}`,
-      color: evt.isFatal ? '#ef4444' : '#f59e0b',
+      color: evt.isFatal ? '#ef4444' : '#fbbf24',
+      startTime: now,
+      durationMs: 850,
     });
   }
 
   public startRenderLoop() {
-    if (this.animFrameId) return;
+    if (this.running) return;
+    this.running = true;
+    this.clock.start();
 
-    const loop = () => {
-      this.render();
-      this.animFrameId = requestAnimationFrame(loop);
+    const gl = this.renderer.getContext() as WebGL2RenderingContext;
+    const afterDraw = (cb: () => void) => {
+      if (!this.isSoftwareGl || typeof gl.fenceSync !== 'function') {
+        this.animFrameId = requestAnimationFrame(cb);
+        return;
+      }
+      const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+      gl.flush();
+      const poll = () => {
+        if (!this.running) return;
+        const s = gl.clientWaitSync(sync!, 0, 0);
+        if (s === gl.TIMEOUT_EXPIRED) {
+          setTimeout(poll, 16);
+        } else {
+          gl.deleteSync(sync);
+          setTimeout(cb, 80);
+        }
+      };
+      setTimeout(poll, 16);
     };
-    this.animFrameId = requestAnimationFrame(loop);
+
+    const tick = () => {
+      if (!this.running) return;
+      this.render();
+      afterDraw(tick);
+    };
+    afterDraw(tick);
   }
 
   public stopRenderLoop() {
+    this.running = false;
     if (this.animFrameId) {
       cancelAnimationFrame(this.animFrameId);
       this.animFrameId = null;
     }
+    if (this.hudCanvas.parentElement) {
+      this.hudCanvas.parentElement.removeChild(this.hudCanvas);
+    }
+    this.renderer.dispose();
   }
 
-  // World to Screen coordinate translation (3/4 Angled Perspective)
-  public worldToScreen(wx: number, wy: number): { x: number; y: number } {
-    const scale = this.tileSize * this.zoom;
-    const screenCenterX = this.canvas.width / 2;
-    const screenCenterY = this.canvas.height / 2;
-    
-    // We compress Y to simulate an angled camera (0.85 ratio)
-    const tilt = 0.85;
-    
+  // Project 3D world coordinate (wx, wy on grid) to 2D screen pixel coordinates
+  public worldToScreen(wx: number, wy: number, heightOffset: number = 0): { x: number; y: number; visible?: boolean } {
+    const gy = this.terrainSys.groundHeightAt(wx, wy, this.terrain) + heightOffset;
+    this.projVec.set(wx, gy, wy);
+    this.projVec.project(this.camera);
+
+    const halfW = this.canvas.width / 2;
+    const halfH = this.canvas.height / 2;
     return {
-      x: screenCenterX + (wx - this.cameraX) * scale,
-      y: screenCenterY + (wy - this.cameraY) * scale * tilt,
+      x: this.projVec.x * halfW + halfW,
+      y: -this.projVec.y * halfH + halfH,
+      visible: this.projVec.z >= -1 && this.projVec.z <= 1,
     };
   }
 
-  // Screen to World coordinate translation (Inverting 3/4 Perspective)
+  // Raycast 2D screen pixel coordinate (sx, sy) to 3D battlefield ground (x, y)
   public screenToWorld(sx: number, sy: number): { x: number; y: number } {
-    const scale = this.tileSize * this.zoom;
-    const screenCenterX = this.canvas.width / 2;
-    const screenCenterY = this.canvas.height / 2;
-    const tilt = 0.85;
-    
+    const rect = this.canvas.getBoundingClientRect();
+    const w = rect.width || this.canvas.width || window.innerWidth;
+    const h = rect.height || this.canvas.height || window.innerHeight;
+
+    this.ndcVec.x = ((sx - rect.left) / w) * 2 - 1;
+    this.ndcVec.y = -((sy - rect.top) / h) * 2 + 1;
+
+    this.raycaster.setFromCamera(this.ndcVec, this.camera);
+
+    if (this.terrainSys.groundMesh) {
+      const hits = this.raycaster.intersectObject(this.terrainSys.groundMesh, false);
+      if (hits.length > 0) {
+        return {
+          x: Math.max(0, Math.min(100, hits[0].point.x)),
+          y: Math.max(0, Math.min(75, hits[0].point.z)),
+        };
+      }
+    }
+
+    if (this.raycaster.ray.intersectPlane(this.groundPlane, this.planeIntersect)) {
+      return {
+        x: Math.max(0, Math.min(100, this.planeIntersect.x)),
+        y: Math.max(0, Math.min(75, this.planeIntersect.z)),
+      };
+    }
+
+    return { x: this.cameraX, y: this.cameraY };
+  }
+
+  // Pick a 3D unit or base under screen cursor (accounts for 3D aircraft altitude & perspective)
+  public pickEntityAtScreen(
+    sx: number,
+    sy: number
+  ): { kind: 'unit'; unit: Unit } | { kind: 'base'; base: Base } | null {
+    // 1. Check units in screen space (handles elevated aircraft & ground vehicles cleanly)
+    let bestUnit: Unit | null = null;
+    let bestUnitDist = 34; // pixel radius threshold
+
+    for (const u of this.units) {
+      if (!this.isCellVisible(u.x, u.y)) continue;
+      const uDef = UNIT_CATALOG[u.type];
+      const alt = uDef?.category === 'air' ? 2.6 : 0.35;
+      const sp = this.worldToScreen(u.x, u.y, alt);
+      if (!sp.visible) continue;
+      const d = Math.hypot(sp.x - sx, sp.y - sy);
+      if (d < bestUnitDist) {
+        bestUnitDist = d;
+        bestUnit = u;
+      }
+    }
+
+    if (bestUnit) {
+      return { kind: 'unit', unit: bestUnit };
+    }
+
+    // 2. Check bases on ground
+    const worldPos = this.screenToWorld(sx, sy);
+    const clickedBase = this.bases.find(
+      (b) => Math.hypot(b.x - worldPos.x, b.y - worldPos.y) <= b.radius
+    );
+    if (clickedBase) {
+      return { kind: 'base', base: clickedBase };
+    }
+
+    return null;
+  }
+
+  // Find all player units inside a 2D screen drag-selection rectangle
+  public getUnitsInScreenBox(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    ownerId: string
+  ): Unit[] {
+    const minX = Math.min(x1, x2);
+    const maxX = Math.max(x1, x2);
+    const minY = Math.min(y1, y2);
+    const maxY = Math.max(y1, y2);
+
+    return this.units.filter((u) => {
+      if (u.ownerId !== ownerId) return false;
+      const uDef = UNIT_CATALOG[u.type];
+      const alt = uDef?.category === 'air' ? 2.6 : 0.35;
+      const sp = this.worldToScreen(u.x, u.y, alt);
+      return sp.visible && sp.x >= minX && sp.x <= maxX && sp.y >= minY && sp.y <= maxY;
+    });
+  }
+
+  // Validate 3D building placement coordinates inside a base's buildable zone
+  public validateBuildingPlacement(
+    base: Base,
+    buildingType: BuildingType,
+    worldX: number,
+    worldY: number
+  ): { isValid: boolean; reason?: string } {
+    const distFromCenter = Math.hypot(worldX - base.x, worldY - base.y);
+    if (distFromCenter > base.radius - 0.45) {
+      return { isValid: false, reason: 'OUTSIDE BASE PERIMETER' };
+    }
+    if (distFromCenter < 1.15 && buildingType !== 'command_center') {
+      return { isValid: false, reason: 'RESERVED FOR HQ CORE' };
+    }
+
+    // Check terrain passability
+    const cx = Math.floor(worldX);
+    const cy = Math.floor(worldY);
+    const cell = this.terrain[cy]?.[cx];
+    if (cell === 'water' || cell === 'deep_water' || cell === 'mountain') {
+      if (buildingType !== 'naval_dockyard' && buildingType !== 'coastal_battery') {
+        return { isValid: false, reason: 'UNSUITABLE TERRAIN' };
+      }
+    }
+
+    // Check overlap with existing placed buildings
+    for (let i = 0; i < base.buildings.length; i++) {
+      const b = base.buildings[i];
+      if (b.type === buildingType) continue; // Upgrading existing building is valid
+      const slot = this.getBuildingWorldPosition(base, b, i);
+      if (Math.hypot(worldX - slot.x, worldY - slot.z) < 0.85) {
+        return { isValid: false, reason: 'OVERLAPS EXISTING FACILITY' };
+      }
+    }
+
+    return { isValid: true };
+  }
+
+  private getBuildingWorldPosition(
+    base: Base,
+    building: { type: BuildingType; offsetX?: number; offsetY?: number },
+    idx: number
+  ): { x: number; z: number } {
+    if (building.type === 'command_center') {
+      return { x: base.x, z: base.y };
+    }
+    if (building.offsetX !== undefined && building.offsetY !== undefined) {
+      return { x: base.x + building.offsetX, z: base.y + building.offsetY };
+    }
+
+    let ring = 1;
+    let ringIdx = idx;
+    let countInRing = 6;
+    let ringDist = 1.65;
+
+    if (idx >= 6 && idx < 18) {
+      ring = 2;
+      ringIdx = idx - 6;
+      countInRing = 12;
+      ringDist = 2.75;
+    } else if (idx >= 18) {
+      ring = 3;
+      ringIdx = idx - 18;
+      countInRing = 18;
+      ringDist = 3.7;
+    }
+
+    const angle = (ringIdx / countInRing) * Math.PI * 2 + (ring === 2 ? 0.35 : 0);
     return {
-      x: this.cameraX + (sx - screenCenterX) / scale,
-      y: this.cameraY + (sy - screenCenterY) / (scale * tilt),
+      x: base.x + Math.cos(angle) * ringDist,
+      z: base.y + Math.sin(angle) * ringDist,
     };
   }
 
   public render() {
-    const ctx = this.ctx;
-    const canvas = this.canvas;
-    const width = canvas.width;
-    const height = canvas.height;
+    const dt = Math.min(this.clock.getDelta(), 0.1);
+    const elapsed = this.clock.getElapsedTime();
+    const now = performance.now();
 
-    // Tactical dark slate background
-    ctx.fillStyle = '#060d17';
-    ctx.fillRect(0, 0, width, height);
+    // Sync canvas resize if needed
+    if (
+      this.hudCanvas.width !== this.canvas.width ||
+      this.hudCanvas.height !== this.canvas.height
+    ) {
+      this.hudCanvas.width = this.canvas.width;
+      this.hudCanvas.height = this.canvas.height;
+      this.renderer.setSize(this.canvas.width, this.canvas.height, false);
+      this.camera.aspect = this.canvas.width / Math.max(1, this.canvas.height);
+      this.camera.updateProjectionMatrix();
+    }
 
-    if (this.terrain.length === 0) return;
+    // 1. Update Damped RTS Camera
+    const targetPitch = this.isStrategicOverview ? 1.38 : this.cameraPitch;
+    const targetZoom = this.isStrategicOverview ? 0.52 : this.zoom;
 
-    this.rotorAngle = (this.rotorAngle + 0.35) % (Math.PI * 2);
-    this.radarAngle = (this.radarAngle + 0.04) % (Math.PI * 2);
-    this.waterOffset = (this.waterOffset + 0.02) % (Math.PI * 2);
-    this.waveCycle = (this.waveCycle + 0.035) % (Math.PI * 2);
+    const damp = 1 - Math.exp(-12 * dt);
+    this.smoothCamX += (this.cameraX - this.smoothCamX) * damp;
+    this.smoothCamY += (this.cameraY - this.smoothCamY) * damp;
+    this.smoothZoom += (targetZoom - this.smoothZoom) * damp;
+    this.smoothYaw += (this.cameraYaw - this.smoothYaw) * damp;
 
-    const scale = this.tileSize * this.zoom;
-    const screenCenterX = width / 2;
-    const screenCenterY = height / 2;
+    const groundY = this.terrainSys.groundHeightAt(this.smoothCamX, this.smoothCamY, this.terrain);
+    const orbitDist = 23 / Math.max(0.4, this.smoothZoom);
+    const horizDist = Math.cos(targetPitch) * orbitDist;
+    const vertDist = Math.sin(targetPitch) * orbitDist;
 
-    const tHeight = this.terrain.length;
-    const tWidth = this.terrain[0].length;
+    this.camera.position.set(
+      this.smoothCamX + Math.sin(this.smoothYaw) * horizDist,
+      groundY + vertDist,
+      this.smoothCamY + Math.cos(this.smoothYaw) * horizDist
+    );
+    this.camera.lookAt(this.smoothCamX, groundY, this.smoothCamY);
 
-    // Viewport Culling calculation (only draw what is on screen + 2 cell margin)
-    const startX = Math.max(0, Math.floor(this.cameraX - screenCenterX / scale - 2));
-    const endX = Math.min(tWidth, Math.ceil(this.cameraX + screenCenterX / scale + 2));
-    const startY = Math.max(0, Math.floor(this.cameraY - screenCenterY / scale - 2));
-    const endY = Math.min(tHeight, Math.ceil(this.cameraY + screenCenterY / scale + 2));
+    // 2. Update Animated Water
+    this.terrainSys.updateWater(elapsed);
 
-    // =========================================================================
-    // LAYER 1: BASE TERRAIN TEXTURES (SEAMLESS CANVAS PATTERNS)
-    // =========================================================================
-    for (let y = startY; y < endY; y++) {
-      for (let x = startX; x < endX; x++) {
-        const cell = this.terrain[y][x];
-        const sPos = this.worldToScreen(x, y);
+    // 3. Sync & Animate 3D Military Bases
+    this.syncBases3D(elapsed);
 
-        ctx.save();
-        const pattern = assetManager.getTerrainPattern(ctx, cell);
-        if (pattern) {
-          ctx.fillStyle = pattern;
+    // 4. Sync & Animate 3D Units
+    this.syncUnits3D(dt, elapsed, now);
+
+    // 5. Update 3D Building Placement Ghost
+    this.syncPlacementGhost3D();
+
+    // 6. Update 3D Projectiles, Explosions & Transient Lights
+    this.updateCombatFX3D(dt, now);
+
+    // 7. Render 3D WebGL Scene
+    this.renderer.render(this.scene, this.camera);
+
+    // 8. Render 2D Tactical HUD Overlay (Health bars, Base labels, Selection box)
+    this.renderHudOverlay(now);
+  }
+
+  private syncBases3D(elapsed: number) {
+    const activeBaseIds = new Set<string>();
+
+    for (const base of this.bases) {
+      activeBaseIds.add(base.id);
+      const isPlayer = base.ownerId === this.currentUserId;
+      const isAllied = this.userAllianceId && base.allianceId === this.userAllianceId;
+      const isEnemy =
+        base.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied && base.ownerId !== 'neutral');
+      const teamHex = isPlayer ? 0x3b82f6 : isAllied ? 0x10b981 : isEnemy ? 0xef4444 : 0xf59e0b;
+
+      const sig = `${base.ownerId}_${base.buildings
+        .map((b) => `${b.id}:${b.type}:${b.level}:${b.isConstructing ? 1 : 0}:${b.offsetX ?? ''}:${b.offsetY ?? ''}`)
+        .join('|')}_${base.constructionQueue.map((q) => q.buildingType).join(',')}`;
+
+      let st = this.baseStates.get(base.id);
+      if (!st || st.signature !== sig) {
+        if (st) {
+          this.basesRoot.remove(st.group);
+        }
+
+        const group = new THREE.Group();
+        const gy = this.terrainSys.groundHeightAt(base.x, base.y, this.terrain);
+        group.position.set(base.x, gy, base.y);
+
+        // Compound paved octagon foundation
+        const padGeom = new THREE.CylinderGeometry(base.radius, base.radius + 0.2, 0.06, 24);
+        const padMat = new THREE.MeshStandardMaterial({
+          color: 0x1e293b,
+          roughness: 0.85,
+          metalness: 0.15,
+        });
+        const padMesh = new THREE.Mesh(padGeom, padMat);
+        padMesh.position.y = 0.02;
+        padMesh.receiveShadow = true;
+        group.add(padMesh);
+
+        // 3D Perimeter Wall Segments & Corner Guard Towers
+        const wallSegments = 16;
+        const wallMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.75 });
+        const accentMat = new THREE.MeshStandardMaterial({ color: teamHex, roughness: 0.4 });
+        for (let i = 0; i < wallSegments; i++) {
+          const angle = (i / wallSegments) * Math.PI * 2;
+          // Leave South-East entrance gate open
+          if (angle > 0.45 && angle < 0.95) continue;
+
+          const wx = Math.cos(angle) * base.radius;
+          const wz = Math.sin(angle) * base.radius;
+
+          const wall = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.34, 1.15), wallMat);
+          wall.position.set(wx, 0.17, wz);
+          wall.rotation.y = -angle;
+          wall.castShadow = true;
+          wall.receiveShadow = true;
+          group.add(wall);
+
+          if (i % 4 === 0) {
+            const tower = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.68, 0.42), wallMat);
+            tower.position.set(wx, 0.34, wz);
+            tower.castShadow = true;
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.08, 0.46), accentMat);
+            roof.position.set(wx, 0.7, wz);
+            group.add(tower, roof);
+          }
+        }
+
+        // Render all base buildings in 3D
+        const nonHqBuildings = base.buildings.filter((b) => b.type !== 'command_center');
+        const hq = base.buildings.find((b) => b.type === 'command_center');
+        if (hq) {
+          const hqMesh = this.modelsRegistry.createBuildingMesh('command_center', teamHex, hq.isConstructing);
+          group.add(hqMesh);
+        }
+
+        nonHqBuildings.forEach((b, idx) => {
+          const pos = this.getBuildingWorldPosition(base, b, idx);
+          const bMesh = this.modelsRegistry.createBuildingMesh(b.type, teamHex, b.isConstructing);
+          bMesh.position.set(pos.x - base.x, 0, pos.z - base.y);
+          group.add(bMesh);
+        });
+
+        // Also render active construction queue items that aren't in base.buildings yet
+        base.constructionQueue.forEach((order, qIdx) => {
+          if (!base.buildings.some((b) => b.type === order.buildingType)) {
+            const pos = this.getBuildingWorldPosition(
+              base,
+              { type: order.buildingType, offsetX: order.offsetX, offsetY: order.offsetY },
+              nonHqBuildings.length + qIdx
+            );
+            const cMesh = this.modelsRegistry.createBuildingMesh(order.buildingType, teamHex, true);
+            cMesh.position.set(pos.x - base.x, 0, pos.z - base.y);
+            group.add(cMesh);
+          }
+        });
+
+        // 3D Energy Defense Shield Dome
+        const shieldGeom = new THREE.SphereGeometry(base.radius * 1.05, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
+        const shieldMat = new THREE.MeshBasicMaterial({
+          color: 0x06b6d4,
+          transparent: true,
+          opacity: 0.14,
+          wireframe: true,
+        });
+        const shieldMesh = new THREE.Mesh(shieldGeom, shieldMat);
+        group.add(shieldMesh);
+
+        // Selection Ring
+        const selGeom = new THREE.RingGeometry(base.radius + 0.15, base.radius + 0.35, 36);
+        selGeom.rotateX(-Math.PI / 2);
+        const selRing = new THREE.Mesh(
+          selGeom,
+          new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide })
+        );
+        selRing.position.y = 0.06;
+        group.add(selRing);
+
+        this.basesRoot.add(group);
+        st = { group, shieldMesh, selectionRing: selRing, signature: sig };
+        this.baseStates.set(base.id, st);
+      }
+
+      // Animate rotating radars & turrets inside the base
+      st.group.traverse((obj) => {
+        if (obj.name === 'radar') {
+          obj.rotation.y = elapsed * 1.1;
+        }
+      });
+
+      st.shieldMesh.visible = base.defenseShield > 0;
+      st.selectionRing.visible = this.selectedBaseId === base.id;
+    }
+
+    // Cleanup removed bases
+    for (const [id, st] of this.baseStates.entries()) {
+      if (!activeBaseIds.has(id)) {
+        this.basesRoot.remove(st.group);
+        this.baseStates.delete(id);
+      }
+    }
+  }
+
+  private syncUnits3D(dt: number, elapsed: number, now: number) {
+    const activeIds = new Set<string>();
+    const posLerp = 1 - Math.exp(-12 * dt);
+
+    for (const unit of this.units) {
+      activeIds.add(unit.id);
+
+      const isPlayer = unit.ownerId === this.currentUserId;
+      const isAllied = this.userAllianceId && unit.allianceId === this.userAllianceId;
+      const isEnemy = unit.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied);
+      const teamHex = isPlayer ? 0x38bdf8 : isAllied ? 0x34d399 : isEnemy ? 0xf87171 : 0xfbbf24;
+
+      let st = this.unitStates.get(unit.id);
+      if (!st || st.teamColorHex !== teamHex) {
+        if (st) {
+          this.unitsRoot.remove(st.group);
+          if (st.waypointLine) this.fxRoot.remove(st.waypointLine);
+          this.fxRoot.remove(st.waypointMarker);
+        }
+
+        const meshGroup = this.modelsRegistry.createUnitMesh(unit.type, teamHex);
+
+        // Selection ring on ground/hull
+        const ringGeom = new THREE.RingGeometry(0.48, 0.58, 24);
+        ringGeom.rotateX(-Math.PI / 2);
+        const selectionRing = new THREE.Mesh(
+          ringGeom,
+          new THREE.MeshBasicMaterial({ color: 0x22d3ee, side: THREE.DoubleSide })
+        );
+        selectionRing.position.y = 0.04;
+        meshGroup.add(selectionRing);
+
+        // Attack range circle when selected
+        const uDef = UNIT_CATALOG[unit.type];
+        const range = uDef?.attackRange || 6;
+        const pts: THREE.Vector3[] = [];
+        for (let i = 0; i <= 48; i++) {
+          const a = (i / 48) * Math.PI * 2;
+          pts.push(new THREE.Vector3(Math.cos(a) * range, 0.08, Math.sin(a) * range));
+        }
+        const rangeGeom = new THREE.BufferGeometry().setFromPoints(pts);
+        const rangeRing = new THREE.Line(
+          rangeGeom,
+          new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.35 })
+        );
+        meshGroup.add(rangeRing);
+
+        // Destination waypoint marker
+        const wpGeom = new THREE.RingGeometry(0.18, 0.32, 16);
+        wpGeom.rotateX(-Math.PI / 2);
+        const waypointMarker = new THREE.Mesh(
+          wpGeom,
+          new THREE.MeshBasicMaterial({ color: 0x22d3ee, side: THREE.DoubleSide })
+        );
+        waypointMarker.visible = false;
+        this.fxRoot.add(waypointMarker);
+
+        this.unitsRoot.add(meshGroup);
+
+        st = {
+          group: meshGroup,
+          selectionRing,
+          rangeRing,
+          waypointLine: null,
+          waypointMarker,
+          displayX: unit.x,
+          displayZ: unit.y,
+          displayRot: unit.rotation,
+          turretRot: unit.rotation,
+          lastFireMs: 0,
+          teamColorHex: teamHex,
+          type: unit.type,
+        };
+        this.unitStates.set(unit.id, st);
+      }
+
+      // Visibility check via Fog of War
+      const visible = this.isCellVisible(unit.x, unit.y);
+      st.group.visible = visible;
+      if (!visible) {
+        st.waypointMarker.visible = false;
+        if (st.waypointLine) st.waypointLine.visible = false;
+        continue;
+      }
+
+      // Smoothly interpolate position & rotation
+      st.displayX += (unit.x - st.displayX) * posLerp;
+      st.displayZ += (unit.y - st.displayZ) * posLerp;
+
+      let angleDiff = unit.rotation - st.displayRot;
+      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+      st.displayRot += angleDiff * posLerp;
+
+      const uDef = UNIT_CATALOG[unit.type];
+      const gy = this.terrainSys.groundHeightAt(st.displayX, st.displayZ, this.terrain);
+
+      if (uDef?.category === 'air') {
+        const hover = Math.sin(elapsed * 3.2 + st.displayX) * 0.08;
+        st.group.position.set(st.displayX, gy + 2.6 + hover, st.displayZ);
+        // Bank aircraft slightly when turning
+        st.group.rotation.set(angleDiff * 0.35, -st.displayRot, -0.08);
+        st.selectionRing.position.y = -2.55;
+        st.rangeRing.position.y = -2.52;
+      } else if (uDef?.category === 'naval') {
+        const bob = Math.sin(elapsed * 2.2 + st.displayX) * 0.03;
+        st.group.position.set(st.displayX, -0.08 + bob, st.displayZ);
+        st.group.rotation.set(0, -st.displayRot, 0);
+      } else {
+        st.group.position.set(st.displayX, gy, st.displayZ);
+        st.group.rotation.set(0, -st.displayRot, 0);
+      }
+
+      // Animate sub-parts (rotors, radar, turret aim, gun recoil)
+      const rotor = st.group.getObjectByName('rotor');
+      if (rotor) {
+        rotor.rotation.y = elapsed * 18;
+      }
+      const radar = st.group.getObjectByName('radar');
+      if (radar) {
+        radar.rotation.y = elapsed * 2.5;
+      }
+
+      const turret = st.group.getObjectByName('turret');
+      if (turret) {
+        if (now - st.lastFireMs < 1500) {
+          turret.rotation.y = -(st.turretRot - st.displayRot);
         } else {
-          ctx.fillStyle = assetManager.getTerrainColor(cell);
+          turret.rotation.y *= 0.9;
         }
-        ctx.fillRect(sPos.x, sPos.y, scale + 0.5, scale + 0.5);
-        ctx.restore();
       }
-    }
 
-    // =========================================================================
-    // LAYER 2: NON-SQUARE NATURAL TERRAIN TRANSITIONS (ALPHA BLENDING SPLATS)
-    // Eliminates square tile grid by blending neighboring terrain edges with curved lobes
-    // =========================================================================
-    for (let y = startY; y < endY; y++) {
-      for (let x = startX; x < endX; x++) {
-        const cell = this.terrain[y][x];
-        // Skip pure transport tiles for terrain splatting
-        if (cell === 'highway' || cell === 'road' || cell === 'bridge_road' || cell === 'railway' || cell === 'bridge_rail') {
-          continue;
+      const barrel = st.group.getObjectByName('barrel');
+      if (barrel) {
+        const recoilElapsed = now - st.lastFireMs;
+        if (recoilElapsed < 180) {
+          const kick = Math.sin((recoilElapsed / 180) * Math.PI) * 0.12;
+          barrel.position.x = -kick;
+        } else {
+          barrel.position.x = 0;
         }
+      }
 
-        const currentPrio = TERRAIN_PRIORITY[cell] ?? 5;
-        const sPos = this.worldToScreen(x, y);
+      // Selection Ring & 3D Waypoint Path Line
+      const isSelected = this.selectedUnitIds.has(unit.id);
+      st.selectionRing.visible = isSelected;
+      st.rangeRing.visible = isSelected;
 
-        // 4 Cardinal Neighbors
-        const neighbors = [
-          { dx: 0, dy: -1, edge: 'top' as const },
-          { dx: 0, dy: 1, edge: 'bottom' as const },
-          { dx: -1, dy: 0, edge: 'left' as const },
-          { dx: 1, dy: 0, edge: 'right' as const },
+      if (isSelected && unit.path && unit.path.length > 0) {
+        const dest = unit.path[unit.path.length - 1];
+        const destY = this.terrainSys.groundHeightAt(dest.x, dest.y, this.terrain) + 0.08;
+        st.waypointMarker.position.set(dest.x, destY, dest.y);
+        st.waypointMarker.scale.setScalar(0.85 + Math.sin(elapsed * 6) * 0.15);
+        st.waypointMarker.visible = true;
+
+        const pathPoints: THREE.Vector3[] = [
+          new THREE.Vector3(st.displayX, gy + 0.12, st.displayZ),
         ];
-
-        neighbors.forEach((n) => {
-          const nx = x + n.dx;
-          const ny = y + n.dy;
-          if (nx >= 0 && nx < tWidth && ny >= 0 && ny < tHeight) {
-            const nCell = this.terrain[ny][nx];
-            if (nCell !== cell) {
-              const nPrio = TERRAIN_PRIORITY[nCell] ?? 5;
-              // If neighbor has higher visual priority, blend its texture onto current cell's border
-              if (nPrio > currentPrio) {
-                const nPattern = assetManager.getTerrainPattern(ctx, nCell);
-                if (nPattern) {
-                  this.drawTerrainBlendLobe(ctx, sPos.x, sPos.y, scale, n.edge, nPattern, x, y);
-                }
-              }
-            }
-          }
+        unit.path.forEach((p) => {
+          const py = this.terrainSys.groundHeightAt(p.x, p.y, this.terrain) + 0.12;
+          pathPoints.push(new THREE.Vector3(p.x, py, p.y));
         });
 
-        // 4 Diagonal Corners
-        const corners = [
-          { dx: -1, dy: -1, corner: 'top-left' as const },
-          { dx: 1, dy: -1, corner: 'top-right' as const },
-          { dx: -1, dy: 1, corner: 'bottom-left' as const },
-          { dx: 1, dy: 1, corner: 'bottom-right' as const },
-        ];
-
-        corners.forEach((c) => {
-          const nx = x + c.dx;
-          const ny = y + c.dy;
-          if (nx >= 0 && nx < tWidth && ny >= 0 && ny < tHeight) {
-            const nCell = this.terrain[ny][nx];
-            if (nCell !== cell) {
-              const nPrio = TERRAIN_PRIORITY[nCell] ?? 5;
-              if (nPrio > currentPrio) {
-                const nPattern = assetManager.getTerrainPattern(ctx, nCell);
-                if (nPattern) {
-                  this.drawTerrainCornerLobe(ctx, sPos.x, sPos.y, scale, c.corner, nPattern);
-                }
-              }
-            }
-          }
-        });
-      }
-    }
-
-    // =========================================================================
-    // LAYER 3: SHORELINES, WATER DEPTH CAUSTICS & FOAMING SURF
-    // =========================================================================
-    for (let y = startY; y < endY; y++) {
-      for (let x = startX; x < endX; x++) {
-        const cell = this.terrain[y][x];
-        const sPos = this.worldToScreen(x, y);
-
-        // Animated Water Swells & Specular Caustic Highlights
-        if (cell === 'water' || cell === 'deep_water') {
-          const isDeep = cell === 'deep_water';
-          const waveAlpha = isDeep ? 0.14 : 0.26;
-          ctx.strokeStyle = `rgba(186, 230, 253, ${waveAlpha})`;
-          ctx.lineWidth = Math.max(1, scale * 0.04);
-          ctx.beginPath();
-          const waveShift = Math.sin(this.waterOffset + x * 0.8 + y * 0.5) * (scale * 0.15);
-          ctx.moveTo(sPos.x + scale * 0.15, sPos.y + scale * 0.45 + waveShift);
-          ctx.bezierCurveTo(
-            sPos.x + scale * 0.38,
-            sPos.y + scale * 0.35 + waveShift,
-            sPos.x + scale * 0.62,
-            sPos.y + scale * 0.55 + waveShift,
-            sPos.x + scale * 0.85,
-            sPos.y + scale * 0.45 + waveShift
-          );
-          ctx.stroke();
-
-          // Shoreline Detection: Check if neighbor is land
-          const neighbors = [
-            { dx: 0, dy: -1, side: 'top' as const },
-            { dx: 0, dy: 1, side: 'bottom' as const },
-            { dx: -1, dy: 0, side: 'left' as const },
-            { dx: 1, dy: 0, side: 'right' as const },
-          ];
-
-          neighbors.forEach((n) => {
-            const nx = x + n.dx;
-            const ny = y + n.dy;
-            if (nx >= 0 && nx < tWidth && ny >= 0 && ny < tHeight) {
-              const nCell = this.terrain[ny][nx];
-              const isLand =
-                nCell !== 'water' &&
-                nCell !== 'deep_water' &&
-                nCell !== 'bridge_road' &&
-                nCell !== 'bridge_rail';
-
-              if (isLand) {
-                // Sandy wet shore margin
-                ctx.fillStyle = 'rgba(194, 163, 108, 0.42)';
-                const foamPulse = Math.sin(this.waveCycle + x * 2 + y * 2) * (scale * 0.06);
-
-                if (n.side === 'top') {
-                  ctx.fillRect(sPos.x, sPos.y, scale, scale * 0.24);
-                  // White foam crest fringe
-                  ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
-                  ctx.fillRect(sPos.x, sPos.y + scale * 0.18 + foamPulse, scale, scale * 0.07);
-                } else if (n.side === 'bottom') {
-                  ctx.fillRect(sPos.x, sPos.y + scale * 0.76, scale, scale * 0.24);
-                  ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
-                  ctx.fillRect(sPos.x, sPos.y + scale * 0.73 - foamPulse, scale, scale * 0.07);
-                } else if (n.side === 'left') {
-                  ctx.fillRect(sPos.x, sPos.y, scale * 0.24, scale);
-                  ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
-                  ctx.fillRect(sPos.x + scale * 0.18 + foamPulse, sPos.y, scale * 0.07, scale);
-                } else if (n.side === 'right') {
-                  ctx.fillRect(sPos.x + scale * 0.76, sPos.y, scale * 0.24, scale);
-                  ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
-                  ctx.fillRect(sPos.x + scale * 0.73 - foamPulse, sPos.y, scale * 0.07, scale);
-                }
-              }
-            }
+        if (st.waypointLine) {
+          st.waypointLine.geometry.dispose();
+          st.waypointLine.geometry = new THREE.BufferGeometry().setFromPoints(pathPoints);
+          st.waypointLine.visible = true;
+        } else {
+          const lineMat = new THREE.LineBasicMaterial({
+            color: unit.command === 'attack' ? 0xf43f5e : 0x22d3ee,
+            transparent: true,
+            opacity: 0.75,
           });
+          st.waypointLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pathPoints), lineMat);
+          this.fxRoot.add(st.waypointLine);
         }
+      } else {
+        st.waypointMarker.visible = false;
+        if (st.waypointLine) st.waypointLine.visible = false;
       }
     }
 
-    // =========================================================================
-    // LAYER 3.5: BATTLEFIELD GRIT & DECALS (GROUND CLUTTER)
-    // =========================================================================
-    for (let y = startY; y < endY; y++) {
-      for (let x = startX; x < endX; x++) {
-        const sPos = this.worldToScreen(x, y);
-        const seed = (x * 123.45 + y * 678.9) % 1.0;
-        
-        // tire tracks near roads or bases
-        if (seed > 0.88) {
-          const trackSprite = assetManager.getSpriteCanvas('tank_tracks');
-          if (trackSprite) {
-            ctx.save();
-            ctx.globalAlpha = 0.15;
-            ctx.translate(sPos.x + scale / 2, sPos.y + scale / 2);
-            ctx.rotate(seed * Math.PI);
-            ctx.drawImage(trackSprite, -scale / 2, -scale / 2, scale, scale);
-            ctx.restore();
-          }
-        }
+    // Remove destroyed units
+    for (const [id, st] of this.unitStates.entries()) {
+      if (!activeIds.has(id)) {
+        this.unitsRoot.remove(st.group);
+        if (st.waypointLine) this.fxRoot.remove(st.waypointLine);
+        this.fxRoot.remove(st.waypointMarker);
+        this.unitStates.delete(id);
+      }
+    }
+  }
 
-        // Small debris/grit flecks
-        if (seed < 0.05) {
-          ctx.fillStyle = 'rgba(0,0,0,0.2)';
-          ctx.fillRect(sPos.x + seed * scale, sPos.y + (1-seed) * scale, 2, 2);
-        }
+  private syncPlacementGhost3D() {
+    if (!this.placementGhost) {
+      if (this.ghostGroup) this.ghostGroup.visible = false;
+      this.ghostPerimeterRing.visible = false;
+      return;
+    }
+
+    const { baseId, buildingType, worldX, worldY, isValid } = this.placementGhost;
+    const base = this.bases.find((b) => b.id === baseId);
+
+    if (base) {
+      const bGy = this.terrainSys.groundHeightAt(base.x, base.y, this.terrain);
+      this.ghostPerimeterRing.position.set(base.x, bGy + 0.08, base.y);
+      this.ghostPerimeterRing.visible = true;
+    }
+
+    if (!this.ghostGroup || this.ghostType !== buildingType) {
+      if (this.ghostGroup) this.scene.remove(this.ghostGroup);
+      this.ghostGroup = this.modelsRegistry.createBuildingMesh(buildingType, 0x38bdf8, false);
+      this.scene.add(this.ghostGroup);
+      this.ghostType = buildingType;
+    }
+
+    this.ghostGroup.visible = true;
+    const gy = this.terrainSys.groundHeightAt(worldX, worldY, this.terrain);
+    this.ghostGroup.position.set(worldX, gy, worldY);
+
+    const tintHex = isValid ? 0x10b981 : 0xef4444;
+    this.ghostGroup.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        mesh.material = new THREE.MeshBasicMaterial({
+          color: tintHex,
+          transparent: true,
+          opacity: 0.55,
+          wireframe: !isValid,
+        });
+      }
+    });
+  }
+
+  private updateCombatFX3D(dt: number, now: number) {
+    // Decay point light flash
+    if (this.flashLight.intensity > 0.05) {
+      this.flashLight.intensity *= Math.exp(-14 * dt);
+    } else {
+      this.flashLight.intensity = 0;
+    }
+
+    // Update ballistic projectiles
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const p = this.projectiles[i];
+      const t = (now - p.startTime) / p.durationMs;
+      if (t >= 1) {
+        this.fxRoot.remove(p.mesh);
+        this.projectiles.splice(i, 1);
+      } else {
+        p.mesh.position.lerpVectors(p.startPos, p.endPos, t);
+        p.mesh.position.y += Math.sin(t * Math.PI) * p.arcHeight;
+        p.mesh.lookAt(p.endPos);
       }
     }
 
-    for (let y = startY; y < endY; y++) {
-      for (let x = startX; x < endX; x++) {
-        const cell = this.terrain[y][x];
-        const sPos = this.worldToScreen(x, y);
+    // Update 3D explosions
+    for (let i = this.explosions.length - 1; i >= 0; i--) {
+      const ex = this.explosions[i];
+      const t = (now - ex.startTime) / ex.durationMs;
+      if (t >= 1) {
+        this.fxRoot.remove(ex.group);
+        this.explosions.splice(i, 1);
+      } else {
+        const scale = 1 + t * ex.maxRadius;
+        ex.fireball.scale.setScalar(scale * (1 - t * 0.4));
+        (ex.fireball.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - t * 1.2);
 
-        const isHighway = cell === 'highway';
-        const isRoad = cell === 'road' || cell === 'rural_road' || cell === 'damaged_road' || cell === 'bridge_road';
-        const isDirt = cell === 'dirt_road' || cell === 'mud_track';
-        const isRail = cell === 'railway' || cell === 'bridge_rail';
+        ex.shockwave.scale.setScalar(1 + t * ex.maxRadius * 1.8);
+        (ex.shockwave.material as THREE.MeshBasicMaterial).opacity = Math.max(0, 1 - t);
 
-        if (isHighway || isRoad || isDirt || isRail) {
-          // Check 4-way orthogonal connections
-          const hasN = y > 0 && this.isMatchingTransport(cell, this.terrain[y - 1][x]);
-          const hasS = y < tHeight - 1 && this.isMatchingTransport(cell, this.terrain[y + 1][x]);
-          const hasW = x > 0 && this.isMatchingTransport(cell, this.terrain[y][x - 1]);
-          const hasE = x < tWidth - 1 && this.isMatchingTransport(cell, this.terrain[y][x + 1]);
-
-          const cx = sPos.x + scale / 2;
-          const cy = sPos.y + scale / 2;
-
-          if (isHighway) {
-            const roadWidth = scale * 0.62;
-
-            // Concrete safety shoulders
-            ctx.fillStyle = '#4a4843';
-            this.drawRoadArm(ctx, cx, cy, roadWidth + scale * 0.18, hasN, hasS, hasW, hasE, scale);
-
-            // Dark heavy asphalt surface
-            ctx.fillStyle = '#1c1f24';
-            this.drawRoadArm(ctx, cx, cy, roadWidth, hasN, hasS, hasW, hasE, scale);
-
-            // Yellow double center lines
-            ctx.strokeStyle = '#eab308';
-            ctx.lineWidth = Math.max(1, scale * 0.04);
-            this.drawRoadCenterLines(ctx, cx, cy, hasN, hasS, hasW, hasE, scale);
-
-            // White dashed lane dividers
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
-            ctx.lineWidth = Math.max(1, scale * 0.03);
-            ctx.setLineDash([scale * 0.14, scale * 0.1]);
-            this.drawRoadSideLines(ctx, cx, cy, roadWidth * 0.35, hasN, hasS, hasW, hasE, scale);
-            ctx.setLineDash([]);
-          } else if (isRoad) {
-            const roadWidth = cell === 'rural_road' ? scale * 0.44 : scale * 0.54;
-
-            // Gravel shoulder underlay
-            ctx.fillStyle = '#423d33';
-            this.drawRoadArm(ctx, cx, cy, roadWidth + scale * 0.16, hasN, hasS, hasW, hasE, scale);
-
-            // Asphalt surface
-            ctx.fillStyle = cell === 'damaged_road' ? '#26292e' : '#22252a';
-            this.drawRoadArm(ctx, cx, cy, roadWidth, hasN, hasS, hasW, hasE, scale);
-
-            // White / Yellow Center Lane Markings
-            ctx.strokeStyle = cell === 'damaged_road' ? '#ca8a04' : '#eab308';
-            ctx.lineWidth = Math.max(1, scale * 0.04);
-            ctx.setLineDash([scale * 0.16, scale * 0.12]);
-            this.drawRoadCenterLines(ctx, cx, cy, hasN, hasS, hasW, hasE, scale);
-            ctx.setLineDash([]);
-
-            // Bridge Span Railings if over water
-            if (cell === 'bridge_road') {
-              this.drawBridgeStructure(ctx, sPos.x, sPos.y, scale, hasW || hasE ? 'horizontal' : 'vertical', '#3b82f6');
-            }
-          } else if (isDirt) {
-            const trackWidth = scale * 0.46;
-            // Warm earth or mud background
-            ctx.fillStyle = cell === 'mud_track' ? '#38281a' : '#654f35';
-            this.drawRoadArm(ctx, cx, cy, trackWidth, hasN, hasS, hasW, hasE, scale);
-
-            // Dual wheel ruts
-            ctx.strokeStyle = cell === 'mud_track' ? '#20150d' : '#3d2e1c';
-            ctx.lineWidth = Math.max(1, scale * 0.08);
-            this.drawDirtWheelRuts(ctx, cx, cy, hasN, hasS, hasW, hasE, scale);
-          } else if (isRail) {
-            // Ballast bed
-            ctx.fillStyle = '#393c41';
-            this.drawRoadArm(ctx, cx, cy, scale * 0.48, hasN, hasS, hasW, hasE, scale);
-
-            // Wooden sleepers (cross-ties)
-            this.drawRailSleepers(ctx, cx, cy, hasN, hasS, hasW, hasE, scale);
-
-            // Dual steel tracks
-            ctx.strokeStyle = '#a1a1aa';
-            ctx.lineWidth = Math.max(1, scale * 0.06);
-            this.drawSteelRails(ctx, cx, cy, hasN, hasS, hasW, hasE, scale);
-
-            // Steel truss bridge if over water
-            if (cell === 'bridge_rail') {
-              this.drawBridgeStructure(ctx, sPos.x, sPos.y, scale, hasW || hasE ? 'horizontal' : 'vertical', '#8b5cf6');
-            }
-          }
-        }
+        ex.smokePuffs.forEach((puff) => {
+          puff.mesh.position.x += puff.vx * dt;
+          puff.mesh.position.y += puff.vy * dt;
+          puff.mesh.position.z += puff.vz * dt;
+          puff.mesh.scale.setScalar(1 + t * 1.8);
+          (puff.mesh.material as THREE.MeshStandardMaterial).opacity = Math.max(0, 0.75 * (1 - t));
+        });
       }
     }
+  }
 
-    // =========================================================================
-    // LAYER 5: REALISTIC MILITARY COMPOUND & PERIMETER
-    // =========================================================================
-    this.bases.forEach((base) => {
-      const sPos = this.worldToScreen(base.x, base.y);
-      const bRadius = base.radius * scale;
+  private renderHudOverlay(now: number) {
+    const ctx = this.hudCtx;
+    const width = this.hudCanvas.width;
+    const height = this.hudCanvas.height;
+
+    ctx.clearRect(0, 0, width, height);
+
+    // 1. Base Labels, Health Bars, Shield Bars & Capture Progress
+    for (const base of this.bases) {
+      const sp = this.worldToScreen(base.x, base.y, 1.85);
+      if (!sp.visible) continue;
 
       const isPlayer = base.ownerId === this.currentUserId;
       const isAllied = this.userAllianceId && base.allianceId === this.userAllianceId;
-      const isEnemy = base.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied && base.ownerId !== 'neutral');
+      const isEnemy =
+        base.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied && base.ownerId !== 'neutral');
 
-      const ownerColor = isPlayer ? '#3b82f6' : isAllied ? '#10b981' : isEnemy ? '#ef4444' : '#f59e0b';
-      const isSelected = this.selectedBaseId === base.id;
-
-      ctx.save();
-      
-      // 1. COMPOUND FOUNDATION (Zoned Paving)
-      // Large concrete hexagonal/circular pad
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.45)';
-      ctx.beginPath();
-      ctx.arc(sPos.x, sPos.y, bRadius * 1.05, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // Paving Grids (Tactical markings)
-      ctx.strokeStyle = 'rgba(51, 65, 85, 0.3)';
-      ctx.lineWidth = 1;
-      for (let i = -10; i <= 10; i++) {
-        const d = (i * 0.2) * bRadius;
-        ctx.beginPath(); ctx.moveTo(sPos.x - bRadius, sPos.y + d); ctx.lineTo(sPos.x + bRadius, sPos.y + d); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(sPos.x + d, sPos.y - bRadius); ctx.lineTo(sPos.x + d, sPos.y + bRadius); ctx.stroke();
-      }
-
-      // 2. PERIMETER WALL SYSTEM (Realistic Isometric Sections)
-      const wallSprite = assetManager.getSpriteCanvas('perimeter_wall');
-      const towerSprite = assetManager.getSpriteCanvas('guard_tower');
-      
-      if (wallSprite && towerSprite) {
-        const numSegments = 16;
-        const wallScale = scale / 40;
-        
-        for (let i = 0; i < numSegments; i++) {
-          const angle = (i / numSegments) * Math.PI * 2;
-          
-          // Skip segment for entrance (South-East)
-          if (angle > 0.4 && angle < 0.9) continue; 
-
-          const wx = sPos.x + Math.cos(angle) * bRadius;
-          const wy = sPos.y + Math.sin(angle) * bRadius;
-
-          ctx.save();
-          ctx.translate(wx, wy);
-          ctx.rotate(angle + Math.PI / 2);
-          const drawW = wallSprite.width * wallScale;
-          const drawH = wallSprite.height * wallScale;
-          ctx.drawImage(wallSprite, -drawW / 2, -drawH / 2, drawW, drawH);
-          ctx.restore();
-
-          // Corner Guard Towers (Every 4 segments)
-          if (i % 4 === 0) {
-            ctx.save();
-            ctx.translate(wx, wy);
-            const tW = towerSprite.width * wallScale;
-            const tH = towerSprite.height * wallScale;
-            ctx.drawImage(towerSprite, -tW / 2, -tH + 10, tW, tH);
-            ctx.restore();
-          }
-        }
-      }
-
-      // 3. ENTRANCE GATE (Integrated into perimeter)
-      const gateSprite = assetManager.getSpriteCanvas('military_gate');
-      if (gateSprite) {
-        const gateAngle = 0.65;
-        const gx = sPos.x + Math.cos(gateAngle) * bRadius;
-        const gy = sPos.y + Math.sin(gateAngle) * bRadius;
-        const gScale = scale / 40;
-        const gW = gateSprite.width * gScale;
-        const gH = gateSprite.height * gScale;
-        
-        ctx.save();
-        ctx.translate(gx, gy);
-        ctx.rotate(gateAngle + Math.PI / 2);
-        ctx.drawImage(gateSprite, -gW / 2, -gH / 2, gW, gH);
-        ctx.restore();
-      }
-
-      // 4. DEFENSIVE SHIELD (Advanced Visual)
-      if (base.defenseShield > 0) {
-        const shieldAlpha = 0.15 + Math.sin(Date.now() / 400) * 0.05;
-        const grad = ctx.createRadialGradient(sPos.x, sPos.y, bRadius * 0.8, sPos.x, sPos.y, bRadius * 1.15);
-        grad.addColorStop(0, 'rgba(6, 182, 212, 0)');
-        grad.addColorStop(0.8, `rgba(6, 182, 212, ${shieldAlpha})`);
-        grad.addColorStop(1, 'rgba(34, 211, 238, 0.4)');
-        
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        ctx.arc(sPos.x, sPos.y, bRadius * 1.15, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Hexagonal grid overlay for shield
-        ctx.strokeStyle = 'rgba(34, 211, 238, 0.15)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-      
-      // 5. SERVICE ROADS (Compound Connectivity)
-      ctx.fillStyle = '#272b30';
-      const gateAngle = 0.65;
-      const roadW = scale * 0.6;
-      ctx.save();
-      ctx.translate(sPos.x, sPos.y);
-      ctx.rotate(gateAngle);
-      ctx.fillRect(0, -roadW / 2, bRadius, roadW);
-      // center hub
-      ctx.beginPath(); ctx.arc(0, 0, roadW, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-
-      ctx.restore();
-
-      // =========================================================================
-      // DYNAMIC BASE FACILITY LAYOUT
-      // =========================================================================
-      
-      // 1. Render Base Buildings in a deterministic radial layout with functional zones
-      // HQ (command_center) is always at the center.
-      // Other buildings are arranged in concentric rings, grouped by category.
-      
-      const hqInstance = base.buildings.find(b => b.type === 'command_center');
-      const otherBuildings = base.buildings.filter(b => b.type !== 'command_center');
-
-      // Functional zone sorting: Production -> Economy -> Defense
-      const categoryOrder: Record<string, number> = { production: 0, economy: 1, defense: 2, hq: 3 };
-      otherBuildings.sort((a, b) => {
-        const catA = BUILDING_CATALOG[a.type]?.category || 'economy';
-        const catB = BUILDING_CATALOG[b.type]?.category || 'economy';
-        if (catA !== catB) return categoryOrder[catA] - categoryOrder[catB];
-        return a.type.localeCompare(b.type);
-      });
-
-      // A. Centerpiece: Headquarters
-      if (hqInstance) {
-        this.renderBaseBuilding(
-          ctx, 
-          'command_center', 
-          sPos.x, 
-          sPos.y, 
-          scale, 
-          hqInstance.isConstructing, 
-          ownerColor,
-          hqInstance.health / hqInstance.maxHealth,
-          isSelected
-        );
-      } else {
-        // Fallback
-        const coreSize = scale * 1.65;
-        ctx.fillStyle = '#1e293b';
-        ctx.strokeStyle = ownerColor;
-        ctx.lineWidth = 2.5;
-        ctx.fillRect(sPos.x - coreSize / 2, sPos.y - coreSize / 2, coreSize, coreSize);
-        ctx.strokeRect(sPos.x - coreSize / 2, sPos.y - coreSize / 2, coreSize, coreSize);
-      }
-
-      // B. Perimeter Facilities (arranged in 3 deterministic rings with zone-based offsets)
-      otherBuildings.forEach((building, idx) => {
-        let ring = 1;
-        let ringIdx = idx;
-        let countInRing = 6;
-        let ringDist = 1.65 * scale;
-
-        if (idx >= 6 && idx < 18) {
-          ring = 2;
-          ringIdx = idx - 6;
-          countInRing = 12;
-          ringDist = 2.8 * scale;
-        } else if (idx >= 18) {
-          ring = 3;
-          ringIdx = idx - 18;
-          countInRing = 18;
-          ringDist = 4.0 * scale;
-        }
-        
-        // Add a category-based rotation offset to separate zones
-        const cat = BUILDING_CATALOG[building.type]?.category || 'economy';
-        const catOffset = (categoryOrder[cat] || 0) * (Math.PI / 2);
-        
-        const angle = (ringIdx / countInRing) * Math.PI * 2 + catOffset + (ring === 2 ? 0.3 : ring === 3 ? -0.15 : 0);
-        
-        const bx = sPos.x + Math.cos(angle) * ringDist;
-        const by = sPos.y + Math.sin(angle) * ringDist;
-
-        this.renderBaseBuilding(
-          ctx,
-          building.type,
-          bx,
-          by,
-          scale,
-          building.isConstructing,
-          ownerColor,
-          building.health / building.maxHealth,
-          isSelected
-        );
-      });
-
-      // Rotating base radar dome (only if command_center is operational)
-      if (hqInstance && !hqInstance.isConstructing) {
-        ctx.save();
-        ctx.translate(sPos.x, sPos.y);
-        ctx.rotate(this.radarAngle);
-        ctx.strokeStyle = '#38bdf8';
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(scale * 1.1, 0);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      // Base Health, Shield, and Conquest Progress Bars
       const hpPct = Math.max(0, base.health / base.maxHealth);
-      const shieldPct = base.maxShield > 0 ? base.defenseShield / base.maxShield : 0;
-      const barW = Math.max(76, scale * 2.3);
+      const shieldPct = base.maxShield > 0 ? Math.max(0, base.defenseShield / base.maxShield) : 0;
+      const barW = 86;
       const barH = 5;
-      const barY = sPos.y - bRadius - 18;
 
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-      ctx.fillRect(sPos.x - barW / 2, barY, barW, barH);
-      ctx.fillStyle = hpPct > 0.5 ? '#22c55e' : hpPct > 0.2 ? '#f59e0b' : '#ef4444';
-      ctx.fillRect(sPos.x - barW / 2, barY, barW * hpPct, barH);
+      // Base Name Tag
+      ctx.font = 'bold 11px "Chakra Petch", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(2, 6, 23, 0.85)';
+      ctx.fillRect(sp.x - barW / 2 - 4, sp.y - 22, barW + 8, 28);
 
+      ctx.fillStyle = isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
+      ctx.fillText(base.name, sp.x, sp.y - 10);
+
+      // Shield bar
       if (base.maxShield > 0) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-        ctx.fillRect(sPos.x - barW / 2, barY - 6, barW, 4);
+        ctx.fillStyle = '#0f172a';
+        ctx.fillRect(sp.x - barW / 2, sp.y - 6, barW, 3);
         ctx.fillStyle = '#06b6d4';
-        ctx.fillRect(sPos.x - barW / 2, barY - 6, barW * shieldPct, 4);
+        ctx.fillRect(sp.x - barW / 2, sp.y - 6, barW * shieldPct, 3);
       }
 
-      ctx.font = 'bold 11px Chakra Petch, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#f8fafc';
-      ctx.fillText(base.name, sPos.x, barY - 8);
+      // Health bar
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(sp.x - barW / 2, sp.y - 2, barW, barH);
+      ctx.fillStyle = hpPct > 0.5 ? '#22c55e' : hpPct > 0.25 ? '#f59e0b' : '#ef4444';
+      ctx.fillRect(sp.x - barW / 2, sp.y - 2, barW * hpPct, barH);
 
       if (base.captureProgress > 0) {
         const capPct = base.captureProgress / 100;
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-        ctx.fillRect(sPos.x - barW / 2, barY + 7, barW, 7);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+        ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 8);
         ctx.fillStyle = '#f43f5e';
-        ctx.fillRect(sPos.x - barW / 2, barY + 7, barW * capPct, 7);
+        ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW * capPct, 8);
         ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 9px Chakra Petch, sans-serif';
-        ctx.fillText(`CONQUEST: ${base.captureProgress}%`, sPos.x, barY + 14);
+        ctx.font = 'bold 9px "JetBrains Mono", monospace';
+        ctx.fillText(`CAPTURE ${base.captureProgress}%`, sp.x, sp.y + 12);
       }
-    });
-
-    // =========================================================================
-    // LAYER 6: Y-SORTED ENTITIES (TREES, BUNKERS, CRATERS, PROPS, AND UNITS)
-    // =========================================================================
-    interface RenderEntity {
-      kind: 'env' | 'unit';
-      y: number;
-      data: any;
     }
 
-    const entityList: RenderEntity[] = [];
+    // 2. Unit Health Bars & Control Group Badges
+    for (const unit of this.units) {
+      if (!this.isCellVisible(unit.x, unit.y)) continue;
+      const st = this.unitStates.get(unit.id);
+      const ux = st ? st.displayX : unit.x;
+      const uz = st ? st.displayZ : unit.y;
+      const uDef = UNIT_CATALOG[unit.type];
+      const alt = uDef?.category === 'air' ? 3.15 : 0.78;
 
-    // Environment Objects
-    this.envObjects.forEach((obj) => {
-      if (obj.x >= startX - 2 && obj.x <= endX + 2 && obj.y >= startY - 2 && obj.y <= endY + 2) {
-        if (this.isCellVisible(obj.x, obj.y)) {
-          entityList.push({ kind: 'env', y: obj.y, data: obj });
-        }
+      const sp = this.worldToScreen(ux, uz, alt);
+      if (!sp.visible) continue;
+
+      const isSelected = this.selectedUnitIds.has(unit.id);
+      const maxHp = uDef?.maxHealth || unit.maxHealth;
+      const hpPct = Math.max(0, unit.health / maxHp);
+
+      if (isSelected || hpPct < 0.99) {
+        const uBarW = isSelected ? 38 : 30;
+        const uBarH = isSelected ? 4 : 3;
+
+        ctx.fillStyle = 'rgba(2, 6, 23, 0.9)';
+        ctx.fillRect(sp.x - uBarW / 2 - 1, sp.y - 1, uBarW + 2, uBarH + 2);
+        ctx.fillStyle = hpPct > 0.5 ? '#22c55e' : hpPct > 0.25 ? '#eab308' : '#ef4444';
+        ctx.fillRect(sp.x - uBarW / 2, sp.y, uBarW * hpPct, uBarH);
       }
-    });
+    }
 
-    // Military Units
-    this.units.forEach((unit) => {
-      if (unit.x >= startX - 2 && unit.x <= endX + 2 && unit.y >= startY - 2 && unit.y <= endY + 2) {
-        if (this.isCellVisible(unit.x, unit.y)) {
-          entityList.push({ kind: 'unit', y: unit.y, data: unit });
-        }
-      }
-    });
-
-    // Sort by Y ascending (back-to-front depth sorting)
-    entityList.sort((a, b) => a.y - b.y);
-
-    entityList.forEach((item) => {
-      if (item.kind === 'env') {
-        this.renderEnvironmentObject(ctx, item.data, scale);
-      } else {
-        this.renderMilitaryUnit(ctx, item.data, scale);
-        
-        // --- RTS REPAIR CRANE VISUALS ---
-        if (this.showRepairCranes) {
-          const unit = item.data as Unit;
-          const uDef = UNIT_CATALOG[unit.type];
-          const maxHp = uDef?.maxHealth || unit.maxHealth;
-          
-          if (unit.health < maxHp) {
-            // Check if near a base with repair_depot
-            const nearestBase = this.bases.find(b => 
-              b.ownerId === unit.ownerId && 
-              Math.hypot(b.x - unit.x, b.y - unit.y) <= b.radius + 2 &&
-              b.buildings.some(fac => fac.type === 'repair_depot' && !fac.isConstructing)
-            );
-
-            if (nearestBase) {
-              this.renderRepairCrane(ctx, unit.x, unit.y, scale);
-            }
-          }
-        }
-      }
-    });
-
-    // =========================================================================
-    // LAYER 7: COMBAT FX (EXPLOSIONS, TRACERS, DAMAGE FLOATERS)
-    // =========================================================================
-    const now = Date.now();
-    this.effects = this.effects.filter((fx) => now - fx.startTime < fx.durationMs);
-
-    this.effects.forEach((fx) => {
-      const elapsed = now - fx.startTime;
-      fx.progress = elapsed / fx.durationMs;
-      const sPos = this.worldToScreen(fx.x, fx.y);
-
-      if (fx.type === 'explosion') {
-        const rad = (fx.size || 24) * fx.progress;
-        const alpha = Math.max(0, 1 - fx.progress);
-
-        ctx.save();
-        ctx.strokeStyle = `rgba(249, 115, 22, ${alpha})`;
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(sPos.x, sPos.y, rad, 0, Math.PI * 2);
-        ctx.stroke();
-
-        ctx.fillStyle = `rgba(253, 224, 71, ${alpha * 0.8})`;
-        ctx.beginPath();
-        ctx.arc(sPos.x, sPos.y, rad * 0.6, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-      } else if (fx.type === 'damage_text') {
-        const floatY = sPos.y - 12 - fx.progress * 24;
-        const alpha = Math.max(0, 1 - fx.progress * 0.8);
-        ctx.save();
-        ctx.font = 'bold 12px Chakra Petch, sans-serif';
-        ctx.fillStyle = fx.color || '#ef4444';
-        ctx.globalAlpha = alpha;
+    // 3. 3D Building Placement Ghost Label
+    if (this.placementGhost) {
+      const sp = this.worldToScreen(this.placementGhost.worldX, this.placementGhost.worldY, 1.2);
+      if (sp.visible) {
+        const bDef = BUILDING_CATALOG[this.placementGhost.buildingType];
+        ctx.font = 'bold 11px "JetBrains Mono", monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(fx.text || '', sPos.x, floatY);
-        ctx.restore();
+        ctx.fillStyle = this.placementGhost.isValid ? '#34d399' : '#f87171';
+        ctx.fillText(
+          this.placementGhost.isValid
+            ? `[CLICK TO CONSTRUCT ${bDef?.name.toUpperCase()}]`
+            : `[INVALID: ${this.placementGhost.reason}]`,
+          sp.x,
+          sp.y
+        );
       }
-    });
+    }
 
-    // =========================================================================
-    // LAYER 8: DRAG-SELECTION BOX
-    // =========================================================================
+    // 4. Floating Damage Numbers
+    this.damageTexts = this.damageTexts.filter((d) => now - d.startTime < d.durationMs);
+    for (const dmg of this.damageTexts) {
+      const t = (now - dmg.startTime) / dmg.durationMs;
+      const sp = this.worldToScreen(dmg.x, dmg.z, dmg.y + t * 1.2);
+      if (!sp.visible) continue;
+
+      ctx.save();
+      ctx.font = 'bold 12px "Chakra Petch", sans-serif';
+      ctx.fillStyle = dmg.color;
+      ctx.globalAlpha = Math.max(0, 1 - t * 0.85);
+      ctx.textAlign = 'center';
+      ctx.fillText(dmg.text, sp.x, sp.y);
+      ctx.restore();
+    }
+
+    // 5. Drag-Selection Marquee Box
     if (this.selectionBox) {
       const { startX, startY, currentX, currentY } = this.selectionBox;
       const left = Math.min(startX, currentX);
@@ -919,825 +1317,17 @@ export class TacticalRenderer {
       const boxH = Math.abs(currentY - startY);
 
       ctx.save();
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.15)';
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.16)';
       ctx.strokeStyle = '#38bdf8';
       ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 2]);
+      ctx.setLineDash([5, 3]);
       ctx.fillRect(left, top, boxW, boxH);
       ctx.strokeRect(left, top, boxW, boxH);
       ctx.restore();
     }
   }
 
-  // Draw natural curved terrain transition lobe to eliminate square boundaries
-  private drawTerrainBlendLobe(
-    ctx: CanvasRenderingContext2D,
-    sx: number,
-    sy: number,
-    scale: number,
-    edge: 'top' | 'bottom' | 'left' | 'right',
-    pattern: CanvasPattern,
-    cellX: number,
-    cellY: number
-  ) {
-    ctx.save();
-    ctx.fillStyle = pattern;
-    const wave = Math.sin((cellX * 7 + cellY * 13) * 0.4) * (scale * 0.08);
-
-    ctx.beginPath();
-    if (edge === 'top') {
-      ctx.moveTo(sx, sy);
-      ctx.bezierCurveTo(
-        sx + scale * 0.3,
-        sy + scale * 0.28 + wave,
-        sx + scale * 0.7,
-        sy + scale * 0.28 - wave,
-        sx + scale,
-        sy
-      );
-      ctx.lineTo(sx + scale, sy - 1);
-      ctx.lineTo(sx, sy - 1);
-    } else if (edge === 'bottom') {
-      ctx.moveTo(sx, sy + scale);
-      ctx.bezierCurveTo(
-        sx + scale * 0.3,
-        sy + scale * 0.72 - wave,
-        sx + scale * 0.7,
-        sy + scale * 0.72 + wave,
-        sx + scale,
-        sy + scale
-      );
-      ctx.lineTo(sx + scale, sy + scale + 1);
-      ctx.lineTo(sx, sy + scale + 1);
-    } else if (edge === 'left') {
-      ctx.moveTo(sx, sy);
-      ctx.bezierCurveTo(
-        sx + scale * 0.28 + wave,
-        sy + scale * 0.3,
-        sx + scale * 0.28 - wave,
-        sy + scale * 0.7,
-        sx,
-        sy + scale
-      );
-      ctx.lineTo(sx - 1, sy + scale);
-      ctx.lineTo(sx - 1, sy);
-    } else if (edge === 'right') {
-      ctx.moveTo(sx + scale, sy);
-      ctx.bezierCurveTo(
-        sx + scale * 0.72 - wave,
-        sy + scale * 0.3,
-        sx + scale * 0.72 + wave,
-        sy + scale * 0.7,
-        sx + scale,
-        sy + scale
-      );
-      ctx.lineTo(sx + scale + 1, sy + scale);
-      ctx.lineTo(sx + scale + 1, sy);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  }
-
-  // Draw natural rounded corner fillet for diagonal transitions
-  private drawTerrainCornerLobe(
-    ctx: CanvasRenderingContext2D,
-    sx: number,
-    sy: number,
-    scale: number,
-    corner: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right',
-    pattern: CanvasPattern
-  ) {
-    ctx.save();
-    ctx.fillStyle = pattern;
-    const r = scale * 0.3;
-
-    ctx.beginPath();
-    if (corner === 'top-left') {
-      ctx.arc(sx, sy, r, 0, Math.PI * 0.5, false);
-      ctx.lineTo(sx, sy);
-    } else if (corner === 'top-right') {
-      ctx.arc(sx + scale, sy, r, Math.PI * 0.5, Math.PI, false);
-      ctx.lineTo(sx + scale, sy);
-    } else if (corner === 'bottom-left') {
-      ctx.arc(sx, sy + scale, r, Math.PI * 1.5, Math.PI * 2, false);
-      ctx.lineTo(sx, sy + scale);
-    } else if (corner === 'bottom-right') {
-      ctx.arc(sx + scale, sy + scale, r, Math.PI, Math.PI * 1.5, false);
-      ctx.lineTo(sx + scale, sy + scale);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  }
-
-  // Check matching connectivity for road and transport networks
-  private isMatchingTransport(current: TerrainType, neighbor: TerrainType): boolean {
-    const isCurrentRoad =
-      current === 'highway' ||
-      current === 'road' ||
-      current === 'rural_road' ||
-      current === 'damaged_road' ||
-      current === 'bridge_road';
-
-    const isNeighborRoad =
-      neighbor === 'highway' ||
-      neighbor === 'road' ||
-      neighbor === 'rural_road' ||
-      neighbor === 'damaged_road' ||
-      neighbor === 'bridge_road';
-
-    if (isCurrentRoad) return isNeighborRoad;
-
-    if (current === 'dirt_road' || current === 'mud_track') {
-      return neighbor === 'dirt_road' || neighbor === 'mud_track' || isNeighborRoad;
-    }
-
-    if (current === 'railway' || current === 'bridge_rail') {
-      return neighbor === 'railway' || neighbor === 'bridge_rail';
-    }
-
-    return false;
-  }
-
-  // Draw 4-way interconnected road geometry with smooth fillet center
-  private drawRoadArm(
-    ctx: CanvasRenderingContext2D,
-    cx: number,
-    cy: number,
-    roadW: number,
-    n: boolean,
-    s: boolean,
-    w: boolean,
-    e: boolean,
-    scale: number
-  ) {
-    const halfW = roadW / 2;
-    const halfTile = scale / 2;
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, halfW, 0, Math.PI * 2);
-    ctx.fill();
-
-    if (n) ctx.fillRect(cx - halfW, cy - halfTile, roadW, halfTile);
-    if (s) ctx.fillRect(cx - halfW, cy, roadW, halfTile);
-    if (w) ctx.fillRect(cx - halfTile, cy - halfW, halfTile, roadW);
-    if (e) ctx.fillRect(cx, cy - halfW, halfTile, roadW);
-
-    if (!n && !s && !w && !e) {
-      ctx.beginPath();
-      ctx.arc(cx, cy, halfW, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
-
-  // Draw Highway Lane Markings (Yellow double center lines)
-  private drawRoadCenterLines(
-    ctx: CanvasRenderingContext2D,
-    cx: number,
-    cy: number,
-    n: boolean,
-    s: boolean,
-    w: boolean,
-    e: boolean,
-    scale: number
-  ) {
-    const halfTile = scale / 2;
-    ctx.beginPath();
-    if (n) {
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx, cy - halfTile);
-    }
-    if (s) {
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx, cy + halfTile);
-    }
-    if (w) {
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx - halfTile, cy);
-    }
-    if (e) {
-      ctx.moveTo(cx, cy);
-      ctx.lineTo(cx + halfTile, cy);
-    }
-    ctx.stroke();
-  }
-
-  // Draw Highway Side Lane Lines
-  private drawRoadSideLines(
-    ctx: CanvasRenderingContext2D,
-    cx: number,
-    cy: number,
-    offset: number,
-    n: boolean,
-    s: boolean,
-    w: boolean,
-    e: boolean,
-    scale: number
-  ) {
-    const halfTile = scale / 2;
-    ctx.beginPath();
-    if (n || s) {
-      if (n) {
-        ctx.moveTo(cx - offset, cy);
-        ctx.lineTo(cx - offset, cy - halfTile);
-        ctx.moveTo(cx + offset, cy);
-        ctx.lineTo(cx + offset, cy - halfTile);
-      }
-      if (s) {
-        ctx.moveTo(cx - offset, cy);
-        ctx.lineTo(cx - offset, cy + halfTile);
-        ctx.moveTo(cx + offset, cy);
-        ctx.lineTo(cx + offset, cy + halfTile);
-      }
-    }
-    if (w || e) {
-      if (w) {
-        ctx.moveTo(cx, cy - offset);
-        ctx.lineTo(cx - halfTile, cy - offset);
-        ctx.moveTo(cx, cy + offset);
-        ctx.lineTo(cx - halfTile, cy + offset);
-      }
-      if (e) {
-        ctx.moveTo(cx, cy - offset);
-        ctx.lineTo(cx + halfTile, cy - offset);
-        ctx.moveTo(cx, cy + offset);
-        ctx.lineTo(cx + halfTile, cy + offset);
-      }
-    }
-    ctx.stroke();
-  }
-
-  // Draw Dirt Road Wheel Ruts
-  private drawDirtWheelRuts(
-    ctx: CanvasRenderingContext2D,
-    cx: number,
-    cy: number,
-    n: boolean,
-    s: boolean,
-    w: boolean,
-    e: boolean,
-    scale: number
-  ) {
-    const offset = scale * 0.12;
-    const halfTile = scale / 2;
-
-    ctx.beginPath();
-    if (n || s) {
-      if (n) {
-        ctx.moveTo(cx - offset, cy);
-        ctx.lineTo(cx - offset, cy - halfTile);
-        ctx.moveTo(cx + offset, cy);
-        ctx.lineTo(cx + offset, cy - halfTile);
-      }
-      if (s) {
-        ctx.moveTo(cx - offset, cy);
-        ctx.lineTo(cx - offset, cy + halfTile);
-        ctx.moveTo(cx + offset, cy);
-        ctx.lineTo(cx + offset, cy + halfTile);
-      }
-    }
-    if (w || e) {
-      if (w) {
-        ctx.moveTo(cx, cy - offset);
-        ctx.lineTo(cx - halfTile, cy - offset);
-        ctx.moveTo(cx, cy + offset);
-        ctx.lineTo(cx - halfTile, cy + offset);
-      }
-      if (e) {
-        ctx.moveTo(cx, cy - offset);
-        ctx.lineTo(cx + halfTile, cy - offset);
-        ctx.moveTo(cx, cy + offset);
-        ctx.lineTo(cx + halfTile, cy + offset);
-      }
-    }
-    ctx.stroke();
-  }
-
-  // Draw Railway Timber Sleepers
-  private drawRailSleepers(
-    ctx: CanvasRenderingContext2D,
-    cx: number,
-    cy: number,
-    n: boolean,
-    s: boolean,
-    w: boolean,
-    e: boolean,
-    scale: number
-  ) {
-    ctx.fillStyle = '#272018';
-    const sleeperLen = scale * 0.44;
-    const sleeperThick = Math.max(1.5, scale * 0.08);
-
-    if (w || e) {
-      for (let i = -1.5; i <= 1.5; i += 1) {
-        ctx.fillRect(cx + i * (scale * 0.28) - sleeperThick / 2, cy - sleeperLen / 2, sleeperThick, sleeperLen);
-      }
-    }
-    if (n || s) {
-      for (let i = -1.5; i <= 1.5; i += 1) {
-        ctx.fillRect(cx - sleeperLen / 2, cy + i * (scale * 0.28) - sleeperThick / 2, sleeperLen, sleeperThick);
-      }
-    }
-  }
-
-  // Draw Railway Steel Tracks
-  private drawSteelRails(
-    ctx: CanvasRenderingContext2D,
-    cx: number,
-    cy: number,
-    n: boolean,
-    s: boolean,
-    w: boolean,
-    e: boolean,
-    scale: number
-  ) {
-    const halfGauge = scale * 0.14;
-    const halfTile = scale / 2;
-
-    ctx.beginPath();
-    if (n || s) {
-      if (n) {
-        ctx.moveTo(cx - halfGauge, cy);
-        ctx.lineTo(cx - halfGauge, cy - halfTile);
-        ctx.moveTo(cx + halfGauge, cy);
-        ctx.lineTo(cx + halfGauge, cy - halfTile);
-      }
-      if (s) {
-        ctx.moveTo(cx - halfGauge, cy);
-        ctx.lineTo(cx - halfGauge, cy + halfTile);
-        ctx.moveTo(cx + halfGauge, cy);
-        ctx.lineTo(cx + halfGauge, cy + halfTile);
-      }
-    }
-    if (w || e) {
-      if (w) {
-        ctx.moveTo(cx, cy - halfGauge);
-        ctx.lineTo(cx - halfTile, cy - halfGauge);
-        ctx.moveTo(cx, cy + halfGauge);
-        ctx.lineTo(cx - halfTile, cy + halfGauge);
-      }
-      if (e) {
-        ctx.moveTo(cx, cy - halfGauge);
-        ctx.lineTo(cx + halfTile, cy - halfGauge);
-        ctx.moveTo(cx, cy + halfGauge);
-        ctx.lineTo(cx + halfTile, cy + halfGauge);
-      }
-    }
-    ctx.stroke();
-  }
-
-  // Draw Bridge Guardrails, Piers & Water Ripples
-  private drawBridgeStructure(
-    ctx: CanvasRenderingContext2D,
-    sx: number,
-    sy: number,
-    scale: number,
-    orientation: 'horizontal' | 'vertical',
-    color: string
-  ) {
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2.5;
-
-    if (orientation === 'horizontal') {
-      // Top & Bottom safety barriers
-      ctx.strokeRect(sx, sy + scale * 0.18, scale, 2);
-      ctx.strokeRect(sx, sy + scale * 0.8, scale, 2);
-      // Concrete abutments
-      ctx.fillStyle = '#64748b';
-      ctx.fillRect(sx, sy + scale * 0.15, 4, scale * 0.7);
-      ctx.fillRect(sx + scale - 4, sy + scale * 0.15, 4, scale * 0.7);
-    } else {
-      // Left & Right safety barriers
-      ctx.strokeRect(sx + scale * 0.18, sy, 2, scale);
-      ctx.strokeRect(sx + scale * 0.8, sy, 2, scale);
-      ctx.fillStyle = '#64748b';
-      ctx.fillRect(sx + scale * 0.15, sy, scale * 0.7, 4);
-      ctx.fillRect(sx + scale * 0.15, sy + scale - 4, scale * 0.7, 4);
-    }
-    ctx.restore();
-  }
-
-  // Render High-Detail Environment Objects (Trees, Bunkers, Sandbags, Boulders, Craters)
-  // Render a high-detail military base building from the AssetManager sprites
-  private renderBaseBuilding(
-    ctx: CanvasRenderingContext2D,
-    type: BuildingType,
-    bx: number,
-    by: number,
-    scale: number,
-    isConstructing: boolean = false,
-    ownerColor: string,
-    healthPct: number = 1.0,
-    isSelected: boolean = false
-  ) {
-    const sprite = assetManager.getSpriteCanvas(type);
-    if (!sprite) return;
-
-    const bScale = (scale / 40); 
-    const w = sprite.width * bScale;
-    const h = sprite.height * bScale;
-
-    ctx.save();
-    ctx.translate(bx, by);
-
-    // 1. TACTICAL SELECTION BRACKETS (Instead of simple circle)
-    if (isSelected && !isConstructing) {
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 2;
-      const bSize = w * 0.55;
-      const cornerLen = 8 * bScale;
-      
-      // Top-Left
-      ctx.beginPath(); ctx.moveTo(-bSize, -h); ctx.lineTo(-bSize + cornerLen, -h); ctx.moveTo(-bSize, -h); ctx.lineTo(-bSize, -h + cornerLen); ctx.stroke();
-      // Top-Right
-      ctx.beginPath(); ctx.moveTo(bSize, -h); ctx.lineTo(bSize - cornerLen, -h); ctx.moveTo(bSize, -h); ctx.lineTo(bSize, -h + cornerLen); ctx.stroke();
-      // Bottom-Left
-      ctx.beginPath(); ctx.moveTo(-bSize, 0); ctx.lineTo(-bSize + cornerLen, 0); ctx.moveTo(-bSize, 0); ctx.lineTo(-bSize, -cornerLen); ctx.stroke();
-      // Bottom-Right
-      ctx.beginPath(); ctx.moveTo(bSize, 0); ctx.lineTo(bSize - cornerLen, 0); ctx.moveTo(bSize, 0); ctx.lineTo(bSize, -cornerLen); ctx.stroke();
-      
-      // Footprint Glow
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
-      ctx.fillRect(-bSize, -h, bSize * 2, h);
-    }
-
-    if (isConstructing) {
-      // CONSTRUCTION SITE VISUALS (Upgraded)
-      ctx.fillStyle = '#1e293b';
-      ctx.fillRect(-w * 0.45, -w * 0.25, w * 0.9, w * 0.5);
-      
-      ctx.strokeStyle = '#475569';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 2]);
-      ctx.strokeRect(-w * 0.48, -h * 0.96, w * 0.96, h * 0.96);
-      
-      ctx.setLineDash([]);
-      ctx.strokeStyle = '#eab308';
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(-w * 0.5, 0); ctx.lineTo(w * 0.5, 0); ctx.stroke();
-    } else {
-      // 1. DIRECTIONAL GROUND SHADOW (Elongated for perspective)
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-      ctx.beginPath();
-      ctx.moveTo(-w * 0.45, 0);
-      ctx.lineTo(w * 0.45, 0);
-      ctx.lineTo(w * 0.6, 10 * bScale);
-      ctx.lineTo(-w * 0.3, 10 * bScale);
-      ctx.closePath();
-      ctx.fill();
-
-      // 2. Main Sprite
-      ctx.drawImage(sprite, -w / 2, -h, w, h);
-
-      // 3. Health Triage Overlay
-      if (healthPct < 0.8) {
-        ctx.save();
-        ctx.beginPath(); ctx.rect(-w/2, -h, w, h); ctx.clip();
-        ctx.fillStyle = 'rgba(127, 29, 29, 0.3)';
-        ctx.fillRect(-w/2, -h, w * (1-healthPct), h);
-        
-        // Emissive Fire/Sparks if critical
-        if (healthPct < 0.3 && Math.random() > 0.5) {
-          ctx.fillStyle = '#f97316';
-          ctx.beginPath(); ctx.arc((Math.random()-0.5)*w, -h*Math.random(), 3, 0, Math.PI*2); ctx.fill();
-        }
-        ctx.restore();
-      }
-    }
-
-    ctx.restore();
-  }
-
-  private renderRepairCrane(ctx: CanvasRenderingContext2D, x: number, y: number, scale: number) {
-    const sPos = this.worldToScreen(x, y);
-    const craneScale = scale * 0.45;
-    
-    ctx.save();
-    ctx.translate(sPos.x, sPos.y - scale * 0.6);
-    
-    // Rotating crane base
-    const angle = Math.sin(Date.now() / 800) * 0.4;
-    ctx.rotate(angle);
-    
-    // Crane structure (yellow/black)
-    ctx.strokeStyle = '#f59e0b';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(craneScale * 1.5, -craneScale * 0.5);
-    ctx.stroke();
-    
-    // Crane line
-    ctx.strokeStyle = '#94a3b8';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(craneScale * 1.5, -craneScale * 0.5);
-    ctx.lineTo(craneScale * 1.5, craneScale * 0.5);
-    ctx.stroke();
-    
-    // Welding sparks (random blue/white bursts)
-    if (Math.random() > 0.7) {
-      ctx.fillStyle = Math.random() > 0.5 ? '#38bdf8' : '#ffffff';
-      ctx.beginPath();
-      ctx.arc(craneScale * 1.5, craneScale * 0.5, 3, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    
-    ctx.restore();
-  }
-
-  private renderEnvironmentObject(ctx: CanvasRenderingContext2D, obj: EnvironmentObject, scale: number) {
-    const sPos = this.worldToScreen(obj.x, obj.y);
-    const spriteCanvas = assetManager.getSpriteCanvas(obj.type);
-    if (!spriteCanvas) return;
-
-    const baseScale = (obj.scale || 1.0) * (scale / 40);
-    const drawW = spriteCanvas.width * baseScale;
-    const drawH = spriteCanvas.height * baseScale;
-
-    // Anchor at center bottom (feet of the tree/building)
-    const drawX = sPos.x - drawW / 2;
-    const drawY = sPos.y - drawH + scale * 0.45;
-
-    ctx.drawImage(spriteCanvas, drawX, drawY, drawW, drawH);
-  }
-
-  // Render Military Combat Units
-  private renderMilitaryUnit(ctx: CanvasRenderingContext2D, unit: Unit, scale: number) {
-    const sPos = this.worldToScreen(unit.x, unit.y);
-    const isPlayer = unit.ownerId === this.currentUserId;
-    const isAllied = this.userAllianceId && unit.allianceId === this.userAllianceId;
-    const isEnemy = unit.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied);
-    const isSelected = this.selectedUnitIds.has(unit.id);
-
-    const unitColor = isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
-
-    // Selection ring & Destination Lines
-    if (isSelected) {
-      ctx.save();
-      ctx.strokeStyle = '#22d3ee';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(sPos.x, sPos.y, scale * 0.58, 0, Math.PI * 2);
-      ctx.stroke();
-
-      const def = UNIT_CATALOG[unit.type];
-      if (def) {
-        ctx.strokeStyle = 'rgba(34, 211, 238, 0.2)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(sPos.x, sPos.y, def.attackRange * scale, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-
-      if (unit.path && unit.path.length > 0) {
-        ctx.strokeStyle = 'rgba(34, 211, 238, 0.6)';
-        ctx.setLineDash([4, 4]);
-        ctx.lineWidth = 1.8;
-        ctx.beginPath();
-        ctx.moveTo(sPos.x, sPos.y);
-        unit.path.forEach((p) => {
-          const ps = this.worldToScreen(p.x, p.y);
-          ctx.lineTo(ps.x, ps.y);
-        });
-        ctx.stroke();
-        ctx.setLineDash([]);
-      }
-      ctx.restore();
-    }
-
-    // Directional Unit Ground Shadow
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-    ctx.beginPath();
-    ctx.ellipse(sPos.x + 4, sPos.y + 4, scale * 0.45, scale * 0.25, 0, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Draw Unit Sprite with Rotation
-    ctx.save();
-    ctx.translate(sPos.x, sPos.y);
-    ctx.rotate(unit.rotation);
-    this.drawUnitSprite(ctx, unit.type, unitColor, scale);
-    ctx.restore();
-
-    // Unit Health Bar
-    const def = UNIT_CATALOG[unit.type];
-    const maxHp = def?.maxHealth || unit.maxHealth;
-    const hpPct = Math.max(0, unit.health / maxHp);
-    const uBarW = scale * 0.85;
-    const uBarH = 3.5;
-    const uBarY = sPos.y - scale * 0.62;
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-    ctx.fillRect(sPos.x - uBarW / 2, uBarY, uBarW, uBarH);
-    ctx.fillStyle = hpPct > 0.5 ? '#22c55e' : hpPct > 0.2 ? '#eab308' : '#ef4444';
-    ctx.fillRect(sPos.x - uBarW / 2, uBarY, uBarW * hpPct, uBarH);
-  }
-
-  // Draw detailed vector military unit sprites
-  private drawUnitSprite(ctx: CanvasRenderingContext2D, type: UnitType, color: string, scale: number) {
-    const s = scale * 0.48;
-
-    switch (type) {
-      case 'titan_mbt': {
-        // Tracks
-        ctx.fillStyle = '#0f172a';
-        ctx.fillRect(-s * 0.95, -s * 0.85, s * 1.9, s * 0.38);
-        ctx.fillRect(-s * 0.95, s * 0.47, s * 1.9, s * 0.38);
-        // Track wheels
-        ctx.fillStyle = '#334155';
-        for (let i = 0; i < 5; i++) {
-          ctx.beginPath();
-          ctx.arc(-s * 0.7 + i * (s * 0.35), -s * 0.66, s * 0.12, 0, Math.PI * 2);
-          ctx.arc(-s * 0.7 + i * (s * 0.35), s * 0.66, s * 0.12, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        // Armored hull
-        ctx.fillStyle = color;
-        ctx.fillRect(-s * 0.75, -s * 0.52, s * 1.5, s * 1.04);
-        // Heavy turret & 120mm Cannon barrel
-        ctx.fillStyle = '#0f172a';
-        ctx.beginPath();
-        ctx.arc(0, 0, s * 0.42, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillRect(0, -s * 0.13, s * 1.5, s * 0.26);
-        ctx.fillStyle = '#f59e0b'; // Muzzle brake
-        ctx.fillRect(s * 1.45, -s * 0.16, s * 0.12, s * 0.32);
-        break;
-      }
-
-      case 'vanguard_scout': {
-        // Big offroad tires
-        ctx.fillStyle = '#020617';
-        ctx.fillRect(-s * 0.85, -s * 0.75, s * 0.45, s * 0.32);
-        ctx.fillRect(s * 0.4, -s * 0.75, s * 0.45, s * 0.32);
-        ctx.fillRect(-s * 0.85, s * 0.43, s * 0.45, s * 0.32);
-        ctx.fillRect(s * 0.4, s * 0.43, s * 0.45, s * 0.32);
-        // Sleek buggy chassis
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(s * 0.85, 0);
-        ctx.lineTo(-s * 0.65, -s * 0.52);
-        ctx.lineTo(-s * 0.65, s * 0.52);
-        ctx.closePath();
-        ctx.fill();
-        // Rollcage
-        ctx.strokeStyle = '#0f172a';
-        ctx.lineWidth = 1.8;
-        ctx.strokeRect(-s * 0.35, -s * 0.32, s * 0.65, s * 0.64);
-        break;
-      }
-
-      case 'ironclad_apc': {
-        // 8-Wheeled combat carrier
-        ctx.fillStyle = '#020617';
-        for (let i = 0; i < 4; i++) {
-          ctx.fillRect(-s * 0.8 + i * (s * 0.42), -s * 0.8, s * 0.32, s * 0.24);
-          ctx.fillRect(-s * 0.8 + i * (s * 0.42), s * 0.56, s * 0.32, s * 0.24);
-        }
-        ctx.fillStyle = color;
-        ctx.fillRect(-s * 0.85, -s * 0.55, s * 1.7, s * 1.1);
-        // Twin Autocannons
-        ctx.fillStyle = '#0f172a';
-        ctx.fillRect(s * 0.2, -s * 0.2, s * 0.8, s * 0.12);
-        ctx.fillRect(s * 0.2, s * 0.08, s * 0.8, s * 0.12);
-        break;
-      }
-
-      case 'goliath_howitzer': {
-        ctx.fillStyle = '#0f172a';
-        ctx.fillRect(-s * 1.05, -s * 0.85, s * 2.1, s * 1.7);
-        ctx.fillStyle = color;
-        ctx.fillRect(-s * 0.75, -s * 0.65, s * 1.5, s * 1.3);
-        // Super long artillery barrel
-        ctx.fillStyle = '#1e293b';
-        ctx.fillRect(-s * 0.2, -s * 0.16, s * 2.4, s * 0.32);
-        ctx.fillStyle = '#e2e8f0';
-        ctx.fillRect(s * 2.1, -s * 0.2, s * 0.16, s * 0.4);
-        break;
-      }
-
-      case 'skyguard_aa': {
-        ctx.fillStyle = '#0f172a';
-        ctx.fillRect(-s * 0.85, -s * 0.75, s * 1.7, s * 1.5);
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(0, 0, s * 0.55, 0, Math.PI * 2);
-        ctx.fill();
-        // Quad Flak Barrels
-        ctx.fillStyle = '#38bdf8';
-        [-0.38, -0.13, 0.13, 0.38].forEach((offset) => {
-          ctx.fillRect(0, s * offset - 1.5, s * 1.3, 3);
-        });
-        break;
-      }
-
-      case 'dominator_conquest': {
-        ctx.fillStyle = '#020617';
-        ctx.fillRect(-s * 0.95, -s * 0.85, s * 1.9, s * 1.7);
-        ctx.fillStyle = color;
-        ctx.fillRect(-s * 0.75, -s * 0.65, s * 1.5, s * 1.3);
-        // Glowing uplink antenna dish
-        ctx.strokeStyle = '#f43f5e';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.arc(0, 0, s * 0.52, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.fillStyle = '#f43f5e';
-        ctx.beginPath();
-        ctx.arc(0, 0, s * 0.22, 0, Math.PI * 2);
-        ctx.fill();
-        break;
-      }
-
-      case 'hawk_scout_heli':
-      case 'cobra_gunship': {
-        // Fuselage
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, s * 0.85, s * 0.36, 0, 0, Math.PI * 2);
-        ctx.fill();
-        // Tail boom
-        ctx.fillStyle = '#334155';
-        ctx.fillRect(-s * 1.45, -s * 0.08, s * 0.85, s * 0.16);
-        // Spinning main rotor blades
-        ctx.save();
-        ctx.rotate(this.rotorAngle);
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.75)';
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(-s * 1.7, 0);
-        ctx.lineTo(s * 1.7, 0);
-        ctx.moveTo(0, -s * 1.7);
-        ctx.lineTo(0, s * 1.7);
-        ctx.stroke();
-        ctx.restore();
-        break;
-      }
-
-      case 'stormbringer_jet':
-      case 'thunderbolt_bomber': {
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(s * 1.3, 0);
-        ctx.lineTo(-s * 0.95, -s * 1.15);
-        ctx.lineTo(-s * 0.55, 0);
-        ctx.lineTo(-s * 0.95, s * 1.15);
-        ctx.closePath();
-        ctx.fill();
-        // Canopy
-        ctx.fillStyle = '#38bdf8';
-        ctx.beginPath();
-        ctx.ellipse(s * 0.45, 0, s * 0.32, s * 0.13, 0, 0, Math.PI * 2);
-        ctx.fill();
-        // Afterburner exhaust glow
-        ctx.fillStyle = '#f97316';
-        ctx.fillRect(-s * 0.85, -s * 0.16, s * 0.42, s * 0.32);
-        break;
-      }
-
-      case 'wavecutter_corvette':
-      case 'trident_destroyer': {
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.moveTo(s * 1.6, 0);
-        ctx.lineTo(-s * 1.3, -s * 0.52);
-        ctx.lineTo(-s * 1.3, s * 0.52);
-        ctx.closePath();
-        ctx.fill();
-        ctx.fillStyle = '#1e293b';
-        ctx.fillRect(-s * 0.6, -s * 0.28, s * 1.0, s * 0.56);
-        break;
-      }
-
-      case 'iron_dreadnought': {
-        // Armored siege train
-        ctx.fillStyle = '#18181b';
-        ctx.fillRect(-s * 1.6, -s * 0.65, s * 3.2, s * 1.3);
-        ctx.fillStyle = color;
-        ctx.fillRect(-s * 1.4, -s * 0.48, s * 2.8, s * 0.96);
-        // Twin railguns
-        ctx.fillStyle = '#f59e0b';
-        ctx.beginPath();
-        ctx.arc(-s * 0.55, 0, s * 0.36, 0, Math.PI * 2);
-        ctx.arc(s * 0.55, 0, s * 0.36, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillRect(-s * 0.55, -s * 0.12, s * 1.45, s * 0.24);
-        ctx.fillRect(s * 0.55, -s * 0.12, s * 1.45, s * 0.24);
-        break;
-      }
-
-      default: {
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(0, 0, s * 0.6, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-  }
-
-  // Draw High-Quality Radar Minimap
+  // Draw High-Quality Radar Minimap with 3D Camera Frustum Footprint
   public drawMinimap(minimapCanvas: HTMLCanvasElement) {
     const mCtx = minimapCanvas.getContext('2d');
     if (!mCtx || this.terrain.length === 0) return;
@@ -1762,7 +1352,8 @@ export class TacticalRenderer {
     this.bases.forEach((b) => {
       const isPlayer = b.ownerId === this.currentUserId;
       const isAllied = this.userAllianceId && b.allianceId === this.userAllianceId;
-      const isEnemy = b.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied && b.ownerId !== 'neutral');
+      const isEnemy =
+        base.ownerIsEnemy(b.ownerId, isPlayer, !!isAllied);
 
       mCtx.fillStyle = isPlayer ? '#3b82f6' : isAllied ? '#10b981' : isEnemy ? '#ef4444' : '#f59e0b';
       mCtx.beginPath();
@@ -1790,22 +1381,30 @@ export class TacticalRenderer {
         mCtx.fill();
       } else {
         mCtx.fillStyle = isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
-        mCtx.fillRect(u.x * cellW - 1, u.y * cellH - 1, 3.2, 3.2);
+        mCtx.fillRect(u.x * cellW - 1.5, u.y * cellH - 1.5, 3.2, 3.2);
       }
     });
 
-    // Camera Frustum
-    const scale = this.tileSize * this.zoom;
-    const viewCols = this.canvas.width / scale;
-    const viewRows = this.canvas.height / scale;
+    // 3D Camera Frustum Box on Minimap
+    const viewSpanX = 24 / Math.max(0.45, this.smoothZoom);
+    const viewSpanY = 18 / Math.max(0.45, this.smoothZoom);
 
-    const camMinX = (this.cameraX - viewCols / 2) * cellW;
-    const camMinY = (this.cameraY - viewRows / 2) * cellH;
-    const camW = viewCols * cellW;
-    const camH = viewRows * cellH;
-
+    mCtx.save();
+    mCtx.translate(this.smoothCamX * cellW, this.smoothCamY * cellH);
+    mCtx.rotate(-this.smoothYaw);
     mCtx.strokeStyle = '#ffffff';
     mCtx.lineWidth = 1.5;
-    mCtx.strokeRect(camMinX, camMinY, camW, camH);
+    mCtx.strokeRect(
+      (-viewSpanX / 2) * cellW,
+      (-viewSpanY / 2) * cellH,
+      viewSpanX * cellW,
+      viewSpanY * cellH
+    );
+    mCtx.restore();
   }
 }
+
+function baseOwnerIsEnemy(ownerId: string, isPlayer: boolean, isAllied: boolean): boolean {
+  return ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied && ownerId !== 'neutral');
+}
+const base = { ownerIsEnemy: baseOwnerIsEnemy };

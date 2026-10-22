@@ -295,9 +295,44 @@ io.on('connection', (socket) => {
   });
 
   // Base construction / upgrade
-  socket.on('base:build', (payload: { baseId: string; buildingType: any }, callback?: Function) => {
-    const result = gameSimulation.buildOrUpgrade(authenticatedUserId, payload.baseId, payload.buildingType);
-    if (callback) callback(result);
+  socket.on(
+    'base:build',
+    (
+      payload: { baseId: string; buildingType: any; offsetX?: number; offsetY?: number },
+      callback?: Function
+    ) => {
+      const result = gameSimulation.buildOrUpgrade(
+        authenticatedUserId,
+        payload.baseId,
+        payload.buildingType,
+        payload.offsetX,
+        payload.offsetY
+      );
+      if (callback) callback(result);
+    }
+  );
+
+  // AI Difficulty control
+  socket.on('ai:difficulty', (payload: { difficulty: 'easy' | 'medium' | 'hard' }, callback?: Function) => {
+    if (payload?.difficulty) {
+      gameSimulation.setAiDifficulty(payload.difficulty);
+      if (callback) callback({ success: true, difficulty: payload.difficulty });
+    }
+  });
+
+  // Reset Skirmish World
+  socket.on('world:reset_skirmish', (_payload: any, callback?: Function) => {
+    const freshData = gameStore.createNewWorld(202610);
+    io.emit('world:state', {
+      bases: freshData.bases,
+      units: freshData.units,
+      alliances: freshData.alliances,
+      envObjects: freshData.envObjects || [],
+      chat: freshData.chat.slice(-50),
+      notifications: [],
+      timestamp: Date.now(),
+    });
+    if (callback) callback({ success: true });
   });
 
   // Unit production

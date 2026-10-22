@@ -112,6 +112,8 @@ export interface BuildingInstance {
   maxHealth: number;
   isConstructing?: boolean;
   upgradeCompletionTime?: number; // epoch ms
+  offsetX?: number; // relative to base center in grid cells
+  offsetY?: number; // relative to base center in grid cells
 }
 
 export interface ConstructionOrder {
@@ -122,6 +124,8 @@ export interface ConstructionOrder {
   startTime: number;
   finishTime: number;
   cost: Resources;
+  offsetX?: number;
+  offsetY?: number;
 }
 
 export interface UnitProductionOrder {
@@ -303,11 +307,15 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export type AIDifficulty = 'easy' | 'medium' | 'hard';
+
 export interface CombatEvent {
   id: string;
   attackerId: string;
   attackerType: string;
   attackerOwnerId: string;
+  attackerX?: number;
+  attackerY?: number;
   targetId: string;
   targetType: string;
   damage: number;

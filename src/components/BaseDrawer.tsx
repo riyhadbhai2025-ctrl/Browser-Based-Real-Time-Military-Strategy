@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Hammer, Wrench, Shield, Clock, Crosshair, ArrowUpCircle } from 'lucide-react';
+import { X, Hammer, Wrench, Shield, Clock, Crosshair, ArrowUpCircle, MapPin } from 'lucide-react';
 import { Base, BuildingType, UnitType } from '../types/game';
 import { BUILDING_CATALOG, UNIT_CATALOG } from '../game/catalog';
 import { assetManager } from '../game/assets/assetManager';
@@ -9,6 +9,7 @@ interface BaseDrawerProps {
   currentUserId: string;
   onClose: () => void;
   onBuild: (baseId: string, buildingType: BuildingType) => void;
+  onStartPlaceBuilding3D?: (baseId: string, buildingType: BuildingType) => void;
   onProduceUnit: (baseId: string, unitType: UnitType) => void;
   onRepairBase: (baseId: string) => void;
 }
@@ -18,6 +19,7 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
   currentUserId,
   onClose,
   onBuild,
+  onStartPlaceBuilding3D,
   onProduceUnit,
   onRepairBase,
 }) => {
@@ -28,20 +30,17 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
   const hpPct = Math.max(0, base.health / base.maxHealth);
   const shieldPct = base.maxShield > 0 ? Math.max(0, base.defenseShield / base.maxShield) : 0;
 
-  // Filter available buildings for this base type
   const availableBuildings = Object.values(BUILDING_CATALOG).filter((b) =>
     b.baseTypesAllowed.includes(base.type)
   );
 
-  // Filter available units for this base
   const availableUnits = Object.values(UNIT_CATALOG).filter((u) => {
-    // Check if base has the required building
     const hasFacility = base.buildings.some((b) => b.type === u.requiredBuilding);
     return hasFacility;
   });
 
   return (
-    <div className="absolute top-12 right-3 bottom-3 w-84 md:w-96 z-20 flex flex-col rounded-lg bg-slate-950/95 backdrop-blur-md border border-slate-800 shadow-2xl overflow-hidden select-none pointer-events-auto">
+    <div className="absolute top-12 right-3 bottom-3 w-84 md:w-96 z-20 flex flex-col rounded-lg bg-slate-950/95 border border-slate-800 shadow-2xl overflow-hidden select-none pointer-events-auto">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 bg-slate-900 border-b border-slate-800">
         <div className="flex items-center gap-2">
@@ -71,7 +70,7 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
       </div>
 
       {/* Facility Visual Dossier Banner */}
-      <div className="relative h-24 overflow-hidden border-b border-slate-800 bg-slate-900">
+      <div className="relative h-20 overflow-hidden border-b border-slate-800 bg-slate-900">
         <img
           src={
             base.type === 'air'
@@ -90,27 +89,33 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
         />
         <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/40 to-transparent flex items-end px-3 py-1.5">
           <span className="text-[10px] font-mono uppercase tracking-widest text-cyan-400 font-bold">
-            FACILITY COMPOUND · SECTOR [{base.x}, {base.y}]
+            3D FACILITY COMPOUND · SECTOR [{base.x}, {base.y}]
           </span>
         </div>
       </div>
 
       {/* Base Health, Shield & Repair */}
-      <div className="px-3 py-2 bg-slate-900/50 border-b border-slate-800/80">
+      <div className="px-3 py-2 bg-slate-900/60 border-b border-slate-800">
         <div className="flex items-center justify-between text-[11px] font-mono mb-1">
           <span className="text-slate-400">STRUCTURAL INTEGRITY</span>
-          <span className="text-emerald-400 font-bold">{Math.round(base.health)} / {base.maxHealth}</span>
+          <span className="text-emerald-400 font-bold">
+            {Math.round(base.health)} / {base.maxHealth}
+          </span>
         </div>
         <div className="w-full h-2 bg-slate-800 rounded overflow-hidden mb-1.5">
           <div
-            className={`h-full transition-all ${hpPct > 0.5 ? 'bg-emerald-500' : hpPct > 0.25 ? 'bg-amber-500' : 'bg-rose-500'}`}
+            className={`h-full transition-all ${
+              hpPct > 0.5 ? 'bg-emerald-500' : hpPct > 0.25 ? 'bg-amber-500' : 'bg-rose-500'
+            }`}
             style={{ width: `${hpPct * 100}%` }}
           />
         </div>
 
         <div className="flex items-center justify-between text-[11px] font-mono mb-1">
           <span className="text-slate-400">DEFENSE SHIELD</span>
-          <span className="text-cyan-400 font-bold">{Math.round(base.defenseShield)} / {base.maxShield}</span>
+          <span className="text-cyan-400 font-bold">
+            {Math.round(base.defenseShield)} / {base.maxShield}
+          </span>
         </div>
         <div className="w-full h-1.5 bg-slate-800 rounded overflow-hidden mb-2">
           <div className="h-full bg-cyan-500 transition-all" style={{ width: `${shieldPct * 100}%` }} />
@@ -133,7 +138,7 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
           onClick={() => setActiveTab('buildings')}
           className={`flex-1 py-1.5 text-center font-semibold transition border-b-2 ${
             activeTab === 'buildings'
-              ? 'border-blue-500 text-blue-400 bg-blue-950/20'
+              ? 'border-blue-500 text-blue-400 bg-blue-950/30'
               : 'border-transparent text-slate-400 hover:text-slate-200'
           }`}
         >
@@ -144,7 +149,7 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
           onClick={() => setActiveTab('units')}
           className={`flex-1 py-1.5 text-center font-semibold transition border-b-2 ${
             activeTab === 'units'
-              ? 'border-blue-500 text-blue-400 bg-blue-950/20'
+              ? 'border-blue-500 text-blue-400 bg-blue-950/30'
               : 'border-transparent text-slate-400 hover:text-slate-200'
           }`}
         >
@@ -155,7 +160,7 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
           onClick={() => setActiveTab('queues')}
           className={`flex-1 py-1.5 text-center font-semibold transition border-b-2 ${
             activeTab === 'queues'
-              ? 'border-blue-500 text-blue-400 bg-blue-950/20'
+              ? 'border-blue-500 text-blue-400 bg-blue-950/30'
               : 'border-transparent text-slate-400 hover:text-slate-200'
           }`}
         >
@@ -165,7 +170,6 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
 
       {/* Tab Content Area */}
       <div className="flex-1 overflow-y-auto p-2 space-y-2">
-        {/* Buildings Tab */}
         {activeTab === 'buildings' && (
           <div className="space-y-2">
             {availableBuildings.map((def) => {
@@ -189,25 +193,27 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
               return (
                 <div
                   key={def.type}
-                  className="p-2 rounded bg-slate-900/80 border border-slate-800 text-slate-200"
+                  className="p-2 rounded bg-slate-900 border border-slate-800 text-slate-200"
                 >
                   <div className="flex gap-2.5 mb-2">
-                    <div className="w-14 h-14 shrink-0 rounded bg-slate-950 border border-slate-800 flex items-center justify-center overflow-hidden">
+                    <div className="w-12 h-12 shrink-0 rounded bg-slate-950 border border-slate-800 flex items-center justify-center overflow-hidden">
                       <BuildingPreview type={def.type} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-0.5">
-                        <span className="font-bold text-slate-100 font-mono text-[11px] truncate mr-1">{def.name}</span>
+                        <span className="font-bold text-slate-100 font-mono text-[11px] truncate mr-1">
+                          {def.name}
+                        </span>
                         <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-cyan-400 font-mono shrink-0">
-                          LVL {currentLevel}
+                          LVL {currentLevel}/{def.maxLevel}
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-400 leading-tight line-clamp-2">{def.description}</p>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[10px] font-mono">
-                    <div className="flex items-center gap-2 text-slate-400">
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-[10px] font-mono">
+                    <div className="flex items-center gap-1.5 text-slate-400">
                       <span>C:{reqConcrete}</span>
                       <span>S:{reqSteel}</span>
                       <span>A:{reqAlum}</span>
@@ -215,36 +221,53 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
                     </div>
 
                     {isOwner && (
-                      <button
-                        onClick={() => onBuild(base.id, def.type)}
-                        disabled={isMax || isUnderConstruction || !canAfford}
-                        className={`px-2.5 py-1 rounded font-semibold flex items-center gap-1 transition ${
-                          isMax
-                            ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                            : isUnderConstruction
-                            ? 'bg-amber-950 text-amber-400 border border-amber-800 cursor-not-allowed'
-                            : canAfford
-                            ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-sm'
-                            : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                        }`}
-                      >
-                        {isUnderConstruction ? (
-                          <>
-                            <Clock className="w-3 h-3 animate-spin" />
-                            <span>BUILDING</span>
-                          </>
-                        ) : currentLevel === 0 ? (
-                          <>
-                            <Hammer className="w-3 h-3" />
-                            <span>CONSTRUCT</span>
-                          </>
-                        ) : (
-                          <>
-                            <ArrowUpCircle className="w-3 h-3" />
-                            <span>UPGRADE</span>
-                          </>
+                      <div className="flex items-center gap-1">
+                        {currentLevel === 0 && !isUnderConstruction && onStartPlaceBuilding3D && (
+                          <button
+                            onClick={() => onStartPlaceBuilding3D(base.id, def.type)}
+                            disabled={!canAfford}
+                            className={`px-2 py-1 rounded font-semibold flex items-center gap-1 transition ${
+                              canAfford
+                                ? 'bg-cyan-900/70 hover:bg-cyan-800 text-cyan-200 border border-cyan-600/50'
+                                : 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                            }`}
+                            title="Interactive 3D Placement Preview on Battlefield"
+                          >
+                            <MapPin className="w-3 h-3" />
+                            <span>3D PLACE</span>
+                          </button>
                         )}
-                      </button>
+                        <button
+                          onClick={() => onBuild(base.id, def.type)}
+                          disabled={isMax || isUnderConstruction || !canAfford}
+                          className={`px-2.5 py-1 rounded font-semibold flex items-center gap-1 transition ${
+                            isMax
+                              ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                              : isUnderConstruction
+                              ? 'bg-amber-950 text-amber-400 border border-amber-800 cursor-not-allowed'
+                              : canAfford
+                              ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-sm'
+                              : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                          }`}
+                        >
+                          {isUnderConstruction ? (
+                            <>
+                              <Clock className="w-3 h-3 animate-spin" />
+                              <span>BUILDING</span>
+                            </>
+                          ) : currentLevel === 0 ? (
+                            <>
+                              <Hammer className="w-3 h-3" />
+                              <span>BUILD</span>
+                            </>
+                          ) : (
+                            <>
+                              <ArrowUpCircle className="w-3 h-3" />
+                              <span>UPGRADE</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -253,7 +276,6 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
           </div>
         )}
 
-        {/* Units Production Tab */}
         {activeTab === 'units' && (
           <div className="space-y-2">
             {availableUnits.length === 0 ? (
@@ -271,7 +293,7 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
                 return (
                   <div
                     key={uDef.type}
-                    className="p-2 rounded bg-slate-900/80 border border-slate-800 text-slate-200 text-xs"
+                    className="p-2 rounded bg-slate-900 border border-slate-800 text-slate-200 text-xs"
                   >
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-1.5">
@@ -285,21 +307,20 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
 
                     <p className="text-[11px] text-slate-400 mb-2">{uDef.description}</p>
 
-                    {/* Stats badges */}
                     <div className="grid grid-cols-4 gap-1 mb-2 text-[10px] font-mono text-center">
-                      <div className="p-1 rounded bg-slate-800/80">
+                      <div className="p-1 rounded bg-slate-800">
                         <div className="text-slate-500">HP</div>
                         <div className="text-emerald-400 font-bold">{uDef.maxHealth}</div>
                       </div>
-                      <div className="p-1 rounded bg-slate-800/80">
+                      <div className="p-1 rounded bg-slate-800">
                         <div className="text-slate-500">ARMOR</div>
                         <div className="text-blue-400 font-bold">{uDef.armor}%</div>
                       </div>
-                      <div className="p-1 rounded bg-slate-800/80">
+                      <div className="p-1 rounded bg-slate-800">
                         <div className="text-slate-500">RANGE</div>
                         <div className="text-amber-400 font-bold">{uDef.attackRange}</div>
                       </div>
-                      <div className="p-1 rounded bg-slate-800/80">
+                      <div className="p-1 rounded bg-slate-800">
                         <div className="text-slate-500">DPS</div>
                         <div className="text-rose-400 font-bold">
                           {Math.round(uDef.attackDamage / uDef.cooldownSec)}
@@ -307,7 +328,7 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[10px] font-mono">
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-800 text-[10px] font-mono">
                       <div className="flex items-center gap-2 text-slate-400">
                         <span>C:{uDef.cost.concrete}</span>
                         <span>S:{uDef.cost.steel}</span>
@@ -337,7 +358,6 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
           </div>
         )}
 
-        {/* Queues Tab */}
         {activeTab === 'queues' && (
           <div className="space-y-3">
             <div>
@@ -423,9 +443,9 @@ const BuildingPreview: React.FC<{ type: BuildingType }> = ({ type }) => {
     const scale = Math.min(56 / sprite.width, 56 / sprite.height);
     const w = sprite.width * scale;
     const h = sprite.height * scale;
-    
-    ctx.drawImage(sprite, 32 - w/2, 32 - h/2, w, h);
+
+    ctx.drawImage(sprite, 32 - w / 2, 32 - h / 2, w, h);
   }, [type]);
 
-  return <canvas ref={canvasRef} width={64} height={64} className="w-12 h-12 block" />;
+  return <canvas ref={canvasRef} width={64} height={64} className="w-11 h-11 block" />;
 };

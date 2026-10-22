@@ -7,22 +7,21 @@ interface ShortcutsModalProps {
 
 export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ onClose }) => {
   const shortcuts = [
+    { key: 'W, A, S, D / ARROWS', desc: 'Pan 3D Camera Across Battlefield', icon: <ArrowUp className="w-3.5 h-3.5" /> },
+    { key: 'Q / E  or  ALT+DRAG', desc: 'Rotate / Orbit 3D Camera Angle', icon: <Target className="w-3.5 h-3.5 text-cyan-400" /> },
+    { key: 'N', desc: 'Reset 3D Camera Heading North', icon: <MapIcon className="w-3.5 h-3.5 text-blue-400" /> },
+    { key: 'V', desc: 'Toggle 3D Strategic Overview Mode', icon: <Maximize className="w-3.5 h-3.5 text-emerald-400" /> },
+    { key: 'C / DOUBLE-CLICK', desc: 'Center 3D Camera / Select Same Unit Type', icon: <MousePointer className="w-3.5 h-3.5 text-amber-400" /> },
+    { key: 'CTRL + 1 - 9', desc: 'Assign Selected Squad to Control Group', icon: <Keyboard className="w-3.5 h-3.5" /> },
+    { key: '1 - 9', desc: 'Recall Squad Control Group', icon: <Keyboard className="w-3.5 h-3.5" /> },
+    { key: 'HOME / END', desc: 'Select All Units / Emergency Stop', icon: <Target className="w-3.5 h-3.5 text-rose-500" /> },
+    { key: 'SPACE', desc: 'Jump 3D Camera to Home Base', icon: <Zap className="w-3.5 h-3.5 text-blue-500" /> },
     { key: 'ENTER', desc: 'Open / Focus Tactical Chat', icon: <MessageSquare className="w-3.5 h-3.5" /> },
-    { key: 'W, A, S, D', desc: 'Scroll Camera (Arrow Keys supported)', icon: <ArrowUp className="w-3.5 h-3.5" /> },
-    { key: 'R', desc: 'Toggle Repair Crane Visuals', icon: <Zap className="w-3.5 h-3.5 text-amber-400" /> },
-    { key: 'F11', desc: 'Toggle Fullscreen Mode', icon: <Maximize className="w-3.5 h-3.5" /> },
-    { key: 'HOME', desc: 'Select All Mobile Units', icon: <MousePointer className="w-3.5 h-3.5 text-blue-400" /> },
-    { key: 'END', desc: 'Emergency Stop Selected Units', icon: <Target className="w-3.5 h-3.5 text-rose-500" /> },
-    { key: 'PAGE UP', desc: 'Flash Units on Minimap', icon: <MapIcon className="w-3.5 h-3.5 text-emerald-400" /> },
-    { key: 'PAGE DOWN', desc: 'Post Cursor Coordinates to Chat', icon: <MessageSquare className="w-3.5 h-3.5 text-cyan-400" /> },
-    { key: '1 - 5', desc: 'Recall Control Group', icon: <Keyboard className="w-3.5 h-3.5" /> },
-    { key: 'CTRL + 1 - 5', desc: 'Assign Selection to Control Group', icon: <Keyboard className="w-3.5 h-3.5" /> },
-    { key: 'SPACE', desc: 'Jump Camera to Home Base', icon: <Zap className="w-3.5 h-3.5 text-blue-500" /> },
-    { key: 'ESC', desc: 'Clear Selection / Close Modals', icon: <X className="w-3.5 h-3.5" /> },
+    { key: 'ESC', desc: 'Cancel 3D Placement / Clear Selection', icon: <X className="w-3.5 h-3.5" /> },
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 p-4">
       <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 bg-slate-800/50 border-b border-slate-700">
