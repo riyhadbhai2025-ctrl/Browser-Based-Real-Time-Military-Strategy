@@ -3,44 +3,73 @@ import dotenv from 'dotenv';
 import express from 'express';
 import http from 'http';
 import path from 'path';
-import { Server as SocketIOServer } from 'socket.io';
+import { fileURLToPath } from 'url';
+import { Server as SocketIOServer, Socket } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
+import { createAdminRouter, sanitizeText } from './server/adminRoutes';
 import { gameSimulation } from './server/simulation';
 import { gameStore } from './server/store';
-import { Alliance, ChatMessage, GameNotification, PlayerProfile, Unit } from './src/types/game';
+import { Alliance, ChatMessage, PlayerProfile, Unit } from './src/types/game';
 
 dotenv.config();
 
-const app = express();
-const server = http.createServer(app);
-const port = 3000;
+export const app = express();
+export const server = http.createServer(app);
+const port = Number(process.env.PORT) || 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '512kb' }));
 
 // Initialize Socket.IO with CORS allowance and heartbeat
-const io = new SocketIOServer(server, {
+export const io = new SocketIOServer(server, {
   cors: { origin: '*' },
   pingInterval: 10000,
   pingTimeout: 5000,
 });
 
 gameSimulation.setSocketServer(io);
-gameSimulation.start();
 
-// In-memory active session tokens
-const sessionTokens = new Map<string, string>(); // token -> userId
+// Track active Socket.IO connections: socket.id -> userId
+export const onlineSockets = new Map<string, string>();
+const socketInstances = new Map<string, Socket>();
+
+export function disconnectUserSockets(userId: string, reason: string): number {
+  let count = 0;
+  for (const [sockId, uid] of onlineSockets.entries()) {
+    if (uid === userId) {
+      const sock = socketInstances.get(sockId);
+      if (sock) {
+        sock.emit('account:moderated', { reason });
+        sock.disconnect(true);
+        count += 1;
+      }
+      onlineSockets.delete(sockId);
+      socketInstances.delete(sockId);
+    }
+  }
+  return count;
+}
+
+// Mount Complete Secure Admin API Router (/api/admin/*)
+app.use('/api/admin', createAdminRouter(io, onlineSockets, disconnectUserSockets));
 
 // REST API Endpoints
 // 1. Auth: Register
 app.post('/api/auth/register', async (req, res) => {
   try {
-    const { username, password, email } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password required' });
+    const settings = gameStore.getSystemSettings();
+    if (!settings.allowNewRegistrations) {
+      return res.status(403).json({ error: 'New commander registrations are currently disabled by High Command.' });
+    }
+
+    const username = sanitizeText(req.body?.username, 32);
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    const email = sanitizeText(req.body?.email, 80);
+
+    if (!username || username.length < 3 || !password || password.length < 4) {
+      return res.status(400).json({ error: 'Username (min 3 chars) and password (min 4 chars) required' });
     }
 
     const data = gameStore.getData();
-    // Check if user exists
     const existing = Object.values(data.users).find(
       (u) => u.profile.username.toLowerCase() === username.toLowerCase()
     );
@@ -48,13 +77,14 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(400).json({ error: 'Username already taken' });
     }
 
-    const salt = await bcrypt.genSalt(10);
+    const salt = await bcrypt.genSalt(8);
     const passwordHash = await bcrypt.hash(password, salt);
     const userId = `user_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
-    // Create a new Home Base for this player on an open spot on the map
     const homeBaseId = `base_home_${userId}`;
     const now = Date.now();
+    const econ = gameStore.getEconomyConfig();
+
     const newBase = {
       id: homeBaseId,
       name: `${username}'s Forward Redoubt`,
@@ -71,9 +101,9 @@ app.post('/api/auth/register', async (req, res) => {
       maxShield: 1200,
       captureProgress: 0,
       isProtected: true,
-      resources: { concrete: 3500, steel: 3000, aluminum: 1800, fuel: 2200 },
-      storageCap: { concrete: 15000, steel: 12000, aluminum: 8000, fuel: 10000 },
-      productionRates: { concrete: 10, steel: 8, aluminum: 5, fuel: 7 },
+      resources: { ...econ.startingResources },
+      storageCap: { ...econ.baseStorageCap },
+      productionRates: { ...econ.baseGenerationRates },
       lastResourceUpdate: now,
       constructionQueue: [],
       productionQueue: [],
@@ -89,7 +119,6 @@ app.post('/api/auth/register', async (req, res) => {
     };
     data.bases.push(newBase);
 
-    // Starter units for new player
     const starterUnit: Unit = {
       id: `unit_${Date.now()}_${userId}`,
       type: 'vanguard_scout',
@@ -125,15 +154,19 @@ app.post('/api/auth/register', async (req, res) => {
       lastLoginAt: now,
       beginnerProtectionUntil: now + 86400000 * 2,
       isAdmin: false,
+      adminRole: null,
+      status: 'active',
+      suspendedUntil: null,
+      banReason: null,
+      moderationHistory: [],
     };
 
+    const token = `token_${userId}_${Math.random().toString(36).substring(2, 9)}`;
     data.users[userId] = { passwordHash, profile };
+    data.tokens[token] = userId;
     gameStore.saveData();
 
-    const token = `token_${userId}_${Math.random().toString(36).substring(2, 9)}`;
-    sessionTokens.set(token, userId);
-
-    res.json({ token, profile });
+    res.json({ token, profile: gameStore.sanitizeProfile(profile) });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Registration failed' });
   }
@@ -142,7 +175,8 @@ app.post('/api/auth/register', async (req, res) => {
 // 2. Auth: Login
 app.post('/api/auth/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const username = sanitizeText(req.body?.username, 64);
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
     const data = gameStore.getData();
 
     const entry = Object.entries(data.users).find(
@@ -154,7 +188,6 @@ app.post('/api/auth/login', async (req, res) => {
     }
 
     const [userId, user] = entry;
-    // Check password
     let isValid = false;
     if (user.passwordHash.startsWith('$2a$') || user.passwordHash.startsWith('$2b$')) {
       isValid = await bcrypt.compare(password, user.passwordHash);
@@ -162,22 +195,25 @@ app.post('/api/auth/login', async (req, res) => {
       isValid = user.passwordHash === password;
     }
 
-    // Allow default commander login for convenience during testing
-    if (username === 'Commander' && (password === 'admin123' || password === 'admin' || password === '')) {
-      isValid = true;
-    }
-
     if (!isValid) {
       return res.status(401).json({ error: 'Invalid username or password' });
     }
 
+    // Enforce Ban & Suspension Checks on Login
+    const access = gameStore.checkPlayerAccess(userId);
+    if (!access.allowed) {
+      return res.status(403).json({ error: access.reason });
+    }
+
     user.profile.lastLoginAt = Date.now();
+    const token = `token_${userId}_${Math.random().toString(36).substring(2, 9)}`;
+    data.tokens[token] = userId;
+    if (user.profile.adminRole || user.profile.isAdmin) {
+      gameStore.createAdminSession(userId, req.socket?.remoteAddress || '127.0.0.1');
+    }
     gameStore.saveData();
 
-    const token = `token_${userId}_${Math.random().toString(36).substring(2, 9)}`;
-    sessionTokens.set(token, userId);
-
-    res.json({ token, profile: user.profile });
+    res.json({ token, profile: gameStore.sanitizeProfile(user.profile) });
   } catch (err: any) {
     res.status(500).json({ error: err.message || 'Login failed' });
   }
@@ -186,113 +222,251 @@ app.post('/api/auth/login', async (req, res) => {
 // 3. Auth: Current Profile
 app.get('/api/auth/me', (req, res) => {
   const authHeader = req.headers.authorization;
-  const token = authHeader ? authHeader.replace('Bearer ', '') : '';
-  const userId = sessionTokens.get(token) || 'player_default';
-
+  const token = authHeader ? authHeader.replace('Bearer ', '').trim() : '';
   const data = gameStore.getData();
+  const userId = (token && data.tokens[token]) || 'player_default';
+
   const user = data.users[userId];
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
   }
 
-  res.json({ profile: user.profile });
+  const access = gameStore.checkPlayerAccess(userId);
+  if (!access.allowed) {
+    return res.status(403).json({ error: access.reason });
+  }
+
+  res.json({ profile: gameStore.sanitizeProfile(user.profile) });
 });
 
-// 4. World: Get Terrain
+// 4. World: Get Terrain, Catalog Overrides & Active Announcements
 app.get('/api/world/terrain', (_req, res) => {
   const data = gameStore.getData();
+  const worldCfg = gameSimulation.getWorldConfig();
   res.json({
     terrain: gameSimulation.getTerrain(),
     envObjects: data.envObjects || [],
-    width: 100,
-    height: 75,
-    tileSize: 44,
+    width: worldCfg.width,
+    height: worldCfg.height,
+    tileSize: worldCfg.tileSize,
+    catalog: gameStore.getFullEffectiveCatalog(),
+    announcements: data.announcements.filter(
+      (a) => a.published && (!a.expiresAt || a.expiresAt > Date.now())
+    ),
+    settings: gameStore.getSystemSettings(),
   });
 });
 
-// 5. Admin Actions
-app.post('/api/admin/spawn_unit', (req, res) => {
-  const { unitType, x, y, ownerId } = req.body;
+// Helper to reset skirmish world
+function resetSkirmishWorld() {
   const data = gameStore.getData();
-  const newUnit: Unit = {
-    id: `unit_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-    type: unitType || 'titan_mbt',
-    ownerId: ownerId || 'player_default',
-    ownerName: ownerId === 'enemy_insurgent' ? 'Kodiak PMC' : 'Commander',
-    x: x ?? 20,
-    y: y ?? 28,
-    rotation: 0,
-    health: 1100,
-    maxHealth: 1100,
-    command: 'idle',
-    path: [],
-    lastAttackTime: 0,
-    kills: 0,
-    homeBaseId: 'base_alpha_home',
-  };
-  data.units.push(newUnit);
-  io.emit('unit:spawn', newUnit);
-  res.json({ success: true, unit: newUnit });
-});
+  const activeMap = data.maps.find((m) => m.isActiveMap) || data.maps[0];
+  const generated = gameSimulation.regenerateWorldWithSeed(
+    activeMap?.seed || 202610,
+    activeMap?.width || 100,
+    activeMap?.height || 75
+  );
+  const econ = gameStore.getEconomyConfig();
 
-app.post('/api/admin/boost_resources', (req, res) => {
-  const { baseId, amount } = req.body;
-  const data = gameStore.getData();
-  const base = data.bases.find((b) => b.id === (baseId || 'base_alpha_home'));
-  if (base) {
-    const add = amount || 5000;
-    base.resources.concrete += add;
-    base.resources.steel += add;
-    base.resources.aluminum += add;
-    base.resources.fuel += add;
-    io.emit('world:sync', { units: data.units, bases: data.bases, timestamp: Date.now() });
-    res.json({ success: true, resources: base.resources });
-  } else {
-    res.status(404).json({ error: 'Base not found' });
+  generated.bases.forEach((b) => {
+    b.resources = { ...econ.startingResources };
+    b.storageCap = { ...econ.baseStorageCap };
+  });
+
+  const homeBase = generated.bases[0];
+  if (homeBase) {
+    homeBase.ownerId = 'player_default';
+    homeBase.ownerName = data.users['player_default']?.profile.username || 'Commander';
+    homeBase.name = 'Fortress Alpha (HQ)';
+    homeBase.allianceId = 'alliance_vanguard';
   }
-});
+  const forwardBase = generated.bases[3];
+  if (forwardBase && homeBase) {
+    forwardBase.ownerId = 'player_default';
+    forwardBase.ownerName = homeBase.ownerName;
+    forwardBase.allianceId = 'alliance_vanguard';
+  }
+  const enemyBase = generated.bases[1];
+  if (enemyBase) {
+    enemyBase.ownerId = 'enemy_insurgent';
+    enemyBase.ownerName = 'Kodiak PMC';
+    enemyBase.name = 'Kodiak Stronghold';
+  }
+  const enemyOutpost = generated.bases[4];
+  if (enemyOutpost) {
+    enemyOutpost.ownerId = 'enemy_insurgent';
+    enemyOutpost.ownerName = 'Kodiak PMC';
+  }
+
+  data.bases = generated.bases;
+  const now = Date.now();
+  data.units = [
+    {
+      id: `unit_skirm_1_${now}`,
+      type: 'rifle_infantry',
+      ownerId: 'player_default',
+      ownerName: homeBase?.ownerName || 'Commander',
+      allianceId: 'alliance_vanguard',
+      x: (homeBase?.x || 16) + 2,
+      y: (homeBase?.y || 28) + 1,
+      rotation: 0,
+      health: gameStore.getEffectiveUnitDef('rifle_infantry').maxHealth,
+      maxHealth: gameStore.getEffectiveUnitDef('rifle_infantry').maxHealth,
+      command: 'idle',
+      path: [],
+      lastAttackTime: 0,
+      kills: 0,
+      homeBaseId: homeBase?.id || 'base_0',
+    },
+    {
+      id: `unit_skirm_2_${now}`,
+      type: 'titan_mbt',
+      ownerId: 'player_default',
+      ownerName: homeBase?.ownerName || 'Commander',
+      allianceId: 'alliance_vanguard',
+      x: (homeBase?.x || 16) + 2,
+      y: (homeBase?.y || 28) + 3,
+      rotation: 0,
+      health: gameStore.getEffectiveUnitDef('titan_mbt').maxHealth,
+      maxHealth: gameStore.getEffectiveUnitDef('titan_mbt').maxHealth,
+      command: 'idle',
+      path: [],
+      lastAttackTime: 0,
+      kills: 0,
+      homeBaseId: homeBase?.id || 'base_0',
+    },
+    {
+      id: `unit_skirm_3_${now}`,
+      type: 'dominator_conquest',
+      ownerId: 'player_default',
+      ownerName: homeBase?.ownerName || 'Commander',
+      allianceId: 'alliance_vanguard',
+      x: (homeBase?.x || 16) - 2,
+      y: (homeBase?.y || 28) - 2,
+      rotation: 0,
+      health: gameStore.getEffectiveUnitDef('dominator_conquest').maxHealth,
+      maxHealth: gameStore.getEffectiveUnitDef('dominator_conquest').maxHealth,
+      command: 'idle',
+      path: [],
+      lastAttackTime: 0,
+      kills: 0,
+      homeBaseId: homeBase?.id || 'base_0',
+    },
+    {
+      id: `unit_skirm_e1_${now}`,
+      type: 'titan_mbt',
+      ownerId: 'enemy_insurgent',
+      ownerName: 'Kodiak PMC',
+      x: (enemyBase?.x || 70) - 3,
+      y: (enemyBase?.y || 20) + 1,
+      rotation: 3.14,
+      health: gameStore.getEffectiveUnitDef('titan_mbt').maxHealth,
+      maxHealth: gameStore.getEffectiveUnitDef('titan_mbt').maxHealth,
+      command: 'hold',
+      path: [],
+      lastAttackTime: 0,
+      kills: 0,
+      homeBaseId: enemyBase?.id || 'base_1',
+    },
+    {
+      id: `unit_skirm_e2_${now}`,
+      type: 'cobra_gunship',
+      ownerId: 'enemy_insurgent',
+      ownerName: 'Kodiak PMC',
+      x: (enemyBase?.x || 70) + 2,
+      y: (enemyBase?.y || 20) + 2,
+      rotation: 2.5,
+      health: gameStore.getEffectiveUnitDef('cobra_gunship').maxHealth,
+      maxHealth: gameStore.getEffectiveUnitDef('cobra_gunship').maxHealth,
+      command: 'hold',
+      path: [],
+      lastAttackTime: 0,
+      kills: 0,
+      homeBaseId: enemyBase?.id || 'base_1',
+    },
+  ];
+
+  gameStore.saveData();
+  return data;
+}
 
 // Real-time Socket.IO Handlers
 io.on('connection', (socket) => {
-  let authenticatedUserId: string = 'player_default';
+  let authenticatedUserId = 'player_default';
+  socketInstances.set(socket.id, socket);
+  onlineSockets.set(socket.id, authenticatedUserId);
+
+  socket.on('disconnect', () => {
+    onlineSockets.delete(socket.id);
+    socketInstances.delete(socket.id);
+  });
 
   // Join world
-  socket.on('world:join', (data: { token?: string }) => {
-    if (data?.token && sessionTokens.has(data.token)) {
-      authenticatedUserId = sessionTokens.get(data.token)!;
+  socket.on('world:join', (payload: { token?: string }) => {
+    const state = gameStore.getData();
+    if (payload?.token && state.tokens[payload.token]) {
+      authenticatedUserId = state.tokens[payload.token];
     }
 
-    const state = gameStore.getData();
+    const access = gameStore.checkPlayerAccess(authenticatedUserId);
+    if (!access.allowed) {
+      socket.emit('account:moderated', { reason: access.reason });
+      socket.disconnect(true);
+      return;
+    }
+
+    onlineSockets.set(socket.id, authenticatedUserId);
+
     socket.emit('world:state', {
       bases: state.bases,
       units: state.units,
       alliances: state.alliances,
       envObjects: state.envObjects || [],
       chat: state.chat.slice(-50),
-      notifications: state.notifications.filter((n) => n.userId === authenticatedUserId).slice(-20),
+      notifications: state.notifications
+        .filter((n) => n.userId === authenticatedUserId || n.userId === 'all')
+        .slice(-20),
       timestamp: Date.now(),
     });
   });
 
+  // Guard helper for gameplay actions
+  const canPerformGameplayAction = (): boolean => {
+    const access = gameStore.checkPlayerAccess(authenticatedUserId);
+    if (!access.allowed) {
+      socket.emit('account:moderated', { reason: access.reason });
+      socket.disconnect(true);
+      return false;
+    }
+    if (gameStore.getSystemSettings().maintenanceMode) {
+      return false;
+    }
+    return true;
+  };
+
   // Unit command
-  socket.on('unit:command', (payload: {
-    unitIds: string[];
-    command: 'move' | 'attack' | 'hold' | 'patrol' | 'retreat';
-    targetX?: number;
-    targetY?: number;
-    targetUnitId?: string;
-    targetBaseId?: string;
-  }) => {
-    gameSimulation.commandUnits(
-      authenticatedUserId,
-      payload.unitIds,
-      payload.command,
-      payload.targetX,
-      payload.targetY,
-      payload.targetUnitId,
-      payload.targetBaseId
-    );
-  });
+  socket.on(
+    'unit:command',
+    (payload: {
+      unitIds: string[];
+      command: 'move' | 'attack' | 'hold' | 'patrol' | 'retreat' | 'stop';
+      targetX?: number;
+      targetY?: number;
+      targetUnitId?: string;
+      targetBaseId?: string;
+    }) => {
+      if (!canPerformGameplayAction()) return;
+      gameSimulation.commandUnits(
+        authenticatedUserId,
+        payload.unitIds,
+        payload.command,
+        payload.targetX,
+        payload.targetY,
+        payload.targetUnitId,
+        payload.targetBaseId
+      );
+    }
+  );
 
   // Base construction / upgrade
   socket.on(
@@ -301,6 +475,10 @@ io.on('connection', (socket) => {
       payload: { baseId: string; buildingType: any; offsetX?: number; offsetY?: number },
       callback?: Function
     ) => {
+      if (!canPerformGameplayAction()) {
+        if (callback) callback({ success: false, message: 'Action blocked' });
+        return;
+      }
       const result = gameSimulation.buildOrUpgrade(
         authenticatedUserId,
         payload.baseId,
@@ -314,7 +492,8 @@ io.on('connection', (socket) => {
 
   // AI Difficulty control
   socket.on('ai:difficulty', (payload: { difficulty: 'easy' | 'medium' | 'hard' }, callback?: Function) => {
-    if (payload?.difficulty) {
+    if (!canPerformGameplayAction()) return;
+    if (payload?.difficulty && ['easy', 'medium', 'hard'].includes(payload.difficulty)) {
       gameSimulation.setAiDifficulty(payload.difficulty);
       if (callback) callback({ success: true, difficulty: payload.difficulty });
     }
@@ -322,7 +501,8 @@ io.on('connection', (socket) => {
 
   // Reset Skirmish World
   socket.on('world:reset_skirmish', (_payload: any, callback?: Function) => {
-    const freshData = gameStore.createNewWorld(202610);
+    if (!canPerformGameplayAction()) return;
+    const freshData = resetSkirmishWorld();
     io.emit('world:state', {
       bases: freshData.bases,
       units: freshData.units,
@@ -337,12 +517,17 @@ io.on('connection', (socket) => {
 
   // Unit production
   socket.on('base:produce_unit', (payload: { baseId: string; unitType: any }, callback?: Function) => {
+    if (!canPerformGameplayAction()) {
+      if (callback) callback({ success: false, message: 'Action blocked' });
+      return;
+    }
     const result = gameSimulation.produceUnit(authenticatedUserId, payload.baseId, payload.unitType);
     if (callback) callback(result);
   });
 
   // Base Repair
   socket.on('base:repair', (payload: { baseId: string }, callback?: Function) => {
+    if (!canPerformGameplayAction()) return;
     const data = gameStore.getData();
     const base = data.bases.find((b) => b.id === payload.baseId && b.ownerId === authenticatedUserId);
     if (!base) {
@@ -363,43 +548,53 @@ io.on('connection', (socket) => {
   });
 
   // Chat message
-  socket.on('chat:send', (payload: { content: string; channel?: 'global' | 'alliance'; coords?: { x: number; y: number } }) => {
-    if (!payload.content || payload.content.trim().length === 0) return;
+  socket.on(
+    'chat:send',
+    (payload: { content: string; channel?: 'global' | 'alliance'; coords?: { x: number; y: number } }) => {
+      if (!canPerformGameplayAction()) return;
+      const cleanContent = sanitizeText(payload?.content, 300);
+      if (!cleanContent) return;
 
-    const data = gameStore.getData();
-    const userProfile = data.users[authenticatedUserId]?.profile;
-    const senderName = userProfile?.username || 'Commander';
-    const alliance = data.alliances.find((a) => a.id === userProfile?.allianceId);
+      const data = gameStore.getData();
+      const userProfile = data.users[authenticatedUserId]?.profile;
+      const senderName = userProfile?.username || 'Commander';
+      const alliance = data.alliances.find((a) => a.id === userProfile?.allianceId);
 
-    const newMsg: ChatMessage = {
-      id: `chat_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      senderId: authenticatedUserId,
-      senderName,
-      allianceTag: alliance?.tag || null,
-      channel: payload.channel || 'global',
-      allianceId: alliance?.id || null,
-      content: payload.content.slice(0, 300),
-      coords: payload.coords,
-      timestamp: Date.now(),
-    };
+      const newMsg: ChatMessage = {
+        id: `chat_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        senderId: authenticatedUserId,
+        senderName,
+        allianceTag: alliance?.tag || null,
+        channel: payload.channel || 'global',
+        allianceId: alliance?.id || null,
+        content: cleanContent,
+        coords: payload.coords,
+        timestamp: Date.now(),
+      };
 
-    data.chat.push(newMsg);
-    if (data.chat.length > 200) data.chat.shift();
+      data.chat.push(newMsg);
+      if (data.chat.length > 200) data.chat.shift();
 
-    io.emit('chat:message', newMsg);
-  });
+      io.emit('chat:message', newMsg);
+    }
+  );
 
   // Alliance operations
   socket.on('alliance:create', (payload: { name: string; tag: string; description: string }, callback?: Function) => {
+    if (!canPerformGameplayAction()) return;
+    if (!gameStore.getSystemSettings().alliancesEnabled) {
+      if (callback) callback({ success: false, message: 'Alliances are currently disabled' });
+      return;
+    }
     const data = gameStore.getData();
     const userProfile = data.users[authenticatedUserId]?.profile;
     if (!userProfile) return;
 
     const newAlliance: Alliance = {
       id: `alli_${Date.now()}`,
-      name: payload.name.slice(0, 32),
-      tag: payload.tag.toUpperCase().slice(0, 5),
-      description: payload.description.slice(0, 200),
+      name: sanitizeText(payload.name, 32),
+      tag: sanitizeText(payload.tag, 5).toUpperCase(),
+      description: sanitizeText(payload.description, 200),
       leaderId: authenticatedUserId,
       leaderName: userProfile.username,
       memberIds: [authenticatedUserId],
@@ -413,7 +608,6 @@ io.on('connection', (socket) => {
     userProfile.allianceId = newAlliance.id;
     userProfile.allianceRole = 'leader';
 
-    // Update bases
     data.bases.forEach((b) => {
       if (b.ownerId === authenticatedUserId) b.allianceId = newAlliance.id;
     });
@@ -424,6 +618,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('alliance:join', (payload: { allianceId: string }, callback?: Function) => {
+    if (!canPerformGameplayAction()) return;
     const data = gameStore.getData();
     const alliance = data.alliances.find((a) => a.id === payload.allianceId);
     const userProfile = data.users[authenticatedUserId]?.profile;
@@ -444,34 +639,11 @@ io.on('connection', (socket) => {
       if (callback) callback({ success: true });
     }
   });
-
-  // Map Editor: Paint Terrain
-  socket.on('editor:paint_terrain', (payload: { x: number; y: number; terrain: any }) => {
-    const success = gameSimulation.updateCellTerrain(payload.x, payload.y, payload.terrain);
-    if (success) {
-      io.emit('terrain:cell_update', { x: payload.x, y: payload.y, terrain: payload.terrain });
-    }
-  });
-
-  // Map Editor: Place / Remove Environment Objects
-  socket.on('editor:place_object', (payload: { object: any }) => {
-    const data = gameStore.getData();
-    if (!data.envObjects) data.envObjects = [];
-    data.envObjects.push(payload.object);
-    io.emit('editor:object_placed', payload.object);
-  });
-
-  socket.on('editor:remove_object', (payload: { objectId: string }) => {
-    const data = gameStore.getData();
-    if (data.envObjects) {
-      data.envObjects = data.envObjects.filter((o) => o.id !== payload.objectId);
-      io.emit('editor:object_removed', { objectId: payload.objectId });
-    }
-  });
 });
 
-// Mount Vite or static server
+// Mount Vite or static server when run directly
 async function startServer() {
+  gameSimulation.start();
   const isDev = process.env.NODE_ENV !== 'production';
 
   if (isDev) {
@@ -493,6 +665,11 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  console.error('[Server] Fatal startup error:', err);
-});
+const isMainModule =
+  process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+if (isMainModule && process.env.NODE_ENV !== 'test') {
+  startServer().catch((err) => {
+    console.error('[Server] Fatal startup error:', err);
+  });
+}

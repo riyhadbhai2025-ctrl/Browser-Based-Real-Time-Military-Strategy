@@ -27,6 +27,7 @@ interface TopBarProps {
   muted: boolean;
   onToggleMute: () => void;
   onOpenAdmin: () => void;
+  onOpenAdminConsole?: () => void;
   onOpenAlliance: () => void;
   onOpenIntel: () => void;
   onOpenTutorial: () => void;
@@ -53,6 +54,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   muted,
   onToggleMute,
   onOpenAdmin,
+  onOpenAdminConsole,
   onOpenAlliance,
   onOpenIntel,
   onOpenTutorial,
@@ -300,6 +302,17 @@ export const TopBar: React.FC<TopBarProps> = ({
             <Terminal className="w-3.5 h-3.5" />
             <span className="hidden md:inline">Sandbox</span>
           </button>
+
+          {onOpenAdminConsole && (
+            <button
+              onClick={onOpenAdminConsole}
+              className="px-2.5 py-1 text-xs rounded bg-blue-950/80 hover:bg-blue-900 border border-blue-600/60 text-cyan-200 flex items-center gap-1 font-mono transition"
+              title="Open Full Admin Panel (/admin)"
+            >
+              <Shield className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden sm:inline">Admin (/admin)</span>
+            </button>
+          )}
 
           <button
             onClick={onOpenShortcuts}

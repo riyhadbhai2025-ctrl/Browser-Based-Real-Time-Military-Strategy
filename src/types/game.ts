@@ -84,6 +84,7 @@ export interface BuildingDefinition {
     rateOfFire: number; // shots per sec
     targets: ('ground' | 'air' | 'naval' | 'rail')[];
   };
+  enabled?: boolean;
 }
 
 export interface UnitDefinition {
@@ -106,6 +107,7 @@ export interface UnitDefinition {
   fuelBurnPerSec: number;
   canCaptureBase?: boolean;
   requiredBuilding: BuildingType;
+  enabled?: boolean;
 }
 
 export interface BuildingInstance {
@@ -264,6 +266,94 @@ export interface WorldMapConfig {
   seed: number;
 }
 
+// ============================================================================
+// ADMIN PANEL, RBAC, MODERATION, ECONOMY & AUDIT TYPES
+// ============================================================================
+
+export type AdminRole = 'super_admin' | 'game_admin' | 'moderator' | 'analyst';
+
+export type AdminPermission =
+  | 'dashboard.view'
+  | 'players.view'
+  | 'players.suspend'
+  | 'players.ban'
+  | 'players.reset_progress'
+  | 'matches.view'
+  | 'matches.terminate'
+  | 'economy.view'
+  | 'economy.edit'
+  | 'maps.view'
+  | 'maps.edit'
+  | 'content.publish'
+  | 'announcements.manage'
+  | 'audit.view'
+  | 'admins.manage';
+
+export const ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
+  super_admin: [
+    'dashboard.view',
+    'players.view',
+    'players.suspend',
+    'players.ban',
+    'players.reset_progress',
+    'matches.view',
+    'matches.terminate',
+    'economy.view',
+    'economy.edit',
+    'maps.view',
+    'maps.edit',
+    'content.publish',
+    'announcements.manage',
+    'audit.view',
+    'admins.manage',
+  ],
+  game_admin: [
+    'dashboard.view',
+    'players.view',
+    'players.suspend',
+    'Matches.view' as AdminPermission,
+    'matches.view',
+    'matches.terminate',
+    'economy.view',
+    'economy.edit',
+    'maps.view',
+    'maps.edit',
+    'content.publish',
+    'announcements.manage',
+    'audit.view',
+  ].filter((v, i, a) => a.indexOf(v) === i && v !== ('Matches.view' as any)) as AdminPermission[],
+  moderator: [
+    'dashboard.view',
+    'players.view',
+    'players.suspend',
+    'players.ban',
+    'matches.view',
+    'announcements.manage',
+    'audit.view',
+  ],
+  analyst: [
+    'dashboard.view',
+    'players.view',
+    'matches.view',
+    'economy.view',
+    'maps.view',
+    'audit.view',
+  ],
+};
+
+export type PlayerStatus = 'active' | 'suspended' | 'banned';
+
+export interface ModerationRecord {
+  id: string;
+  action: 'suspend' | 'unsuspend' | 'ban' | 'unban' | 'reset_progress' | 'rename' | 'role_change';
+  adminId: string;
+  adminUsername: string;
+  reason: string;
+  timestamp: number;
+  expiresAt?: number | null;
+  metadata?: Record<string, any>;
+}
+
 export interface PlayerProfile {
   id: string;
   username: string;
@@ -283,6 +373,167 @@ export interface PlayerProfile {
   lastLoginAt: number;
   beginnerProtectionUntil: number; // epoch ms
   isAdmin?: boolean;
+  adminRole?: AdminRole | null;
+  status?: PlayerStatus;
+  suspendedUntil?: number | null;
+  banReason?: string | null;
+  moderationHistory?: ModerationRecord[];
+}
+
+export interface EconomyConfig {
+  version: number;
+  resourceGenerationMultiplier: number; // 0.1 to 10.0
+  baseGenerationRates: Resources; // base passive generation per sec
+  startingResources: Resources;
+  baseStorageCap: Resources;
+  unitCostMultiplier: number; // 0.2 to 5.0
+  buildingCostMultiplier: number; // 0.2 to 5.0
+  unitProductionSpeedMultiplier: number; // 0.2 to 5.0
+  buildingBuildSpeedMultiplier: number; // 0.2 to 5.0
+  populationCapPerBase: number; // 10 to 200
+  maxGlobalUnits: number; // 50 to 1000
+  captureSpeedPerTick: number; // 1 to 25
+  updatedAt: number;
+  updatedBy: string;
+}
+
+export interface ConfigVersionEntry {
+  version: number;
+  domain: 'economy' | 'catalog' | 'settings' | 'map';
+  timestamp: number;
+  adminId: string;
+  adminUsername: string;
+  reason: string;
+  snapshot: any;
+  changesSummary: string;
+}
+
+export interface UnitCatalogOverride {
+  type: UnitType;
+  name: string;
+  description: string;
+  maxHealth: number;
+  armor: number;
+  speed: number;
+  attackRange: number;
+  attackDamage: number;
+  cooldownSec: number;
+  trainTimeSec: number;
+  populationCost: number;
+  cost: Resources;
+  enabled: boolean;
+}
+
+export interface BuildingCatalogOverride {
+  type: BuildingType;
+  name: string;
+  description: string;
+  buildTimeSec: number;
+  maxLevel: number;
+  cost: Resources;
+  productionBonus?: Partial<Resources>;
+  storageBonus?: Partial<Resources>;
+  defenseDamage?: number;
+  defenseRange?: number;
+  enabled: boolean;
+}
+
+export interface CatalogConfigState {
+  version: number;
+  units: Partial<Record<UnitType, UnitCatalogOverride>>;
+  buildings: Partial<Record<BuildingType, BuildingCatalogOverride>>;
+  updatedAt: number;
+  updatedBy: string;
+}
+
+export interface MapSectorConfig {
+  id: string;
+  name: string;
+  description: string;
+  width: number;
+  height: number;
+  tileSize: number;
+  seed: number;
+  maxPlayers: number;
+  enabled: boolean;
+  isActiveMap: boolean;
+  atmospherePreset: AtmospherePreset;
+  objectiveTitle: string;
+  objectiveDescription: string;
+  updatedAt: number;
+  updatedBy: string;
+}
+
+export type AnnouncementPriority = 'info' | 'warning' | 'critical';
+
+export interface Announcement {
+  id: string;
+  title: string;
+  message: string;
+  priority: AnnouncementPriority;
+  published: boolean;
+  startsAt: number;
+  expiresAt: number | null;
+  createdBy: string;
+  createdByUsername: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  timestamp: number;
+  adminId: string;
+  adminUsername: string;
+  adminRole: AdminRole | 'unknown';
+  action: string;
+  targetType: 'player' | 'match' | 'economy' | 'catalog' | 'map' | 'announcement' | 'admin' | 'system' | 'auth';
+  targetId: string;
+  reason: string;
+  status: 'success' | 'failure' | 'denied';
+  ipAddress: string;
+  metadata?: Record<string, any>;
+}
+
+export interface MatchRecord {
+  id: string;
+  mapId: string;
+  mapName: string;
+  seed: number;
+  status: 'active' | 'completed' | 'terminated';
+  startedAt: number;
+  endedAt?: number | null;
+  aiDifficulty: AIDifficulty;
+  participantIds: string[];
+  winnerName?: string | null;
+  totalUnitsSpawned: number;
+  totalBasesCaptured: number;
+  terminationReason?: string | null;
+}
+
+export interface SystemSettings {
+  gameTitle: string;
+  gameVersion: string;
+  maintenanceMode: boolean;
+  maintenanceMessage: string;
+  fogOfWarEnforced: boolean;
+  alliancesEnabled: boolean;
+  aiAggressionEnabled: boolean;
+  allowNewRegistrations: boolean;
+  sessionTtlMs: number;
+  updatedAt: number;
+  updatedBy: string;
+}
+
+export interface AdminSessionInfo {
+  tokenPrefix: string;
+  userId: string;
+  username: string;
+  role: AdminRole;
+  createdAt: number;
+  expiresAt: number;
+  lastActiveAt: number;
+  ipAddress: string;
 }
 
 export interface Alliance {

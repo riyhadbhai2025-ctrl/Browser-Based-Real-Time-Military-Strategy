@@ -1,5 +1,4 @@
 import { Server } from 'socket.io';
-import { BUILDING_CATALOG, UNIT_CATALOG } from '../src/game/catalog';
 import { generateWorld } from '../src/game/mapGenerator';
 import { findPath, isCellPassable } from '../src/game/pathfinder';
 import {
@@ -26,8 +25,15 @@ export class GameSimulation {
   private lastEconomyTickMs: number = Date.now();
   private lastAiTickMs: number = Date.now();
   public aiDifficulty: AIDifficulty = 'medium';
+  public lastTickDurationMs: number = 1.2;
+  public totalTicks: number = 0;
+  public recentCombatEvents: CombatEvent[] = [];
 
   constructor() {
+    const data = gameStore.getData();
+    if (data.worldConfig) {
+      this.worldConfig = { ...data.worldConfig };
+    }
     const generated = generateWorld(this.worldConfig);
     this.terrain = generated.terrain;
   }
@@ -40,8 +46,17 @@ export class GameSimulation {
     return this.terrain;
   }
 
+  public getWorldConfig() {
+    return this.worldConfig;
+  }
+
   public setAiDifficulty(diff: AIDifficulty) {
     this.aiDifficulty = diff;
+    const data = gameStore.getData();
+    const activeMatch = data.matches?.find((m) => m.status === 'active');
+    if (activeMatch) {
+      activeMatch.aiDifficulty = diff;
+    }
   }
 
   public updateCellTerrain(x: number, y: number, type: TerrainType) {
@@ -50,6 +65,16 @@ export class GameSimulation {
       return true;
     }
     return false;
+  }
+
+  public regenerateWorldWithSeed(seed: number, width = 100, height = 75) {
+    this.worldConfig = { width, height, tileSize: 40, seed };
+    const data = gameStore.getData();
+    data.worldConfig = { ...this.worldConfig };
+    const generated = generateWorld(this.worldConfig);
+    this.terrain = generated.terrain;
+    data.envObjects = generated.envObjects;
+    return generated;
   }
 
   public start() {
@@ -72,11 +97,22 @@ export class GameSimulation {
 
   // Authoritative tick
   private tick() {
+    const tickStart = performance.now();
     const now = Date.now();
     const dt = Math.min((now - this.lastTickMs) / 1000, 0.5);
     this.lastTickMs = now;
+    this.totalTicks += 1;
 
     const data = gameStore.getData();
+    const settings = gameStore.getSystemSettings();
+    const econ = gameStore.getEconomyConfig();
+
+    // Pause active simulation movement/combat if server is in maintenance mode
+    if (settings.maintenanceMode) {
+      this.lastTickDurationMs = Math.round((performance.now() - tickStart) * 100) / 100;
+      return;
+    }
+
     let hasStateChange = false;
 
     // 1. Move Units + Local Separation Avoidance
@@ -88,12 +124,11 @@ export class GameSimulation {
         const dy = target.y - unit.y;
         const dist = Math.hypot(dx, dy);
 
-        const def = UNIT_CATALOG[unit.type as UnitType];
+        const def = gameStore.getEffectiveUnitDef(unit.type as UnitType);
         const speed = def?.speed || 3.0;
         const step = speed * dt;
 
         if (dist <= step) {
-          // Arrived at waypoint
           unit.x = target.x;
           unit.y = target.y;
           unit.path.shift();
@@ -101,7 +136,6 @@ export class GameSimulation {
             unit.command = 'idle';
           }
         } else {
-          // Move toward waypoint
           unit.x += (dx / dist) * step;
           unit.y += (dy / dist) * step;
           unit.rotation = Math.atan2(dy, dx);
@@ -112,12 +146,12 @@ export class GameSimulation {
     // Apply gentle unit separation so same-category units don't stack identically
     for (let i = 0; i < data.units.length; i++) {
       const uA = data.units[i];
-      const defA = UNIT_CATALOG[uA.type as UnitType];
+      const defA = gameStore.getEffectiveUnitDef(uA.type as UnitType);
       if (!defA || defA.category === 'rail') continue;
 
       for (let j = i + 1; j < data.units.length; j++) {
         const uB = data.units[j];
-        const defB = UNIT_CATALOG[uB.type as UnitType];
+        const defB = gameStore.getEffectiveUnitDef(uB.type as UnitType);
         if (!defB || defB.category !== defA.category) continue;
 
         const dx = uB.x - uA.x;
@@ -151,27 +185,25 @@ export class GameSimulation {
     for (const unit of data.units) {
       if (destroyedUnitIds.has(unit.id)) continue;
 
-      const def = UNIT_CATALOG[unit.type as UnitType];
+      const def = gameStore.getEffectiveUnitDef(unit.type as UnitType);
       if (!def) continue;
 
       const canAttack = now - unit.lastAttackTime >= def.cooldownSec * 1000;
       if (!canAttack) continue;
 
-      // Check if unit has a target unit
       let targetUnit: Unit | undefined;
       if (unit.targetUnitId) {
         targetUnit = data.units.find((u) => u.id === unit.targetUnitId && !destroyedUnitIds.has(u.id));
         if (!targetUnit) unit.targetUnitId = null;
       }
 
-      // If no manual target, auto-acquire closest hostile unit in range
       if (!targetUnit && unit.command !== 'retreat') {
         let closestDist = def.attackRange;
         for (const other of data.units) {
           if (other.id === unit.id || other.ownerId === unit.ownerId || destroyedUnitIds.has(other.id)) continue;
           if (unit.allianceId && other.allianceId && unit.allianceId === other.allianceId) continue;
 
-          const otherDef = UNIT_CATALOG[other.type as UnitType];
+          const otherDef = gameStore.getEffectiveUnitDef(other.type as UnitType);
           if (!otherDef || !def.targets.includes(otherDef.category)) continue;
 
           const d = Math.hypot(other.x - unit.x, other.y - unit.y);
@@ -189,8 +221,7 @@ export class GameSimulation {
           unit.lastAttackTime = now;
           hasStateChange = true;
 
-          // Damage calculation with armor and type counters
-          const targetDef = UNIT_CATALOG[targetUnit.type as UnitType];
+          const targetDef = gameStore.getEffectiveUnitDef(targetUnit.type as UnitType);
           let multiplier = 1.0;
           if (unit.type === 'skyguard_aa' && targetDef?.category === 'air') multiplier = 2.4;
           if (unit.type === 'titan_mbt' && targetDef?.category === 'ground') multiplier = 1.3;
@@ -226,7 +257,7 @@ export class GameSimulation {
             const ownerProfile = data.users[unit.ownerId]?.profile;
             if (ownerProfile) {
               ownerProfile.totalUnitsDestroyed += 1;
-              ownerProfile.score += Math.round(targetDef.maxHealth / 10);
+              ownerProfile.score += Math.round((targetDef?.maxHealth || 300) / 10);
             }
           }
         }
@@ -286,7 +317,7 @@ export class GameSimulation {
       );
 
       for (const t of turrets) {
-        const bDef = BUILDING_CATALOG[t.type as BuildingType];
+        const bDef = gameStore.getEffectiveBuildingDef(t.type as BuildingType);
         if (!bDef || !bDef.defenseStats) continue;
 
         const range = bDef.defenseStats.range;
@@ -299,7 +330,7 @@ export class GameSimulation {
           if (u.ownerId === base.ownerId || destroyedUnitIds.has(u.id)) continue;
           if (base.allianceId && u.allianceId && base.allianceId === u.allianceId) continue;
 
-          const uDef = UNIT_CATALOG[u.type as UnitType];
+          const uDef = gameStore.getEffectiveUnitDef(u.type as UnitType);
           if (!uDef || !targetsAllowed.includes(uDef.category)) continue;
 
           const d = Math.hypot(u.x - base.x, u.y - base.y);
@@ -347,9 +378,12 @@ export class GameSimulation {
     }
 
     // 4. Base Capture Mechanics
+    const captureStep = econ.captureSpeedPerTick || 5;
     for (const base of data.bases) {
       const conquestUnits = data.units.filter((u) => {
-        if (u.type !== 'dominator_conquest') return false;
+        if (u.type !== 'dominator_conquest' && u.type !== 'rifle_infantry') return false;
+        const uDef = gameStore.getEffectiveUnitDef(u.type);
+        if (!uDef?.canCaptureBase) return false;
         if (u.ownerId === base.ownerId) return false;
         if (base.allianceId && u.allianceId && base.allianceId === u.allianceId) return false;
         const dist = Math.hypot(u.x - base.x, u.y - base.y);
@@ -359,7 +393,7 @@ export class GameSimulation {
       if (conquestUnits.length > 0 && base.defenseShield <= 100) {
         const capturingUnit = conquestUnits[0];
         base.capturingPlayerId = capturingUnit.ownerId;
-        base.captureProgress = Math.min(100, base.captureProgress + 5);
+        base.captureProgress = Math.min(100, base.captureProgress + captureStep);
         hasStateChange = true;
 
         if (base.captureProgress >= 100) {
@@ -376,6 +410,11 @@ export class GameSimulation {
           if (capturerProfile) {
             capturerProfile.totalBasesCaptured += 1;
             capturerProfile.score += 500;
+          }
+
+          const activeMatch = data.matches?.find((m) => m.status === 'active');
+          if (activeMatch) {
+            activeMatch.totalBasesCaptured += 1;
           }
 
           const notif: GameNotification = {
@@ -414,16 +453,17 @@ export class GameSimulation {
     if (now - this.lastEconomyTickMs >= 1000) {
       const elapsedSec = (now - this.lastEconomyTickMs) / 1000;
       this.lastEconomyTickMs = now;
+      const globalMult = econ.resourceGenerationMultiplier || 1.0;
 
       for (const base of data.bases) {
-        let concRate = 2.5;
-        let steelRate = 2.5;
-        let alumRate = 1.5;
-        let fuelRate = 2.0;
+        let concRate = econ.baseGenerationRates?.concrete ?? 2.5;
+        let steelRate = econ.baseGenerationRates?.steel ?? 2.5;
+        let alumRate = econ.baseGenerationRates?.aluminum ?? 1.5;
+        let fuelRate = econ.baseGenerationRates?.fuel ?? 2.0;
 
         for (const b of base.buildings) {
-          const bDef = BUILDING_CATALOG[b.type as BuildingType];
-          if (bDef?.productionBonus && !b.isConstructing) {
+          const bDef = gameStore.getEffectiveBuildingDef(b.type as BuildingType);
+          if (bDef?.productionBonus && !b.isConstructing && bDef.enabled !== false) {
             const mult = 1 + (b.level - 1) * 0.4;
             if (bDef.productionBonus.concrete) concRate += bDef.productionBonus.concrete * mult;
             if (bDef.productionBonus.steel) steelRate += bDef.productionBonus.steel * mult;
@@ -431,6 +471,11 @@ export class GameSimulation {
             if (bDef.productionBonus.fuel) fuelRate += bDef.productionBonus.fuel * mult;
           }
         }
+
+        concRate *= globalMult;
+        steelRate *= globalMult;
+        alumRate *= globalMult;
+        fuelRate *= globalMult;
 
         base.productionRates = {
           concrete: Math.round(concRate * 10) / 10,
@@ -444,6 +489,12 @@ export class GameSimulation {
         base.resources.aluminum = Math.min(base.storageCap.aluminum, base.resources.aluminum + alumRate * elapsedSec);
         base.resources.fuel = Math.min(base.storageCap.fuel, base.resources.fuel + fuelRate * elapsedSec);
         base.lastResourceUpdate = now;
+
+        // Track harvested resources on owner profile
+        const ownerProfile = data.users[base.ownerId]?.profile;
+        if (ownerProfile) {
+          ownerProfile.totalResourcesHarvested += Math.round((concRate + steelRate + alumRate + fuelRate) * elapsedSec);
+        }
 
         // Auto-heal friendly units near bases with a repair_depot
         const hasRepairDepot = base.buildings.some((b) => b.type === 'repair_depot' && !b.isConstructing);
@@ -486,7 +537,7 @@ export class GameSimulation {
               });
             }
 
-            const bDef = BUILDING_CATALOG[order.buildingType as BuildingType];
+            const bDef = gameStore.getEffectiveBuildingDef(order.buildingType as BuildingType);
             if (bDef?.storageBonus) {
               if (bDef.storageBonus.concrete) base.storageCap.concrete += bDef.storageBonus.concrete;
               if (bDef.storageBonus.steel) base.storageCap.steel += bDef.storageBonus.steel;
@@ -504,9 +555,8 @@ export class GameSimulation {
           base.productionQueue = base.productionQueue.filter((p: UnitProductionOrder) => p.finishTime > now);
 
           for (const prod of finishedProd) {
-            const uDef = UNIT_CATALOG[prod.unitType as UnitType];
-            if (uDef) {
-              // Find passable spawn coordinate near base
+            const uDef = gameStore.getEffectiveUnitDef(prod.unitType as UnitType);
+            if (uDef && uDef.enabled !== false) {
               let spawnX = Math.round(base.x + base.radius * 0.6);
               let spawnY = Math.round(base.y + base.radius * 0.6);
               let foundSpot = false;
@@ -544,9 +594,12 @@ export class GameSimulation {
 
               data.units.push(newUnit);
 
-              const ownerProfile = data.users[base.ownerId]?.profile;
               if (ownerProfile) {
                 ownerProfile.totalUnitsProduced += 1;
+              }
+              const activeMatch = data.matches?.find((m) => m.status === 'active');
+              if (activeMatch) {
+                activeMatch.totalUnitsSpawned += 1;
               }
 
               this.io?.emit('unit:spawn', newUnit);
@@ -557,17 +610,23 @@ export class GameSimulation {
       }
     }
 
-    // 6. Autonomous AI Commander Logic (Kodiak PMC) - Runs every 3.5 seconds
-    const aiInterval = this.aiDifficulty === 'hard' ? 2200 : this.aiDifficulty === 'medium' ? 3500 : 5500;
-    if (now - this.lastAiTickMs >= aiInterval) {
-      this.lastAiTickMs = now;
-      if (this.updateAICommander(now)) {
-        hasStateChange = true;
+    // 6. Autonomous AI Commander Logic (Kodiak PMC) - Runs every 3.5 seconds if enabled
+    if (settings.aiAggressionEnabled) {
+      const aiInterval = this.aiDifficulty === 'hard' ? 2200 : this.aiDifficulty === 'medium' ? 3500 : 5500;
+      if (now - this.lastAiTickMs >= aiInterval) {
+        this.lastAiTickMs = now;
+        if (this.updateAICommander(now)) {
+          hasStateChange = true;
+        }
       }
     }
 
-    // Broadcast combat events to clients
+    // Broadcast combat events to clients and store recent ones for admin telemetry
     if (combatEvents.length > 0) {
+      this.recentCombatEvents.unshift(...combatEvents);
+      if (this.recentCombatEvents.length > 100) {
+        this.recentCombatEvents = this.recentCombatEvents.slice(0, 100);
+      }
       for (const evt of combatEvents) {
         this.io?.emit('combat:event', evt);
       }
@@ -586,10 +645,12 @@ export class GameSimulation {
     if (now % 10000 < 150) {
       gameStore.saveData();
     }
+
+    this.lastTickDurationMs = Math.round((performance.now() - tickStart) * 100) / 100;
   }
 
   // Real RTS AI Commander for Kodiak PMC ('enemy_insurgent')
-  private updateAICommander(now: number): boolean {
+  private updateAICommander(_now: number): boolean {
     const data = gameStore.getData();
     const aiOwnerId = 'enemy_insurgent';
     const aiBases = data.bases.filter((b) => b.ownerId === aiOwnerId);
@@ -601,7 +662,6 @@ export class GameSimulation {
 
     // A. AI Economy & Base Construction / Production
     for (const base of aiBases) {
-      // Bonus resource trickle for Hard AI
       if (this.aiDifficulty === 'hard') {
         base.resources.concrete = Math.min(base.storageCap.concrete, base.resources.concrete + 25);
         base.resources.steel = Math.min(base.storageCap.steel, base.resources.steel + 25);
@@ -609,7 +669,6 @@ export class GameSimulation {
         base.resources.fuel = Math.min(base.storageCap.fuel, base.resources.fuel + 20);
       }
 
-      // Construct essential production & defense facilities if missing
       if (base.constructionQueue.length === 0) {
         const desiredBuildings: BuildingType[] = [
           'vehicle_factory',
@@ -622,8 +681,8 @@ export class GameSimulation {
           'repair_depot',
         ];
         for (const bType of desiredBuildings) {
-          const bDef = BUILDING_CATALOG[bType];
-          if (!bDef || !bDef.baseTypesAllowed.includes(base.type)) continue;
+          const bDef = gameStore.getEffectiveBuildingDef(bType);
+          if (!bDef || bDef.enabled === false || !bDef.baseTypesAllowed.includes(base.type)) continue;
           const existing = base.buildings.find((b) => b.type === bType);
           if (!existing || (this.aiDifficulty !== 'easy' && existing.level < 2)) {
             const res = this.buildOrUpgrade(aiOwnerId, base.id, bType);
@@ -635,7 +694,6 @@ export class GameSimulation {
         }
       }
 
-      // Queue unit production if under unit cap
       if (base.productionQueue.length < 2 && aiUnits.length < maxAiUnits) {
         const candidateUnits: UnitType[] = [
           'vanguard_scout',
@@ -647,10 +705,13 @@ export class GameSimulation {
           'cobra_gunship',
           'dominator_conquest',
         ];
-        // Pick an affordable unit whose facility exists in this base
         const validUnits = candidateUnits.filter((uType) => {
-          const uDef = UNIT_CATALOG[uType];
-          return base.buildings.some((b) => b.type === uDef.requiredBuilding && !b.isConstructing);
+          const uDef = gameStore.getEffectiveUnitDef(uType);
+          return (
+            uDef &&
+            uDef.enabled !== false &&
+            base.buildings.some((b) => b.type === uDef.requiredBuilding && !b.isConstructing)
+          );
         });
         if (validUnits.length > 0) {
           const chosen = validUnits[Math.floor(Math.random() * validUnits.length)];
@@ -660,10 +721,9 @@ export class GameSimulation {
       }
     }
 
-    // B. Tactical Unit Decisions: Retreat Damaged, Defend Under-Attack Bases, Scout & Attack Waves
+    // B. Tactical Unit Decisions
     const primaryAiBase = aiBases[0];
 
-    // Check if any AI base is under threat from player units
     let threatenedBase: Base | null = null;
     let threatUnit: Unit | null = null;
     for (const base of aiBases) {
@@ -678,10 +738,9 @@ export class GameSimulation {
     }
 
     for (const unit of aiUnits) {
-      const uDef = UNIT_CATALOG[unit.type];
+      const uDef = gameStore.getEffectiveUnitDef(unit.type);
       if (!uDef) continue;
 
-      // 1. Retreat critically damaged units (< 25% HP) back to AI base
       if (unit.health < unit.maxHealth * 0.25 && unit.command !== 'retreat') {
         const distToHome = Math.hypot(unit.x - primaryAiBase.x, unit.y - primaryAiBase.y);
         if (distToHome > primaryAiBase.radius + 2) {
@@ -693,7 +752,6 @@ export class GameSimulation {
         }
       }
 
-      // 2. Rally idle units to defend a threatened AI base
       if (threatenedBase && threatUnit && unit.command === 'idle') {
         unit.command = 'attack';
         unit.targetUnitId = threatUnit.id;
@@ -703,15 +761,12 @@ export class GameSimulation {
       }
     }
 
-    // 3. Launch coordinated attack or scouting wave when enough idle AI units are ready
     const idleAiUnits = aiUnits.filter((u) => u.command === 'idle' && u.health > u.maxHealth * 0.6);
     const waveSize = this.aiDifficulty === 'hard' ? 4 : this.aiDifficulty === 'medium' ? 3 : 2;
 
     if (idleAiUnits.length >= waveSize) {
-      // Pick target: either a neutral base (if Dominator Conquest is present) or player base/unit
       const nonAiBases = data.bases.filter((b) => b.ownerId !== aiOwnerId);
       if (nonAiBases.length > 0) {
-        // Sort by distance to primary AI base
         nonAiBases.sort(
           (a, b) =>
             Math.hypot(a.x - primaryAiBase.x, a.y - primaryAiBase.y) -
@@ -735,7 +790,6 @@ export class GameSimulation {
         changed = true;
       }
     } else {
-      // Send a single scout to patrol around mid-map if idle
       const idleScout = idleAiUnits.find((u) => u.type === 'vanguard_scout' || u.type === 'hawk_scout_heli');
       if (idleScout && Math.random() < 0.35) {
         const patrolX = Math.round(30 + Math.random() * 40);
@@ -791,7 +845,6 @@ export class GameSimulation {
           }
         }
 
-        // Apply tactical box/wedge formation offset when commanding multiple units
         if (total > 1 && !targetUnitId) {
           const row = Math.floor(idx / cols);
           const col = idx % cols;
@@ -802,14 +855,14 @@ export class GameSimulation {
           destY = Math.max(1, Math.min(73, destY + offsetY));
         }
 
-        const def = UNIT_CATALOG[unit.type as UnitType];
+        const def = gameStore.getEffectiveUnitDef(unit.type as UnitType);
         const category = def?.category || 'ground';
         const path = findPath(this.terrain, unit.x, unit.y, destX, destY, category);
         unit.path = path;
       } else if (command === 'retreat') {
         const homeBase = data.bases.find((b) => b.id === unit.homeBaseId);
         if (homeBase) {
-          const def = UNIT_CATALOG[unit.type as UnitType];
+          const def = gameStore.getEffectiveUnitDef(unit.type as UnitType);
           const category = def?.category || 'ground';
           unit.path = findPath(this.terrain, unit.x, unit.y, homeBase.x, homeBase.y, category);
         }
@@ -832,18 +885,20 @@ export class GameSimulation {
     offsetY?: number
   ) {
     const data = gameStore.getData();
+    const econ = gameStore.getEconomyConfig();
     const base = data.bases.find((b) => b.id === baseId && b.ownerId === userId);
     if (!base) return { success: false, message: 'Base not found or unauthorized' };
 
-    const bDef = BUILDING_CATALOG[buildingType];
+    const bDef = gameStore.getEffectiveBuildingDef(buildingType);
     if (!bDef) return { success: false, message: 'Invalid building type' };
+    if (bDef.enabled === false) return { success: false, message: 'This facility is currently disabled by Command' };
 
     const existing = base.buildings.find((b: BuildingInstance) => b.type === buildingType);
     const targetLevel = existing ? existing.level + 1 : 1;
     if (targetLevel > bDef.maxLevel) return { success: false, message: 'Max level already reached' };
 
-    // Check resources
-    const costMult = targetLevel === 1 ? 1 : 1 + (targetLevel - 1) * 0.5;
+    const levelMult = targetLevel === 1 ? 1 : 1 + (targetLevel - 1) * 0.5;
+    const costMult = levelMult * (econ.buildingCostMultiplier || 1.0);
     const requiredConcrete = Math.round(bDef.cost.concrete * costMult);
     const requiredSteel = Math.round(bDef.cost.steel * costMult);
     const requiredAluminum = Math.round(bDef.cost.aluminum * costMult);
@@ -858,13 +913,13 @@ export class GameSimulation {
       return { success: false, message: 'Insufficient resources' };
     }
 
-    // Deduct
     base.resources.concrete -= requiredConcrete;
     base.resources.steel -= requiredSteel;
     base.resources.aluminum -= requiredAluminum;
     base.resources.fuel -= requiredFuel;
 
-    const durationSec = Math.round(bDef.buildTimeSec * costMult);
+    const speedMult = Math.max(0.2, econ.buildingBuildSpeedMultiplier || 1.0);
+    const durationSec = Math.max(1, Math.round((bDef.buildTimeSec * levelMult) / speedMult));
     const now = Date.now();
 
     base.constructionQueue.push({
@@ -891,44 +946,70 @@ export class GameSimulation {
   // Enqueue unit production
   public produceUnit(userId: string, baseId: string, unitType: UnitType) {
     const data = gameStore.getData();
+    const econ = gameStore.getEconomyConfig();
     const base = data.bases.find((b) => b.id === baseId && b.ownerId === userId);
     if (!base) return { success: false, message: 'Base not found or unauthorized' };
 
-    const uDef = UNIT_CATALOG[unitType];
+    const uDef = gameStore.getEffectiveUnitDef(unitType);
     if (!uDef) return { success: false, message: 'Invalid unit type' };
+    if (uDef.enabled === false) return { success: false, message: 'This unit type is currently disabled by Command' };
 
-    // Check required building
+    // Global and per-player population cap checks
+    if (data.units.length >= (econ.maxGlobalUnits || 250)) {
+      return { success: false, message: 'Global theater unit cap reached' };
+    }
+    const ownerBasesCount = Math.max(1, data.bases.filter((b) => b.ownerId === userId).length);
+    const maxOwnerPop = Math.max(40, ownerBasesCount * (econ.populationCapPerBase || 30));
+    const currentOwnerPop = data.units
+      .filter((u) => u.ownerId === userId)
+      .reduce((sum, u) => sum + (gameStore.getEffectiveUnitDef(u.type)?.populationCost || 1), 0);
+    if (userId !== 'enemy_insurgent' && currentOwnerPop + uDef.populationCost > maxOwnerPop) {
+      return { success: false, message: `Population capacity reached (${currentOwnerPop}/${maxOwnerPop})` };
+    }
+
     const reqBuilding = base.buildings.find((b: BuildingInstance) => b.type === uDef.requiredBuilding && b.level > 0);
     if (!reqBuilding) {
       return {
         success: false,
-        message: `Requires ${BUILDING_CATALOG[uDef.requiredBuilding]?.name || 'appropriate facility'}`,
+        message: `Requires ${gameStore.getEffectiveBuildingDef(uDef.requiredBuilding)?.name || 'appropriate facility'}`,
       };
     }
 
-    // Check resources
+    const costMult = econ.unitCostMultiplier || 1.0;
+    const reqConcrete = Math.round(uDef.cost.concrete * costMult);
+    const reqSteel = Math.round(uDef.cost.steel * costMult);
+    const reqAluminum = Math.round(uDef.cost.aluminum * costMult);
+    const reqFuel = Math.round(uDef.cost.fuel * costMult);
+
     if (
-      base.resources.concrete < uDef.cost.concrete ||
-      base.resources.steel < uDef.cost.steel ||
-      base.resources.aluminum < uDef.cost.aluminum ||
-      base.resources.fuel < uDef.cost.fuel
+      base.resources.concrete < reqConcrete ||
+      base.resources.steel < reqSteel ||
+      base.resources.aluminum < reqAluminum ||
+      base.resources.fuel < reqFuel
     ) {
       return { success: false, message: 'Insufficient resources' };
     }
 
-    base.resources.concrete -= uDef.cost.concrete;
-    base.resources.steel -= uDef.cost.steel;
-    base.resources.aluminum -= uDef.cost.aluminum;
-    base.resources.fuel -= uDef.cost.fuel;
+    base.resources.concrete -= reqConcrete;
+    base.resources.steel -= reqSteel;
+    base.resources.aluminum -= reqAluminum;
+    base.resources.fuel -= reqFuel;
 
+    const speedMult = Math.max(0.2, econ.unitProductionSpeedMultiplier || 1.0);
+    const trainDurationSec = Math.max(1, Math.round(uDef.trainTimeSec / speedMult));
     const now = Date.now();
     base.productionQueue.push({
       id: `prod_${now}_${Math.random().toString(36).substring(2, 6)}`,
       baseId,
       unitType,
       startTime: now,
-      finishTime: now + uDef.trainTimeSec * 1000,
-      cost: uDef.cost,
+      finishTime: now + trainDurationSec * 1000,
+      cost: {
+        concrete: reqConcrete,
+        steel: reqSteel,
+        aluminum: reqAluminum,
+        fuel: reqFuel,
+      },
     });
 
     this.io?.emit('world:sync', { units: data.units, bases: data.bases, timestamp: now });
@@ -937,4 +1018,3 @@ export class GameSimulation {
 }
 
 export const gameSimulation = new GameSimulation();
-

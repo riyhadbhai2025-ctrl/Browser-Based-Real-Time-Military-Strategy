@@ -28,11 +28,34 @@ import { AdminModal } from './components/AdminModal';
 import { TutorialModal } from './components/TutorialModal';
 import { AuthModal } from './components/AuthModal';
 import { ShortcutsModal } from './components/ShortcutsModal';
+import { AdminPanel } from './components/admin/AdminPanel';
 
 export default function App() {
+  const [isAdminRoute, setIsAdminRoute] = useState<boolean>(() =>
+    window.location.pathname.startsWith('/admin')
+  );
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<TacticalRenderer | null>(null);
   const socketRef = useRef<Socket | null>(null);
+
+  // Sync /admin URL navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      setIsAdminRoute(window.location.pathname.startsWith('/admin'));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const openAdminConsole = useCallback(() => {
+    window.history.pushState({}, '', '/admin');
+    setIsAdminRoute(true);
+  }, []);
+
+  const returnToBattlefield = useCallback(() => {
+    window.history.pushState({}, '', '/');
+    setIsAdminRoute(false);
+  }, []);
 
   // Auth & Profile
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('frontline_token'));
@@ -260,7 +283,7 @@ export default function App() {
 
   // 4. Initialize Three.js 3D Tactical Renderer
   useEffect(() => {
-    if (!canvasRef.current) return;
+    if (isAdminRoute || !canvasRef.current) return;
     const canvas = canvasRef.current;
 
     const resize = () => {
@@ -282,11 +305,11 @@ export default function App() {
       window.removeEventListener('resize', resize);
       renderer.stopRenderLoop();
     };
-  }, []);
+  }, [isAdminRoute]);
 
   // Update renderer state when bases/units/profile/envObjects change
   useEffect(() => {
-    if (!rendererRef.current) return;
+    if (isAdminRoute || !rendererRef.current) return;
     rendererRef.current.updateWorld(
       bases,
       units,
@@ -299,7 +322,7 @@ export default function App() {
     rendererRef.current.fogEnabled = fogEnabled;
     rendererRef.current.showRepairCranes = repairVisualsActive;
     rendererRef.current.isStrategicOverview = isStrategicOverview;
-  }, [bases, units, profile, selectedUnitIds, selectedBaseId, fogEnabled, envObjects, repairVisualsActive, isStrategicOverview]);
+  }, [isAdminRoute, bases, units, profile, selectedUnitIds, selectedBaseId, fogEnabled, envObjects, repairVisualsActive, isStrategicOverview]);
 
   // 5. Continuous Keyboard Camera Pan & Rotation Loop
   useEffect(() => {
@@ -806,19 +829,27 @@ export default function App() {
     const targetX = Math.round(renderer ? renderer.cameraX + (Math.random() * 4 - 2) : 20);
     const targetY = Math.round(renderer ? renderer.cameraY + (Math.random() * 4 - 2) : 28);
     const ownerId = isHostile ? 'enemy_insurgent' : profile?.id || 'player_default';
+    const authToken = localStorage.getItem('frontline_admin_token') || token || 'default_commander_token';
 
     fetch('/api/admin/spawn_unit', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
       body: JSON.stringify({ unitType, x: targetX, y: targetY, ownerId }),
     }).catch(console.error);
   };
 
   const handleAdminBoost = (amount: number) => {
     const homeBase = bases.find((b) => b.ownerId === (profile?.id || 'player_default'));
+    const authToken = localStorage.getItem('frontline_admin_token') || token || 'default_commander_token';
     fetch('/api/admin/boost_resources', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
       body: JSON.stringify({ baseId: homeBase?.id, amount }),
     }).catch(console.error);
   };
@@ -842,6 +873,10 @@ export default function App() {
     40,
     bases.filter((b) => b.ownerId === (profile?.id || 'player_default')).length * 30
   );
+
+  if (isAdminRoute) {
+    return <AdminPanel onReturnToGame={returnToBattlefield} />;
+  }
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans select-none">
@@ -870,6 +905,7 @@ export default function App() {
             soundEngine.setMuted(nextMuted);
           }}
           onOpenAdmin={() => setShowAdmin(true)}
+          onOpenAdminConsole={openAdminConsole}
           onOpenAlliance={() => setShowAlliance(true)}
           onOpenIntel={() => setShowIntel(true)}
           onOpenTutorial={() => setShowTutorial(true)}
