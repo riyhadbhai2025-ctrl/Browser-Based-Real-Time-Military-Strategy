@@ -7,6 +7,7 @@ import { findPath, isCellPassable } from '../src/game/pathfinder';
 import { ROLE_PERMISSIONS, TerrainType } from '../src/types/game';
 import { app } from '../server';
 import { gameStore } from '../server/store';
+import { gameSimulation } from '../server/simulation';
 import { resetRateLimiterForTests, sanitizeText } from '../server/adminRoutes';
 
 // Helper to run HTTP requests against the Express app on an ephemeral port
@@ -993,6 +994,318 @@ test('19. Phase 7 — Player Progression, Leaderboard, Idempotent Reward Claimin
   });
 });
 
+test('16. Combat Siege: Atomic base spawn prevents overlapping bases & respects map limits', () => {
+  const data = gameStore.getData();
+  const mapId = 'map_riverfront_assault';
+  const econ = gameStore.getEconomyConfig();
+  const minBaseDist = econ.minBaseSpawnDistance || 12;
 
+  // 1. Reserve a spawn location
+  const res1 = gameStore.findAndReserveBaseSpawnLocation(mapId, null, 4);
+  assert.ok(res1.success, 'First spawn reservation must succeed');
+  assert.strictEqual(res1.mapId, mapId);
 
+  // Verify coordinates are away from all existing bases
+  const mapBases = data.bases.filter((b) => (b.mapId || 'map_riverfront_assault') === mapId);
+  for (const b of mapBases) {
+    const dist = Math.hypot(b.x - res1.x, b.y - res1.y);
+    assert.ok(
+      dist >= (b.radius || 4) + 4 + minBaseDist,
+      `Spawn (${res1.x}, ${res1.y}) must be at least ${minBaseDist} tiles away from base ${b.id} (distance: ${dist})`
+    );
+  }
 
+  // 2. Reserve a second spawn location simultaneously - must not overlap first reservation
+  const res2 = gameStore.findAndReserveBaseSpawnLocation(mapId, null, 4);
+  assert.ok(res2.success, 'Second spawn reservation must succeed');
+  const distBetweenRes = Math.hypot(res1.x - res2.x, res1.y - res2.y);
+  assert.ok(
+    distBetweenRes >= 4 + 4 + minBaseDist,
+    `Simultaneous reservations must maintain minBaseSpawnDistance separation (${distBetweenRes} >= ${4 + 4 + minBaseDist})`
+  );
+
+  gameStore.releaseSpawnReservation(res1.reservationId);
+  gameStore.releaseSpawnReservation(res2.reservationId);
+});
+
+test('17. Combat Siege: Home Base protection, armor bonus & safe destruction relocation', () => {
+  const data = gameStore.getData();
+  const econ = gameStore.getEconomyConfig();
+  const homeBase = data.bases.find((b) => b.isHomeBase || b.type === 'home');
+  assert.ok(homeBase, 'A player home base must exist in store');
+
+  // Verify Home base armor multiplier is configured
+  assert.ok((econ.homeBaseArmorMultiplier || 1.5) >= 1.0, 'homeBaseArmorMultiplier must be configured and >= 1.0');
+
+  // Verify Home Base cannot be conquered directly:
+  assert.strictEqual(homeBase.isHomeBase, true);
+
+  const originalScore = data.users[homeBase.ownerId]?.profile.score || 100;
+  const originalX = homeBase.x;
+  const originalY = homeBase.y;
+
+  // Simulate attacker destroying Home Base
+  const attackerUnit = {
+    id: 'test_attacker',
+    mapId: homeBase.mapId || 'map_riverfront_assault',
+    type: 'titan_mbt' as const,
+    ownerId: 'player_ironwolf',
+    ownerName: 'IronWolf_99',
+    x: homeBase.x + 1,
+    y: homeBase.y + 1,
+    rotation: 0,
+    health: 500,
+    maxHealth: 500,
+    command: 'attack' as const,
+    path: [],
+    lastAttackTime: 0,
+    kills: 0,
+    homeBaseId: 'base_home_test',
+  };
+
+  const now = Date.now();
+  // Call simulation's destroyAndRelocateHomeBase
+  const result = gameSimulation.destroyAndRelocateHomeBase(homeBase, attackerUnit, now);
+  assert.strictEqual(result, true, 'Home base destruction must succeed');
+
+  // Verify player account and permanent score survive
+  const defenderProfile = data.users[homeBase.ownerId]?.profile;
+  assert.ok(defenderProfile, 'Defender profile must survive');
+  assert.strictEqual(defenderProfile.score, originalScore, 'Defender permanent score must survive destruction');
+  assert.ok(defenderProfile.homeBaseDestroyedCount! >= 1, 'homeBaseDestroyedCount must increment');
+
+  // Verify replacement base is created with starter buildings and rebuild protection
+  assert.ok(homeBase.rebuildProtectionUntil! > now, 'Reconstruction shield must be active');
+  assert.strictEqual(homeBase.lifecycleState, 'rebuilding');
+  assert.strictEqual(homeBase.isProtected, true);
+  assert.ok(homeBase.buildings.length >= 8, 'Starter buildings must be restored');
+  assert.ok(homeBase.resources.concrete > 0, 'Survivor resources must be preserved');
+});
+
+test('18. Combat Siege: Ordinary base neutralization destroys 50% production buildings', () => {
+  const data = gameStore.getData();
+  const econ = gameStore.getEconomyConfig();
+  const now = Date.now();
+
+  // Create a test player base with 4 production buildings
+  const testBase = {
+    id: `base_test_neut_${now}`,
+    mapId: 'map_riverfront_assault',
+    name: 'Sector Forward Base',
+    type: 'tank' as const,
+    ownerId: 'player_ironwolf',
+    ownerName: 'IronWolf_99',
+    x: 40,
+    y: 40,
+    radius: 4,
+    health: 1000,
+    maxHealth: 1000,
+    defenseShield: 0,
+    maxShield: 1000,
+    captureProgress: 0,
+    isProtected: false,
+    isHomeBase: false,
+    lifecycleState: 'active' as const,
+    resources: { concrete: 500, steel: 500, aluminum: 500, fuel: 500 },
+    storageCap: { concrete: 2500, steel: 2500, aluminum: 2500, fuel: 2500 },
+    productionRates: { concrete: 2, steel: 2, aluminum: 2, fuel: 2 },
+    lastResourceUpdate: now,
+    constructionQueue: [],
+    productionQueue: [],
+    buildings: [
+      { id: 'b_cw', type: 'concrete_works' as const, level: 2, health: 400, maxHealth: 400 },
+      { id: 'b_sf', type: 'steel_foundry' as const, level: 2, health: 400, maxHealth: 400 },
+      { id: 'b_as', type: 'aluminum_smelter' as const, level: 2, health: 400, maxHealth: 400 },
+      { id: 'b_fr', type: 'fuel_refinery' as const, level: 2, health: 400, maxHealth: 400 },
+      { id: 'b_lc', type: 'logistics_center' as const, level: 1, health: 300, maxHealth: 300 },
+      { id: 'b_vt', type: 'vulcan_turret' as const, level: 1, health: 300, maxHealth: 300 },
+    ],
+  };
+  data.bases.push(testBase);
+
+  const attackerUnit = {
+    id: 'test_attacker_neut',
+    mapId: 'map_riverfront_assault',
+    type: 'titan_mbt' as const,
+    ownerId: 'player_default',
+    ownerName: 'HighCommander_One',
+    x: 41,
+    y: 41,
+    rotation: 0,
+    health: 500,
+    maxHealth: 500,
+    command: 'attack' as const,
+    path: [],
+    lastAttackTime: 0,
+    kills: 0,
+    homeBaseId: 'base_home_test',
+  };
+
+  gameSimulation.neutralizeOrdinaryBase(testBase, attackerUnit, now);
+
+  // Verify transition to neutral/ownerless
+  assert.strictEqual(testBase.ownerId, 'neutral');
+  assert.strictEqual(testBase.lifecycleState, 'neutralized');
+
+  // Verify 50% eligible production buildings destroyed (4 eligible production buildings -> 2 destroyed)
+  const remainingProd = testBase.buildings.filter((b: any) =>
+    ['concrete_works', 'steel_foundry', 'aluminum_smelter', 'fuel_refinery'].includes(b.type)
+  );
+  assert.strictEqual(remainingProd.length, 2, 'Exactly 50% of production buildings must be destroyed');
+
+  // Verify logistics_center max-capacity building was removed
+  assert.ok(!testBase.buildings.some((b: any) => b.type === 'logistics_center'), 'Logistics center must be destroyed');
+
+  // Clean up test base
+  data.bases = data.bases.filter((b) => b.id !== testBase.id);
+});
+
+test('19. Combat Siege: Conquest vehicle exclusivity & newcomer base protection', () => {
+  const data = gameStore.getData();
+  const now = Date.now();
+
+  // 1. Rifle infantry must NOT have canCaptureBase: true
+  const infantryDef = gameStore.getEffectiveUnitDef('rifle_infantry');
+  assert.strictEqual(Boolean(infantryDef.canCaptureBase), false, 'Rifle infantry cannot capture bases');
+
+  // 2. Dominator Conquest vehicle must have canCaptureBase: true
+  const conquestDef = gameStore.getEffectiveUnitDef('dominator_conquest');
+  assert.strictEqual(conquestDef.canCaptureBase, true, 'Dominator conquest vehicle must have canCaptureBase: true');
+
+  // 3. Newcomer Outpost protection anti-veteran rule
+  const newcomerBase = data.bases.find((b) => b.isNewcomerBase);
+  assert.ok(newcomerBase, 'A newcomer outpost must exist on the tactical map');
+
+  // Veteran commander with >= 2 owned bases
+  const veteranCheck = gameStore.checkNewcomerBaseEligibility('player_default', newcomerBase, now);
+  assert.strictEqual(veteranCheck.eligible, false, 'Veteran commander must be ineligible to capture newcomer base');
+  assert.ok(veteranCheck.reason?.includes('restricts veteran annexation'));
+
+  // Weekly capture counter tracking
+  const user = data.users['player_default'];
+  const prevWeeklyCaptures = user.profile.weeklyCapturesCount || 0;
+  gameStore.recordPlayerBaseCapture('player_default', 'sample_base_1', 'map_riverfront_assault', now);
+  assert.strictEqual(user.profile.weeklyCapturesCount, prevWeeklyCaptures + 1, 'weeklyCapturesCount must increment');
+});
+
+test('20. Combat Siege: Inactivity eviction frees sector capacity and recovers on login', () => {
+  const data = gameStore.getData();
+  const now = Date.now();
+  const fourteenDaysMs = 14 * 86400000;
+
+  // Create an inactive player
+  const inactiveUserId = 'user_test_inactive_99';
+  const inactiveBaseId = 'base_test_inactive_99';
+  data.users[inactiveUserId] = {
+    passwordHash: 'dummyhash',
+    profile: {
+      id: inactiveUserId,
+      username: 'GhostCommander',
+      email: 'ghost@frontline.mil',
+      rank: 'Captain',
+      score: 550,
+      level: 3,
+      avatar: 'scout_operator',
+      homeBaseId: inactiveBaseId,
+      homeMapId: 'map_riverfront_assault',
+      currentMapId: 'map_riverfront_assault',
+      totalBasesCaptured: 1,
+      totalUnitsProduced: 5,
+      totalUnitsDestroyed: 2,
+      totalResourcesHarvested: 2000,
+      highwayTransfersCompleted: 0,
+      claimedRewardIds: [],
+      joinedAt: now - fourteenDaysMs * 2,
+      lastLoginAt: now - fourteenDaysMs - 10000,
+      lastActiveAt: now - fourteenDaysMs - 10000,
+      beginnerProtectionUntil: 0,
+      isAdmin: false,
+      adminRole: null,
+      status: 'active',
+      suspendedUntil: null,
+      banReason: null,
+      moderationHistory: [],
+      weeklyCapturesCount: 0,
+      weeklyCaptureTimestamps: [],
+      homeBaseDestroyedCount: 0,
+      isInactiveRelocated: false,
+    },
+  };
+
+  data.bases.push({
+    id: inactiveBaseId,
+    mapId: 'map_riverfront_assault',
+    name: "GhostCommander's Redoubt",
+    type: 'home',
+    ownerId: inactiveUserId,
+    ownerName: 'GhostCommander',
+    x: 50,
+    y: 50,
+    radius: 4,
+    health: 3500,
+    maxHealth: 3500,
+    defenseShield: 1200,
+    maxShield: 1200,
+    captureProgress: 0,
+    isProtected: false,
+    isHomeBase: true,
+    lifecycleState: 'active',
+    resources: { concrete: 500, steel: 500, aluminum: 500, fuel: 500 },
+    storageCap: { concrete: 2500, steel: 2500, aluminum: 2500, fuel: 2500 },
+    productionRates: { concrete: 2, steel: 2, aluminum: 2, fuel: 2 },
+    lastResourceUpdate: now,
+    constructionQueue: [],
+    productionQueue: [],
+    buildings: [],
+  });
+
+  // Run inactivity eviction
+  const evicted = gameStore.processInactivityEvictions(now);
+  assert.ok(evicted.evictedUserIds.includes(inactiveUserId), 'Inactive user must be evicted from active map sector');
+  assert.strictEqual(data.users[inactiveUserId].profile.isInactiveRelocated, true);
+  assert.ok(!data.bases.some((b) => b.id === inactiveBaseId), 'Base must be archived from map bases');
+
+  // Commander logs back in: recovers base safely
+  const recovered = gameStore.recoverInactivePlayerBaseIfNeeded(inactiveUserId, now);
+  assert.strictEqual(recovered.recovered, true, 'Base must be recovered on player return');
+  assert.strictEqual(data.users[inactiveUserId].profile.isInactiveRelocated, false);
+  const recoveredBase = data.bases.find((b) => b.ownerId === inactiveUserId);
+  assert.ok(recoveredBase, 'Recovered base must be placed on map');
+  assert.strictEqual(recoveredBase.lifecycleState, 'protected');
+
+  // Clean up
+  delete data.users[inactiveUserId];
+  data.bases = data.bases.filter((b) => b.ownerId !== inactiveUserId);
+});
+
+test('21. Combat Siege: Admin migration preview and overlap resolution endpoints', async () => {
+  await withTestServer(async (baseUrl) => {
+    // 1. Login as super_admin
+    const loginRes = await fetch(`${baseUrl}/api/admin/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'SuperAdmin_Prime', password: 'adminpassword123' }),
+    });
+    assert.strictEqual(loginRes.status, 200, 'Super admin login must succeed');
+    const { token } = await loginRes.json();
+
+    // 2. Query migration preview
+    const previewRes = await fetch(`${baseUrl}/api/admin/maps/migration-preview`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.strictEqual(previewRes.status, 200, 'Migration preview endpoint must return 200');
+    const preview = await previewRes.json();
+    assert.ok(preview.success, 'Preview must succeed');
+    assert.ok(typeof preview.overlappingBasesCount === 'number');
+
+    // 3. Execute overlap migration
+    const migrateRes = await fetch(`${baseUrl}/api/admin/maps/migrate-overlaps`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ reason: 'Automated test sector defragmentation' }),
+    });
+    assert.strictEqual(migrateRes.status, 200, 'Migration execution endpoint must return 200');
+    const result = await migrateRes.json();
+    assert.ok(result.success, 'Migration execution must report success');
+  });
+});

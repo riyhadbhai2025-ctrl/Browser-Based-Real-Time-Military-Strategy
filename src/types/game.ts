@@ -143,11 +143,24 @@ export interface UnitProductionOrder {
   cost: Resources;
 }
 
+export type BaseLifecycleState =
+  | 'active'
+  | 'protected'
+  | 'rebuilding'
+  | 'neutralized'
+  | 'ownerless'
+  | 'captured'
+  | 'destroyed';
+
+export type SpawnMapFallbackPolicy = 'next_eligible_map' | 'reject_when_full';
+
 export interface Base {
   id: string;
   mapId?: string; // Sector map ID (e.g. 'map_riverfront_assault')
   name: string;
   type: BaseType;
+  isHomeBase?: boolean; // Explicit Home Base flag (distinct from base.type === 'home')
+  lifecycleState?: BaseLifecycleState;
   ownerId: string; // userId or 'neutral' or 'enemy_insurgent'
   ownerName: string;
   allianceId?: string | null;
@@ -168,8 +181,16 @@ export interface Base {
   captureProgress: number; // 0 to 100
   capturingPlayerId?: string | null;
   captureContested?: boolean;
+  captureBlockedReason?: string | null;
   isProtected?: boolean;
   rebuildProtectionUntil?: number | null;
+  isNewcomerBase?: boolean;
+  newcomerProtectionUntil?: number | null;
+  neutralizedAt?: number | null;
+  neutralizedByPlayerId?: string | null;
+  defensesIntact?: boolean;
+  activeTurretsCount?: number;
+  totalTurretsCount?: number;
   powerUsed?: number;
   powerCapacity?: number;
 }
@@ -400,8 +421,12 @@ export interface PlayerProfile {
   allianceId?: string | null;
   allianceRole?: AllianceRole | null;
   homeBaseId: string;
+  homeMapId?: string;
   currentMapId?: string;
   totalBasesCaptured: number;
+  weeklyCaptureTimestamps?: number[];
+  weeklyCapturesCount?: number;
+  homeBaseDestroyedCount?: number;
   totalUnitsProduced: number;
   totalUnitsDestroyed: number;
   totalResourcesHarvested: number;
@@ -409,6 +434,8 @@ export interface PlayerProfile {
   claimedRewardIds?: string[];
   joinedAt: number;
   lastLoginAt: number;
+  lastActiveAt?: number;
+  isInactiveRelocated?: boolean;
   beginnerProtectionUntil: number; // epoch ms
   isAdmin?: boolean;
   adminRole?: AdminRole | null;
@@ -436,6 +463,20 @@ export interface EconomyConfig {
   maxSelectionGroupSize?: number; // 6 to 60
   fuelTravelCostMultiplier?: number; // 0.2 to 5.0
   captureSpeedPerTick: number; // 1 to 25
+  // Combat Siege-inspired spawn, protection, destruction & conquest policy
+  minBaseSpawnDistance?: number; // min center-to-center margin beyond base radii (default 12)
+  homeBaseProtectionDurationHours?: number; // beginner protection duration in hours (default 48)
+  rebuildProtectionDurationMinutes?: number; // replacement Home Base shield in minutes (default 30)
+  homeBaseArmorMultiplier?: number; // incoming siege damage reduction multiplier (default 1.5)
+  productionDestroyPercentOnNeutralize?: number; // percentage of eligible production buildings destroyed (default 50)
+  destroyMaxCapBuildingsOnNeutralize?: boolean; // destroy max-capacity / storage facilities on neutralization (default true)
+  newbaseMaxOwnedBasesThreshold?: number; // max total bases owned to qualify for Newbase (default 2)
+  newbaseMaxWeeklyCapturesThreshold?: number; // max weekly captures to qualify for Newbase (default 2)
+  newbaseProtectionDurationHours?: number; // duration before Newbase becomes ordinary base (default 72)
+  weeklyCaptureLimitPerPlayer?: number; // max bases a player can capture per rolling 7 days (default 10)
+  inactivityEvictionDays?: number; // days of inactivity before Home Base is archived from map (default 14)
+  spawnMapFallbackPolicy?: SpawnMapFallbackPolicy; // 'next_eligible_map' | 'reject_when_full'
+  conquestUnitTypes?: UnitType[]; // default ['dominator_conquest']
   updatedAt: number;
   updatedBy: string;
 }
@@ -501,6 +542,7 @@ export interface MapSectorConfig {
   maxUnitsOnMap?: number;
   maxBasesPerPlayer?: number;
   maxPopPerPlayer?: number;
+  minBaseSpawnDistance?: number;
   highwayExits?: HighwayExit[];
   enabled: boolean;
   isActiveMap: boolean;
@@ -672,16 +714,25 @@ export interface BattleReport {
   id: string;
   mapId: string;
   mapName: string;
-  type: 'base_captured' | 'hq_siege' | 'highway_transfer' | 'skirmish_victory';
+  type:
+    | 'base_captured'
+    | 'base_neutralized'
+    | 'home_base_destroyed'
+    | 'hq_siege'
+    | 'highway_transfer'
+    | 'skirmish_victory';
   attackerId: string;
   attackerName: string;
   defenderId: string;
   defenderName: string;
   baseId?: string;
   baseName?: string;
+  replacementBaseId?: string;
+  replacementCoords?: { x: number; y: number };
   coords: { x: number; y: number };
   plunderedResources?: Partial<Resources>;
   buildingsDamaged?: number;
+  buildingsDestroyed?: number;
   unitsTransferred?: number;
   fuelSpent?: number;
   summary: string;

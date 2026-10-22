@@ -3,6 +3,7 @@
   "appId": "1:1019640218780:web:241101e30426f1d49e9959",
   "apiKey": "AIzaSyDBj_48lOpvSoBxT9k_611_ZvCD2tuGFWQ",
   "authDomain": "universal-sequencer-f7c1c.firebaseapp.com",
+  "firestoreDatabaseId": "ai-studio-frontlinedominio-73a1a828-3808-40cf-b6e3-cb9ea3cdd765",
   "storageBucket": "universal-sequencer-f7c1c.firebasestorage.app",
   "messagingSenderId": "1019640218780",
   "measurementId": "",

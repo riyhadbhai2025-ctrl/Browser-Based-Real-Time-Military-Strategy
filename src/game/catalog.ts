@@ -33,7 +33,7 @@ export const UNIT_CATALOG: Record<UnitType, UnitDefinition> = {
     targets: ['ground', 'air', 'rail'],
     visionRadius: 8.5,
     fuelBurnPerSec: 0.05,
-    canCaptureBase: true,
+    canCaptureBase: false,
     requiredBuilding: 'barracks',
   },
   vanguard_scout: {

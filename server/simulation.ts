@@ -143,12 +143,22 @@ export class GameSimulation {
     if (base.rebuildProtectionUntil && base.rebuildProtectionUntil > now) {
       return true;
     }
+    if (base.isNewcomerBase && base.newcomerProtectionUntil && base.newcomerProtectionUntil > now) {
+      return true;
+    }
     const data = gameStore.getData();
     const owner = data.users[base.ownerId]?.profile;
     if (owner && owner.beginnerProtectionUntil && owner.beginnerProtectionUntil > now) {
       return true;
     }
     return false;
+  }
+
+  public hasActiveDefensiveTurrets(base: Base): boolean {
+    if (!Array.isArray(base.buildings)) return false;
+    return base.buildings.some(
+      (b) => DEFENSIVE_TURRET_TYPES.includes(b.type) && !b.isConstructing && b.health > 0
+    );
   }
 
   public computeBasePower(base: Base): { powerUsed: number; powerCapacity: number } {
@@ -328,12 +338,6 @@ export class GameSimulation {
       clearInterval(this.intervalId);
       this.intervalId = null;
     }
-  }
-
-  private hasActiveDefensiveTurrets(base: Base): boolean {
-    return (base.buildings || []).some(
-      (b) => DEFENSIVE_TURRET_TYPES.includes(b.type) && !b.isConstructing && b.health > 0
-    );
   }
 
   // Authoritative tick across all active sector maps
@@ -544,18 +548,34 @@ export class GameSimulation {
               attackerProfile.beginnerProtectionUntil = 0;
             }
 
-            const damage = Math.round(def.attackDamage * (unit.type === 'goliath_howitzer' ? 2.0 : 0.8));
+            const econ = gameStore.getEconomyConfig();
+            let baseDamage = def.attackDamage * (unit.type === 'goliath_howitzer' ? 2.0 : 0.8);
+            if (base.isHomeBase || base.type === 'home') {
+              const armorMult = econ.homeBaseArmorMultiplier || 1.5;
+              baseDamage = baseDamage / armorMult;
+            }
+            const damage = Math.max(1, Math.round(baseDamage));
+
             if (base.defenseShield > 0) {
               base.defenseShield = Math.max(0, base.defenseShield - damage);
             } else {
-              // Damage active defensive turrets first so the base can be besieged and captured
-              const activeTurret = base.buildings.find(
+              // Damage active defensive turrets first so base defenses are neutralized
+              const activeTurret = (base.buildings || []).find(
                 (b) => DEFENSIVE_TURRET_TYPES.includes(b.type) && !b.isConstructing && b.health > 0
               );
               if (activeTurret) {
                 activeTurret.health = Math.max(0, activeTurret.health - damage);
+              } else {
+                // Structural HP damage once shield and turrets are down
+                base.health = Math.max(0, base.health - damage);
+                if (base.health <= 0) {
+                  if (base.isHomeBase || base.type === 'home') {
+                    this.destroyAndRelocateHomeBase(base, unit, now);
+                  } else if (base.ownerId !== 'neutral') {
+                    this.neutralizeOrdinaryBase(base, unit, now);
+                  }
+                }
               }
-              base.health = Math.max(100, base.health - damage);
             }
 
             combatEvents.push({
@@ -655,8 +675,18 @@ export class GameSimulation {
     const captureStep = econ.captureSpeedPerTick || 5;
     for (const base of data.bases) {
       const baseMapId = base.mapId || 'map_riverfront_assault';
+      const mapCfg = gameStore.getMapConfig(baseMapId);
       base.isProtected = this.isBaseProtectedNow(base, now);
 
+      const activeTurrets = (base.buildings || []).filter(
+        (b) => DEFENSIVE_TURRET_TYPES.includes(b.type) && !b.isConstructing && b.health > 0
+      );
+      base.activeTurretsCount = activeTurrets.length;
+      base.totalTurretsCount = (base.buildings || []).filter((b) => DEFENSIVE_TURRET_TYPES.includes(b.type)).length;
+      const defensesIntact = base.defenseShield > 0 || activeTurrets.length > 0;
+      base.defensesIntact = defensesIntact;
+
+      // 1. Home bases and protected bases cannot be captured
       if (base.isProtected) {
         if (base.captureProgress > 0) {
           base.captureProgress = 0;
@@ -664,12 +694,38 @@ export class GameSimulation {
           base.captureContested = false;
           hasStateChange = true;
         }
+        base.captureBlockedReason = 'Base is shielded by active command protection';
         continue;
       }
 
+      if (base.isHomeBase || base.type === 'home') {
+        if (base.captureProgress > 0) {
+          base.captureProgress = 0;
+          base.capturingPlayerId = null;
+          base.captureContested = false;
+          hasStateChange = true;
+        }
+        base.captureBlockedReason = 'Home Bases are permanent command centers and cannot be conquered';
+        continue;
+      }
+
+      // 2. Only neutralized (ownerless/neutral) bases can be conquered
+      if (base.ownerId !== 'neutral') {
+        if (base.captureProgress > 0) {
+          base.captureProgress = 0;
+          base.capturingPlayerId = null;
+          base.captureContested = false;
+          hasStateChange = true;
+        }
+        base.captureBlockedReason = 'Base defenses must be completely eliminated before conquest capture';
+        continue;
+      }
+
+      // 3. Find designated conquest units in range
+      const allowedConquestTypes = econ.conquestUnitTypes || ['dominator_conquest'];
       const conquestUnits = data.units.filter((u) => {
         if ((u.mapId || 'map_riverfront_assault') !== baseMapId) return false;
-        if (u.type !== 'dominator_conquest' && u.type !== 'rifle_infantry') return false;
+        if (!allowedConquestTypes.includes(u.type)) return false;
         const uDef = gameStore.getEffectiveUnitDef(u.type);
         if (!uDef?.canCaptureBase) return false;
         if (u.ownerId === base.ownerId) return false;
@@ -678,32 +734,81 @@ export class GameSimulation {
         return dist <= base.radius + 1.8;
       });
 
-      // Group conquest units by faction (allianceId or ownerId) to detect contested captures
       const factionKeys = new Set(conquestUnits.map((u) => u.allianceId || `owner_${u.ownerId}`));
       const isContested = factionKeys.size > 1;
       base.captureContested = isContested;
 
-      const defensesIntact = base.defenseShield > 0 || this.hasActiveDefensiveTurrets(base);
+      if (defensesIntact) {
+        if (base.captureProgress > 0) {
+          base.captureProgress = 0;
+          base.capturingPlayerId = null;
+          hasStateChange = true;
+        }
+        base.captureBlockedReason = 'Base defensive shield and all defensive turrets must be destroyed first';
+        continue;
+      }
 
-      if (conquestUnits.length > 0 && !defensesIntact) {
-        if (isContested) {
-          // Contested by multiple hostile factions: pause capture progress
+      if (conquestUnits.length === 0) {
+        if (base.captureProgress > 0) {
+          base.captureProgress = Math.max(0, base.captureProgress - 2);
+          if (base.captureProgress === 0) base.capturingPlayerId = null;
+          hasStateChange = true;
+        }
+        base.captureBlockedReason = 'Requires designated conquest vehicle (Dominator) to capture';
+        continue;
+      }
+
+      if (isContested) {
+        base.captureBlockedReason = 'Territory contested by hostile factions';
+        hasStateChange = true;
+        continue;
+      }
+
+      const capturingUnit = conquestUnits[0];
+
+      // 4. Newcomer Base Protection Check
+      if (base.isNewcomerBase) {
+        const newcomerCheck = gameStore.checkNewcomerBaseEligibility(capturingUnit.ownerId, base, now);
+        if (!newcomerCheck.eligible) {
+          base.captureProgress = 0;
+          base.capturingPlayerId = null;
+          base.captureBlockedReason = newcomerCheck.reason;
           hasStateChange = true;
           continue;
         }
+      }
 
-        const capturingUnit = conquestUnits[0];
-        base.capturingPlayerId = capturingUnit.ownerId;
-        base.captureProgress = Math.min(100, base.captureProgress + captureStep);
+      // 5. Weekly capture quota and map capacity checks
+      const capturerProfile = data.users[capturingUnit.ownerId]?.profile;
+      const weeklyLimit = econ.weeklyCaptureLimitPerPlayer || 10;
+      if (capturerProfile && (capturerProfile.weeklyCapturesCount || 0) >= weeklyLimit) {
+        base.captureProgress = 0;
+        base.capturingPlayerId = null;
+        base.captureBlockedReason = `Weekly conquest quota reached (${weeklyLimit} bases/week)`;
         hasStateChange = true;
+        continue;
+      }
 
-        if (base.captureProgress >= 100) {
-          this.resolveBaseCapture(base, capturingUnit, now);
-        }
-      } else if (base.captureProgress > 0) {
-        base.captureProgress = Math.max(0, base.captureProgress - 2);
-        if (base.captureProgress === 0) base.capturingPlayerId = null;
+      const maxBases = mapCfg.maxBasesPerPlayer || econ.maxBasesPerPlayerOnMap || 6;
+      const ownedOnMap = data.bases.filter(
+        (b) => (b.mapId || 'map_riverfront_assault') === baseMapId && b.ownerId === capturingUnit.ownerId
+      ).length;
+      if (ownedOnMap >= maxBases) {
+        base.captureProgress = 0;
+        base.capturingPlayerId = null;
+        base.captureBlockedReason = `Maximum base capacity reached in this sector (${maxBases} max)`;
         hasStateChange = true;
+        continue;
+      }
+
+      // Capture progresses
+      base.captureBlockedReason = undefined;
+      base.capturingPlayerId = capturingUnit.ownerId;
+      base.captureProgress = Math.min(100, base.captureProgress + captureStep);
+      hasStateChange = true;
+
+      if (base.captureProgress >= 100) {
+        this.resolveBaseCapture(base, capturingUnit, now);
       }
     }
 
@@ -917,18 +1022,230 @@ export class GameSimulation {
   }
 
   // ==========================================================================
-  // PHASE 4: RESOLVE BASE CAPTURE, PLUNDER, COLLATERAL DAMAGE & HQ CAPITULATION
+  // PHASE 4: COMBAT SIEGE BASE RELOCATION, NEUTRALIZATION & CAPTURE
   // ==========================================================================
+
+  public destroyAndRelocateHomeBase(base: Base, attackerUnit: Unit, now: number) {
+    const lockRes = gameStore.withLock(`home_destroy_${base.id}`, () => {
+      const data = gameStore.getData();
+      const econ = gameStore.getEconomyConfig();
+      const mapId = base.mapId || 'map_riverfront_assault';
+      const mapCfg = gameStore.getMapConfig(mapId);
+      const ownerId = base.ownerId;
+      const ownerProfile = data.users[ownerId]?.profile;
+
+      // 1. Atomically reserve new safe spawn location on player's assigned home map
+      const targetMapId = ownerProfile?.homeMapId || mapId;
+      const spawnRes = gameStore.findAndReserveBaseSpawnLocation(targetMapId, ownerProfile?.allianceId, base.radius || 4);
+
+      let finalMapId = targetMapId;
+      let finalX = base.x;
+      let finalY = base.y;
+
+      if (spawnRes.success) {
+        finalMapId = spawnRes.mapId;
+        finalX = spawnRes.x;
+        finalY = spawnRes.y;
+        gameStore.releaseSpawnReservation(spawnRes.reservationId);
+      } else {
+        const terrain = this.getTerrain(targetMapId);
+        for (let r = 0; r < 50; r++) {
+          const cx = Math.floor(Math.random() * (terrain[0]?.length - 12) + 6);
+          const cy = Math.floor(Math.random() * (terrain.length - 12) + 6);
+          if (isCellPassable(terrain, cx, cy, 'ground')) {
+            finalX = cx;
+            finalY = cy;
+            break;
+          }
+        }
+      }
+
+      // 2. Relocate Home Base and rebuild starter buildings
+      base.mapId = finalMapId;
+      base.x = finalX;
+      base.y = finalY;
+      base.health = base.maxHealth;
+      base.defenseShield = base.maxShield;
+      base.captureProgress = 0;
+      base.capturingPlayerId = null;
+      base.captureContested = false;
+      base.captureBlockedReason = undefined;
+      base.lifecycleState = 'rebuilding';
+
+      const rebuildMinutes = econ.rebuildProtectionDurationMinutes || 60;
+      base.rebuildProtectionUntil = now + rebuildMinutes * 60000;
+      base.isProtected = true;
+
+      // Starter building restoration
+      base.buildings = [
+        { id: `b_cc_${ownerId}`, type: 'command_center' as const, level: 1, health: 1000, maxHealth: 1000 },
+        { id: `b_cw_${ownerId}`, type: 'concrete_works' as const, level: 1, health: 500, maxHealth: 500 },
+        { id: `b_sf_${ownerId}`, type: 'steel_foundry' as const, level: 1, health: 500, maxHealth: 500 },
+        { id: `b_as_${ownerId}`, type: 'aluminum_smelter' as const, level: 1, health: 400, maxHealth: 400 },
+        { id: `b_fr_${ownerId}`, type: 'fuel_refinery' as const, level: 1, health: 450, maxHealth: 450 },
+        { id: `b_br_${ownerId}`, type: 'barracks' as const, level: 1, health: 500, maxHealth: 500 },
+        { id: `b_vf_${ownerId}`, type: 'vehicle_factory' as const, level: 1, health: 700, maxHealth: 700 },
+        { id: `b_vt_${ownerId}`, type: 'vulcan_turret' as const, level: 1, health: 400, maxHealth: 400 },
+      ];
+      base.constructionQueue = [];
+      base.productionQueue = [];
+
+      // Guaranteed survivor resources
+      base.resources = {
+        concrete: Math.max(econ.startingResources.concrete * 0.5, Math.round(base.resources.concrete * 0.3)),
+        steel: Math.max(econ.startingResources.steel * 0.5, Math.round(base.resources.steel * 0.3)),
+        aluminum: Math.max(econ.startingResources.aluminum * 0.5, Math.round(base.resources.aluminum * 0.3)),
+        fuel: Math.max(econ.startingResources.fuel * 0.5, Math.round(base.resources.fuel * 0.3)),
+      };
+
+      if (ownerProfile) {
+        ownerProfile.homeBaseDestroyedCount = (ownerProfile.homeBaseDestroyedCount || 0) + 1;
+        ownerProfile.homeBaseId = base.id;
+        ownerProfile.homeMapId = finalMapId;
+        ownerProfile.currentMapId = finalMapId;
+      }
+
+      // Attacker rewards
+      const attackerProfile = data.users[attackerUnit.ownerId]?.profile;
+      if (attackerProfile) {
+        attackerProfile.score += 750;
+        attackerProfile.totalBasesCaptured += 1;
+        gameStore.recalculatePlayerProgression(attackerProfile);
+      }
+
+      // Record Battle Report
+      const report = gameStore.recordBattleReport({
+        mapId,
+        mapName: mapCfg.name,
+        type: 'home_base_destroyed',
+        attackerId: attackerUnit.ownerId,
+        attackerName: attackerUnit.ownerName,
+        defenderId: ownerId,
+        defenderName: base.ownerName,
+        baseId: base.id,
+        baseName: base.name,
+        coords: { x: finalX, y: finalY },
+        summary: `ATTACK ALERT: ${attackerUnit.ownerName} destroyed ${base.ownerName}'s Home Base in ${mapCfg.name}! High Command executed tactical relocation to sector ${finalMapId} with a ${rebuildMinutes}-min Reconstruction Shield.`,
+      });
+
+      this.io?.to('authenticated_commanders').emit('battle:report', report);
+      this.io?.to('authenticated_commanders').emit('notification:new', {
+        id: `notif_hbd_${now}`,
+        userId: ownerId,
+        mapId: finalMapId,
+        type: 'attack',
+        title: 'Home Base Relocated!',
+        message: `Your Home Base was destroyed by ${attackerUnit.ownerName} and has relocated under emergency protection!`,
+        coords: { x: finalX, y: finalY },
+        timestamp: now,
+        read: false,
+      });
+
+      gameStore.persistBaseAndUnits(base, []);
+      gameStore.saveData();
+      return true;
+    });
+    return lockRes.result;
+  }
+
+  public neutralizeOrdinaryBase(base: Base, attackerUnit: Unit, now: number) {
+    const lockRes = gameStore.withLock(`base_neutralize_${base.id}`, () => {
+      const data = gameStore.getData();
+      const econ = gameStore.getEconomyConfig();
+      const mapId = base.mapId || 'map_riverfront_assault';
+      const mapCfg = gameStore.getMapConfig(mapId);
+      const oldOwnerId = base.ownerId;
+      const oldOwnerName = base.ownerName;
+
+      base.ownerId = 'neutral';
+      base.ownerName = 'Neutral Territory';
+      base.allianceId = null;
+      base.lifecycleState = 'neutralized';
+      base.neutralizedAt = now;
+      base.neutralizedByPlayerId = attackerUnit.ownerId;
+      base.health = 350;
+      base.defenseShield = 0;
+      base.captureProgress = 0;
+      base.capturingPlayerId = null;
+      base.captureContested = false;
+      base.captureBlockedReason = undefined;
+
+      // 50% eligible production buildings destroyed (deterministic rounding)
+      const eligibleTypes: BuildingType[] = [
+        'concrete_works',
+        'steel_foundry',
+        'aluminum_smelter',
+        'fuel_refinery',
+        'barracks',
+        'vehicle_factory',
+        'aviation_hangar',
+        'power_station',
+      ];
+      const eligible = (base.buildings || []).filter((b) => eligibleTypes.includes(b.type));
+      const destroyPct = econ.productionDestroyPercentOnNeutralize ?? 50;
+      const destroyCount = Math.floor(eligible.length * (destroyPct / 100));
+
+      eligible.sort((a, b) => b.level - a.level || a.id.localeCompare(b.id));
+      const destroyedIds = new Set(eligible.slice(0, destroyCount).map((b) => b.id));
+
+      base.buildings = (base.buildings || []).filter((b) => {
+        if (destroyedIds.has(b.id)) return false;
+        if (econ.destroyMaxCapBuildingsOnNeutralize !== false && b.type === 'logistics_center') return false;
+        return true;
+      });
+
+      // Turrets set to destroyed (0 health)
+      for (const b of base.buildings) {
+        if (DEFENSIVE_TURRET_TYPES.includes(b.type)) {
+          b.health = 0;
+        } else {
+          b.health = Math.round(b.maxHealth * 0.4);
+        }
+      }
+
+      base.constructionQueue = [];
+      base.productionQueue = [];
+
+      const power = this.computeBasePower(base);
+      base.powerUsed = power.powerUsed;
+      base.powerCapacity = power.powerCapacity;
+
+      const report = gameStore.recordBattleReport({
+        mapId,
+        mapName: mapCfg.name,
+        type: 'base_neutralized',
+        attackerId: attackerUnit.ownerId,
+        attackerName: attackerUnit.ownerName,
+        defenderId: oldOwnerId,
+        defenderName: oldOwnerName,
+        baseId: base.id,
+        baseName: base.name,
+        coords: { x: base.x, y: base.y },
+        summary: `${attackerUnit.ownerName} eliminated defenses at '${base.name}' (${mapCfg.name}). 50% production capacity destroyed. Sector neutralized and open for conquest!`,
+      });
+
+      this.io?.to('authenticated_commanders').emit('battle:report', report);
+      this.io?.to('authenticated_commanders').emit('base:neutralized', {
+        baseId: base.id,
+        mapId,
+        neutralizedBy: attackerUnit.ownerName,
+      });
+
+      gameStore.persistBaseAndUnits(base, []);
+      gameStore.saveData();
+      return true;
+    });
+    return lockRes.result;
+  }
 
   private resolveBaseCapture(base: Base, capturingUnit: Unit, now: number) {
     const data = gameStore.getData();
-    const econ = gameStore.getEconomyConfig();
     const mapId = base.mapId || 'map_riverfront_assault';
     const mapCfg = gameStore.getMapConfig(mapId);
     const oldOwnerId = base.ownerId;
     const oldOwnerName = base.ownerName;
 
-    // 1. Plunder 35% of stored resources to attacker's home base
+    // 1. Plunder 35% of stored resources to attacker's base
     const plunder: Resources = {
       concrete: Math.round(base.resources.concrete * 0.35),
       steel: Math.round(base.resources.steel * 0.35),
@@ -951,7 +1268,7 @@ export class GameSimulation {
       attackerHome.resources.fuel = Math.min(attackerHome.storageCap.fuel, attackerHome.resources.fuel + plunder.fuel);
     }
 
-    // 2. Apply siege collateral damage to non-HQ building levels & restore turret health at level 1
+    // 2. Apply collateral damage to building levels & restore turrets
     let buildingsDamaged = 0;
     for (const bld of base.buildings) {
       if (bld.type !== 'command_center' && bld.level > 1) {
@@ -961,14 +1278,8 @@ export class GameSimulation {
       bld.health = Math.round(bld.maxHealth * 0.5);
     }
 
-    const defenderProfile = data.users[oldOwnerId]?.profile;
-    const isDefenderPrimaryHq = Boolean(defenderProfile && defenderProfile.homeBaseId === base.id);
-
-    // Check per-map base cap for the capturing player
-    const maxBasesOnMap = mapCfg.maxBasesPerPlayer || econ.maxBasesPerPlayerOnMap || 6;
-    const attackerBasesOnMap = data.bases.filter(
-      (b) => (b.mapId || 'map_riverfront_assault') === mapId && b.ownerId === capturingUnit.ownerId
-    ).length;
+    // Record capture in player history and store
+    gameStore.recordPlayerBaseCapture(capturingUnit.ownerId, base.id, mapId, now);
 
     const capturerProfile = data.users[capturingUnit.ownerId]?.profile;
     if (capturerProfile) {
@@ -977,69 +1288,39 @@ export class GameSimulation {
       gameStore.recalculatePlayerProgression(capturerProfile);
     }
 
-    if (isDefenderPrimaryHq || (capturingUnit.ownerId !== 'enemy_insurgent' && attackerBasesOnMap >= maxBasesOnMap)) {
-      // HQ Capitulation / Raid: Defender keeps primary Home Base with a 10-minute Emergency Reconstruction Shield
-      base.captureProgress = 0;
-      base.capturingPlayerId = null;
-      base.captureContested = false;
-      base.health = Math.round(base.maxHealth * 0.75);
-      base.defenseShield = Math.round(base.maxShield * 0.8);
-      base.rebuildProtectionUntil = now + 600000; // 10 minutes
-      base.isProtected = true;
+    // Transfer territory ownership
+    base.ownerId = capturingUnit.ownerId;
+    base.ownerName = capturingUnit.ownerName;
+    base.allianceId = capturingUnit.allianceId;
+    base.lifecycleState = 'active';
+    base.neutralizedAt = undefined;
+    base.neutralizedByPlayerId = undefined;
+    base.captureBlockedReason = undefined;
+    base.captureProgress = 0;
+    base.capturingPlayerId = null;
+    base.captureContested = false;
+    base.health = Math.round(base.maxHealth * 0.6);
+    base.defenseShield = Math.round(base.maxShield * 0.5);
+    base.constructionQueue = [];
+    base.productionQueue = [];
 
-      const report = gameStore.recordBattleReport({
-        mapId,
-        mapName: mapCfg.name,
-        type: 'hq_siege',
-        attackerId: capturingUnit.ownerId,
-        attackerName: capturingUnit.ownerName,
-        defenderId: oldOwnerId,
-        defenderName: oldOwnerName,
-        baseId: base.id,
-        baseName: base.name,
-        coords: { x: base.x, y: base.y },
-        plunderedResources: plunder,
-        buildingsDamaged,
-        summary: `${capturingUnit.ownerName} forced ${base.name} into capitulation and plundered its reserves! Emergency Reconstruction Shield activated.`,
-      });
+    const report = gameStore.recordBattleReport({
+      mapId,
+      mapName: mapCfg.name,
+      type: 'base_captured',
+      attackerId: capturingUnit.ownerId,
+      attackerName: capturingUnit.ownerName,
+      defenderId: oldOwnerId,
+      defenderName: oldOwnerName,
+      baseId: base.id,
+      baseName: base.name,
+      coords: { x: base.x, y: base.y },
+      plunderedResources: plunder,
+      buildingsDamaged,
+      summary: `${capturingUnit.ownerName} conquered and claimed '${base.name}' in ${mapCfg.name}!`,
+    });
 
-      this.io?.to('authenticated_commanders').emit('battle:report', report);
-    } else {
-      // Full territory ownership transfer
-      base.ownerId = capturingUnit.ownerId;
-      base.ownerName = capturingUnit.ownerName;
-      base.allianceId = capturingUnit.allianceId;
-      base.captureProgress = 0;
-      base.capturingPlayerId = null;
-      base.captureContested = false;
-      base.health = Math.round(base.maxHealth * 0.6);
-      base.defenseShield = Math.round(base.maxShield * 0.5);
-      base.constructionQueue = [];
-      base.productionQueue = [];
-
-      const report = gameStore.recordBattleReport({
-        mapId,
-        mapName: mapCfg.name,
-        type: 'base_captured',
-        attackerId: capturingUnit.ownerId,
-        attackerName: capturingUnit.ownerName,
-        defenderId: oldOwnerId,
-        defenderName: oldOwnerName,
-        baseId: base.id,
-        baseName: base.name,
-        coords: { x: base.x, y: base.y },
-        plunderedResources: plunder,
-        buildingsDamaged,
-        summary: `${capturingUnit.ownerName} seized '${base.name}' from ${oldOwnerName} in ${mapCfg.name}!`,
-      });
-
-      this.io?.to('authenticated_commanders').emit('battle:report', report);
-    }
-
-    const activeMatch = data.matches?.find((m) => m.status === 'active' && m.mapId === mapId);
-    if (activeMatch) {
-      activeMatch.totalBasesCaptured += 1;
-    }
+    this.io?.to('authenticated_commanders').emit('battle:report', report);
 
     const notif: GameNotification = {
       id: `notif_cap_${now}`,
@@ -1047,7 +1328,7 @@ export class GameSimulation {
       mapId,
       type: 'capture',
       title: 'Territory Operation Complete!',
-      message: `Base '${base.name}' overwhelmed (${plunder.steel} Steel, ${plunder.fuel} Fuel plundered)!`,
+      message: `Base '${base.name}' captured (${plunder.steel} Steel, ${plunder.fuel} Fuel plundered)!`,
       coords: { x: base.x, y: base.y },
       timestamp: now,
       read: false,
@@ -1060,7 +1341,7 @@ export class GameSimulation {
       senderId: 'system',
       senderName: 'HQ War Net',
       channel: 'system',
-      content: `CRITICAL ALERT: Base '${base.name}' (${mapCfg.name}) has been overwhelmed by ${capturingUnit.ownerName}!`,
+      content: `CRITICAL ALERT: Base '${base.name}' (${mapCfg.name}) has been conquered by ${capturingUnit.ownerName}!`,
       coords: { x: base.x, y: base.y },
       timestamp: now,
     });

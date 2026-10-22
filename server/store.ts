@@ -119,6 +119,19 @@ export function createDefaultEconomyConfig(): EconomyConfig {
     maxSelectionGroupSize: 24,
     fuelTravelCostMultiplier: 1.0,
     captureSpeedPerTick: 5,
+    minBaseSpawnDistance: 12,
+    homeBaseProtectionDurationHours: 48,
+    rebuildProtectionDurationMinutes: 30,
+    homeBaseArmorMultiplier: 1.5,
+    productionDestroyPercentOnNeutralize: 50,
+    destroyMaxCapBuildingsOnNeutralize: true,
+    newbaseMaxOwnedBasesThreshold: 2,
+    newbaseMaxWeeklyCapturesThreshold: 2,
+    newbaseProtectionDurationHours: 72,
+    weeklyCaptureLimitPerPlayer: 10,
+    inactivityEvictionDays: 14,
+    spawnMapFallbackPolicy: 'next_eligible_map',
+    conquestUnitTypes: ['dominator_conquest'],
     updatedAt: Date.now(),
     updatedBy: 'System Bootstrap',
   };
@@ -322,6 +335,8 @@ export class GameStore {
   private activeLocks = new Set<string>();
   private postgresInitialized = false;
   private lastPostgresSyncAt = 0;
+  private reservedSpawns = new Map<string, { mapId: string; x: number; y: number; radius: number; expiresAt: number }>();
+  private terrainByMap = new Map<string, any[][]>();
 
   constructor() {
     if (!fs.existsSync(DATA_DIR)) {
@@ -645,6 +660,13 @@ export class GameStore {
     parsed.bases = (parsed.bases || []).filter((b: any) => b && b.id && !String(b.id).startsWith('base_tx_test_'));
     parsed.units = (parsed.units || []).filter((u: any) => u && u.id && !String(u.id).startsWith('unit_tx_test_'));
 
+    const userHqMap = new Map<string, string>();
+    for (const [uid, uRec] of Object.entries(parsed.users || {})) {
+      if ((uRec as any)?.profile?.homeBaseId) {
+        userHqMap.set((uRec as any).profile.homeBaseId, uid);
+      }
+    }
+
     for (const b of parsed.bases) {
       if (!b.mapId) b.mapId = 'map_riverfront_assault';
       if (!Array.isArray(b.buildings)) b.buildings = [];
@@ -655,6 +677,35 @@ export class GameStore {
       if (!b.productionRates) b.productionRates = { concrete: 2.5, steel: 2.5, aluminum: 1.5, fuel: 2.0 };
       if (!b.radius) b.radius = 5;
       if (b.captureProgress === undefined) b.captureProgress = 0;
+
+      // Classify Home Base accurately based on registered profile homeBaseId
+      if (b.isHomeBase === undefined) {
+        b.isHomeBase = Boolean(
+          (b.ownerId && userHqMap.get(b.id) === b.ownerId) ||
+          (b.ownerId === 'player_default' && (b.id === 'base_home' || b.name?.includes('HQ')))
+        );
+      }
+
+      // Explicit lifecycleState
+      if (!b.lifecycleState) {
+        if (b.isProtected) b.lifecycleState = 'protected';
+        else if (b.ownerId === 'neutral') b.lifecycleState = 'ownerless';
+        else b.lifecycleState = 'active';
+      }
+    }
+
+    // Ensure 1 neutral base per sector map is designated as a Newcomer Outpost
+    for (const m of parsed.maps || []) {
+      const hasNewcomer = parsed.bases.some((b: any) => b.mapId === m.id && b.isNewcomerBase);
+      if (!hasNewcomer) {
+        const neutralBases = parsed.bases.filter((b: any) => b.mapId === m.id && b.ownerId === 'neutral');
+        if (neutralBases.length > 0) {
+          const designated = neutralBases[Math.min(1, neutralBases.length - 1)];
+          designated.isNewcomerBase = true;
+          designated.name = `${m.name.split(':')[0]} Newcomer Outpost`;
+          designated.newcomerProtectionUntil = Date.now() + 72 * 3600000;
+        }
+      }
     }
     for (const u of parsed.units) {
       if (!u.mapId) u.mapId = 'map_riverfront_assault';
@@ -1501,13 +1552,414 @@ export class GameStore {
     return { allowed: true, status: 'active' };
   }
 
+  public getMapTerrain(mapId: string): any[][] {
+    const cached = this.terrainByMap.get(mapId);
+    if (cached) return cached;
+    const cfg = this.getMapConfig(mapId);
+    const world = generateWorld({
+      width: cfg.width,
+      height: cfg.height,
+      tileSize: cfg.tileSize,
+      seed: cfg.seed,
+    });
+    this.terrainByMap.set(mapId, world.terrain);
+    return world.terrain;
+  }
+
+  public getActivePlayerCountOnMap(mapId: string): number {
+    const counted = new Set<string>();
+    for (const b of this.data.bases) {
+      if ((b.mapId || 'map_riverfront_assault') !== mapId) continue;
+      if (!b.ownerId || b.ownerId === 'neutral' || b.ownerId === 'enemy_insurgent') continue;
+      const profile = this.data.users[b.ownerId]?.profile;
+      if (profile?.isInactiveRelocated) continue;
+      counted.add(b.ownerId);
+    }
+    return counted.size;
+  }
+
+  public findAndReserveBaseSpawnLocation(
+    preferredMapId = 'map_riverfront_assault',
+    playerAllianceId?: string | null,
+    radius = 4
+  ): { success: true; mapId: string; x: number; y: number; reservationId: string } | { success: false; reason: string; code: string } {
+    const now = Date.now();
+    for (const [id, res] of this.reservedSpawns.entries()) {
+      if (res.expiresAt <= now) {
+        this.reservedSpawns.delete(id);
+      }
+    }
+
+    const econ = this.getEconomyConfig();
+    const minBaseDist = econ.minBaseSpawnDistance || 12;
+    const fallbackPolicy = econ.spawnMapFallbackPolicy || 'next_eligible_map';
+
+    const enabledMaps = this.data.maps.filter((m) => m.enabled);
+    let candidateMaps: MapSectorConfig[] = [];
+    const prefMap = enabledMaps.find((m) => m.id === preferredMapId);
+    if (prefMap) candidateMaps.push(prefMap);
+
+    if (fallbackPolicy === 'next_eligible_map') {
+      for (const m of enabledMaps) {
+        if (m.id !== preferredMapId) candidateMaps.push(m);
+      }
+    }
+    if (candidateMaps.length === 0) candidateMaps = enabledMaps;
+
+    for (const mapCfg of candidateMaps) {
+      const activePlayers = this.getActivePlayerCountOnMap(mapCfg.id);
+      const maxPlayers = mapCfg.maxPlayers || 8;
+      if (activePlayers >= maxPlayers) {
+        continue;
+      }
+
+      const terrain = this.getMapTerrain(mapCfg.id);
+      const mapBases = this.data.bases.filter((b) => (b.mapId || 'map_riverfront_assault') === mapCfg.id);
+      const mapActiveReservations = Array.from(this.reservedSpawns.values()).filter((r) => r.mapId === mapCfg.id);
+      const mapEnv = this.getMapEnvObjects(mapCfg.id).filter((e) => e.blocksMovement);
+      const alliedBases = playerAllianceId ? mapBases.filter((b) => b.allianceId === playerAllianceId) : [];
+
+      const width = mapCfg.width || 100;
+      const height = mapCfg.height || 75;
+      const margin = radius + 4;
+
+      const isPassableFootprint = (cx: number, cy: number): boolean => {
+        if (!isCellPassable(terrain, cx, cy, 'ground')) return false;
+        const sampleOffsets = [
+          [2, 0], [-2, 0], [0, 2], [0, -2],
+          [2, 2], [-2, 2], [2, -2], [-2, -2],
+        ];
+        for (const [ox, oy] of sampleOffsets) {
+          const sx = cx + ox;
+          const sy = cy + oy;
+          if (!isCellPassable(terrain, sx, sy, 'ground')) return false;
+        }
+        for (const eo of mapEnv) {
+          if (Math.hypot(eo.x - cx, eo.y - cy) < radius + 1.5) return false;
+        }
+        return true;
+      };
+
+      const isFarFromBasesAndReservations = (cx: number, cy: number): boolean => {
+        for (const b of mapBases) {
+          const dist = Math.hypot(b.x - cx, b.y - cy);
+          const minRequired = (b.radius || 4) + radius + minBaseDist;
+          if (dist < minRequired) return false;
+        }
+        for (const r of mapActiveReservations) {
+          const dist = Math.hypot(r.x - cx, r.y - cy);
+          const minRequired = (r.radius || 4) + radius + minBaseDist;
+          if (dist < minRequired) return false;
+        }
+        return true;
+      };
+
+      let bestCandidate: { x: number; y: number; score: number } | null = null;
+
+      for (let attempt = 0; attempt < 150; attempt++) {
+        const candX = Math.floor(Math.random() * (width - margin * 2) + margin);
+        const candY = Math.floor(Math.random() * (height - margin * 2) + margin);
+
+        if (!isPassableFootprint(candX, candY)) continue;
+        if (!isFarFromBasesAndReservations(candX, candY)) continue;
+
+        let score = 100;
+        if (alliedBases.length > 0) {
+          const nearestAlliedDist = Math.min(...alliedBases.map((b) => Math.hypot(b.x - candX, b.y - candY)));
+          if (nearestAlliedDist >= radius + minBaseDist && nearestAlliedDist <= radius + minBaseDist + 24) {
+            score += 500 - nearestAlliedDist * 5;
+          }
+        }
+
+        if (!bestCandidate || score > bestCandidate.score) {
+          bestCandidate = { x: candX, y: candY, score };
+          if (score >= 400) break;
+        }
+      }
+
+      if (!bestCandidate) {
+        for (let cy = margin; cy <= height - margin; cy += 3) {
+          for (let cx = margin; cx <= width - margin; cx += 3) {
+            if (isPassableFootprint(cx, cy) && isFarFromBasesAndReservations(cx, cy)) {
+              bestCandidate = { x: cx, y: cy, score: 50 };
+              break;
+            }
+          }
+          if (bestCandidate) break;
+        }
+      }
+
+      if (bestCandidate) {
+        const reservationId = `res_${now}_${crypto.randomBytes(4).toString('hex')}`;
+        this.reservedSpawns.set(reservationId, {
+          mapId: mapCfg.id,
+          x: bestCandidate.x,
+          y: bestCandidate.y,
+          radius,
+          expiresAt: now + 60000,
+        });
+
+        return {
+          success: true,
+          mapId: mapCfg.id,
+          x: bestCandidate.x,
+          y: bestCandidate.y,
+          reservationId,
+        };
+      }
+    }
+
+    return {
+      success: false,
+      code: 'MAPS_FULL',
+      reason: 'All active tactical sectors have reached maximum commander capacity or have no safe deployment zones available. Please try again shortly or contact Command.',
+    };
+  }
+
+  public releaseSpawnReservation(reservationId: string): void {
+    this.reservedSpawns.delete(reservationId);
+  }
+
+  public checkNewcomerBaseEligibility(
+    userId: string,
+    base: Base,
+    now = Date.now()
+  ): { eligible: boolean; reason?: string } {
+    if (!base.isNewcomerBase) {
+      return { eligible: true };
+    }
+    if (base.newcomerProtectionUntil && now >= base.newcomerProtectionUntil) {
+      base.isNewcomerBase = false;
+      base.newcomerProtectionUntil = null;
+      return { eligible: true };
+    }
+
+    const econ = this.getEconomyConfig();
+    const maxOwnedThreshold = econ.newbaseMaxOwnedBasesThreshold ?? 2;
+    const maxWeeklyThreshold = econ.newbaseMaxWeeklyCapturesThreshold ?? 2;
+
+    const ownedBasesCount = this.data.bases.filter((b) => b.ownerId === userId).length;
+    if (ownedBasesCount > maxOwnedThreshold) {
+      return {
+        eligible: false,
+        reason: `Newcomer Outpost: Restricted to commanders with at most ${maxOwnedThreshold} bases (you control ${ownedBasesCount})`,
+      };
+    }
+
+    const userRecord = this.data.users[userId];
+    const profile = userRecord?.profile;
+    if (profile) {
+      const sevenDaysAgo = now - 7 * 86400000;
+      profile.weeklyCaptureTimestamps = (profile.weeklyCaptureTimestamps || []).filter((t) => t > sevenDaysAgo);
+      profile.weeklyCapturesCount = profile.weeklyCaptureTimestamps.length;
+
+      if (profile.weeklyCapturesCount >= maxWeeklyThreshold) {
+        return {
+          eligible: false,
+          reason: `Newcomer Outpost: Restricted to commanders with fewer than ${maxWeeklyThreshold} weekly conquests (you have ${profile.weeklyCapturesCount})`,
+        };
+      }
+
+      if (profile.totalBasesCaptured > maxOwnedThreshold * 4) {
+        return {
+          eligible: false,
+          reason: 'Newcomer Outpost: Veteran commanders with extensive conquest records are not eligible for newcomer bases',
+        };
+      }
+    }
+
+    return { eligible: true };
+  }
+
+  public recordPlayerBaseCapture(
+    userId: string,
+    baseId: string,
+    mapId: string,
+    now = Date.now()
+  ): { success: boolean; weeklyCount: number } {
+    const userRecord = this.data.users[userId];
+    if (!userRecord) return { success: false, weeklyCount: 0 };
+    const profile = userRecord.profile;
+    const sevenDaysAgo = now - 7 * 86400000;
+
+    profile.weeklyCaptureTimestamps = (profile.weeklyCaptureTimestamps || []).filter((t) => t > sevenDaysAgo);
+    profile.weeklyCaptureTimestamps.push(now);
+    profile.weeklyCapturesCount = profile.weeklyCaptureTimestamps.length;
+    profile.totalBasesCaptured = (profile.totalBasesCaptured || 0) + 1;
+    profile.lastActiveAt = now;
+    this.recalculatePlayerProgression(profile);
+    this.persistUser(userId);
+    return { success: true, weeklyCount: profile.weeklyCapturesCount };
+  }
+
+  public processInactivityEvictions(now = Date.now()): { evictedCount: number; evictedUserIds: string[] } {
+    const econ = this.getEconomyConfig();
+    const inactivityDays = econ.inactivityEvictionDays || 14;
+    const maxIdleMs = inactivityDays * 86400000;
+    const evictedUserIds: string[] = [];
+
+    for (const [userId, userRecord] of Object.entries(this.data.users)) {
+      if (userId === 'player_default' || userId === 'enemy_insurgent') continue;
+      const profile = userRecord.profile;
+      if (profile.isAdmin || profile.adminRole || profile.isInactiveRelocated) continue;
+
+      const lastActivity = profile.lastActiveAt || profile.lastLoginAt || profile.joinedAt;
+      if (now - lastActivity >= maxIdleMs) {
+        this.data.bases = this.data.bases.filter((b) => !(b.id === profile.homeBaseId && b.ownerId === userId));
+        profile.isInactiveRelocated = true;
+        evictedUserIds.push(userId);
+        this.persistUser(userId);
+      }
+    }
+
+    if (evictedUserIds.length > 0) {
+      this.saveData();
+    }
+    return { evictedCount: evictedUserIds.length, evictedUserIds };
+  }
+
+  public recoverInactivePlayerBaseIfNeeded(userId: string, now = Date.now()): { recovered: boolean; base?: Base } {
+    const userRecord = this.data.users[userId];
+    if (!userRecord) return { recovered: false };
+    const profile = userRecord.profile;
+
+    const hasExistingHomeBase = this.data.bases.some((b) => b.id === profile.homeBaseId && b.ownerId === userId);
+    if (hasExistingHomeBase && !profile.isInactiveRelocated) {
+      profile.lastActiveAt = now;
+      return { recovered: false };
+    }
+
+    const targetMapId = profile.homeMapId || profile.currentMapId || 'map_riverfront_assault';
+    const spawnRes = this.findAndReserveBaseSpawnLocation(targetMapId, profile.allianceId, 4);
+    if (!spawnRes.success) {
+      return { recovered: false };
+    }
+
+    const econ = this.getEconomyConfig();
+    const rebuildShieldMs = (econ.rebuildProtectionDurationMinutes || 30) * 60 * 1000;
+    const newBaseId = `base_home_${userId}_rec_${now}`;
+
+    const replacementBase: Base = {
+      id: newBaseId,
+      mapId: spawnRes.mapId,
+      name: `${profile.username}'s Forward Redoubt`,
+      type: 'home',
+      isHomeBase: true,
+      lifecycleState: 'protected',
+      ownerId: userId,
+      ownerName: profile.username,
+      allianceId: profile.allianceId || null,
+      x: spawnRes.x,
+      y: spawnRes.y,
+      radius: 4,
+      health: 3500,
+      maxHealth: 3500,
+      defenseShield: 1200,
+      maxShield: 1200,
+      captureProgress: 0,
+      isProtected: true,
+      rebuildProtectionUntil: now + rebuildShieldMs,
+      resources: { ...econ.startingResources },
+      storageCap: { ...econ.baseStorageCap },
+      productionRates: { ...econ.baseGenerationRates },
+      lastResourceUpdate: now,
+      constructionQueue: [],
+      productionQueue: [],
+      buildings: [
+        { id: `b_cc_${userId}`, type: 'command_center', level: 2, health: 1200, maxHealth: 1200 },
+        { id: `b_cw_${userId}`, type: 'concrete_works', level: 2, health: 600, maxHealth: 600 },
+        { id: `b_sf_${userId}`, type: 'steel_foundry', level: 2, health: 650, maxHealth: 650 },
+        { id: `b_as_${userId}`, type: 'aluminum_smelter', level: 2, health: 500, maxHealth: 500 },
+        { id: `b_fr_${userId}`, type: 'fuel_refinery', level: 2, health: 550, maxHealth: 550 },
+        { id: `b_br_${userId}`, type: 'barracks', level: 1, health: 600, maxHealth: 600 },
+        { id: `b_vf_${userId}`, type: 'vehicle_factory', level: 2, health: 900, maxHealth: 900 },
+        { id: `b_vt_${userId}`, type: 'vulcan_turret', level: 2, health: 450, maxHealth: 450 },
+      ],
+    };
+
+    this.data.bases.push(replacementBase);
+    profile.homeBaseId = newBaseId;
+    profile.homeMapId = spawnRes.mapId;
+    profile.currentMapId = spawnRes.mapId;
+    profile.isInactiveRelocated = false;
+    profile.lastActiveAt = now;
+
+    for (const u of this.data.units) {
+      if (u.ownerId === userId) u.homeBaseId = newBaseId;
+    }
+
+    this.releaseSpawnReservation(spawnRes.reservationId);
+    this.persistBaseAndUnits(replacementBase, []);
+    this.persistUser(userId);
+    this.saveData();
+
+    return { recovered: true, base: replacementBase };
+  }
+
+  public previewAndMigrateOverlappingBases(dryRun = true): {
+    overlappingPairs: Array<{ baseA: string; baseB: string; distance: number; minRequired: number; mapId: string }>;
+    relocatedBases: string[];
+  } {
+    const econ = this.getEconomyConfig();
+    const minBaseDist = econ.minBaseSpawnDistance || 12;
+    const overlappingPairs: Array<{ baseA: string; baseB: string; distance: number; minRequired: number; mapId: string }> = [];
+    const relocatedBases: string[] = [];
+
+    for (const mapCfg of this.data.maps) {
+      const mapBases = this.data.bases.filter((b) => (b.mapId || 'map_riverfront_assault') === mapCfg.id);
+      for (let i = 0; i < mapBases.length; i++) {
+        for (let j = i + 1; j < mapBases.length; j++) {
+          const bA = mapBases[i];
+          const bB = mapBases[j];
+          const dist = Math.hypot(bA.x - bB.x, bA.y - bB.y);
+          const minRequired = (bA.radius || 4) + (bB.radius || 4) + minBaseDist;
+          if (dist < minRequired) {
+            overlappingPairs.push({
+              baseA: `${bA.name} (${bA.id})`,
+              baseB: `${bB.name} (${bB.id})`,
+              distance: Math.round(dist * 10) / 10,
+              minRequired,
+              mapId: mapCfg.id,
+            });
+
+            if (!dryRun) {
+              const toRelocate = !bB.isHomeBase ? bB : !bA.isHomeBase ? bA : bB;
+              const spawnRes = this.findAndReserveBaseSpawnLocation(mapCfg.id, toRelocate.allianceId, toRelocate.radius || 4);
+              if (spawnRes.success) {
+                toRelocate.x = spawnRes.x;
+                toRelocate.y = spawnRes.y;
+                toRelocate.mapId = spawnRes.mapId;
+                this.releaseSpawnReservation(spawnRes.reservationId);
+                relocatedBases.push(toRelocate.id);
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (!dryRun && relocatedBases.length > 0) {
+      this.saveData();
+    }
+    return { overlappingPairs, relocatedBases };
+  }
+
   public sanitizeProfile(profile: PlayerProfile): PlayerProfile {
     this.recalculatePlayerProgression(profile);
+    const now = Date.now();
+    const sevenDaysAgo = now - 7 * 86400000;
+    const weeklyCaptures = (profile.weeklyCaptureTimestamps || []).filter((t) => t > sevenDaysAgo);
     return {
       ...profile,
+      homeMapId: profile.homeMapId || profile.currentMapId || 'map_riverfront_assault',
       currentMapId: profile.currentMapId || 'map_riverfront_assault',
+      weeklyCaptureTimestamps: weeklyCaptures,
+      weeklyCapturesCount: weeklyCaptures.length,
+      homeBaseDestroyedCount: profile.homeBaseDestroyedCount || 0,
       claimedRewardIds: profile.claimedRewardIds || [],
       highwayTransfersCompleted: profile.highwayTransfersCompleted || 0,
+      lastActiveAt: profile.lastActiveAt || profile.lastLoginAt || profile.joinedAt,
+      isInactiveRelocated: Boolean(profile.isInactiveRelocated),
       status: profile.status || 'active',
       adminRole: profile.adminRole || null,
       isAdmin: Boolean(profile.adminRole || profile.isAdmin),

@@ -92,36 +92,14 @@ function getAuthenticatedPlayerId(req: Request, res: Response): string | null {
   return userId;
 }
 
-// Helper: find passable ground coordinates for a new player's home base away from existing bases
+// Helper: find passable ground coordinates for a new base using atomic reservation
 function findPassableBaseLocation(mapId = 'map_riverfront_assault'): { x: number; y: number } {
-  const terrain = gameSimulation.getTerrain(mapId);
-  const data = gameStore.getData();
-  const mapBases = data.bases.filter((b) => (b.mapId || 'map_riverfront_assault') === mapId);
-
-  for (let attempt = 0; attempt < 80; attempt++) {
-    const candidateX = Math.floor(Math.random() * 50 + 10);
-    const candidateY = Math.floor(Math.random() * 48 + 12);
-
-    if (!isCellPassable(terrain, candidateX, candidateY, 'ground')) continue;
-
-    const tooClose = mapBases.some((b) => Math.hypot(b.x - candidateX, b.y - candidateY) < 9);
-    if (!tooClose) {
-      return { x: candidateX, y: candidateY };
-    }
+  const spawnRes = gameStore.findAndReserveBaseSpawnLocation(mapId, null, 4);
+  if (spawnRes.success) {
+    gameStore.releaseSpawnReservation(spawnRes.reservationId);
+    return { x: spawnRes.x, y: spawnRes.y };
   }
-
-  for (let y = 12; y < 62; y += 4) {
-    for (let x = 10; x < 60; x += 4) {
-      if (
-        isCellPassable(terrain, x, y, 'ground') &&
-        !mapBases.some((b) => Math.hypot(b.x - x, b.y - y) < 6)
-      ) {
-        return { x, y };
-      }
-    }
-  }
-
-  return { x: 22, y: 34 };
+  throw new Error(spawnRes.reason || 'No passable spawn location available on sector');
 }
 
 function findPassableUnitSpawn(cx: number, cy: number, mapId = 'map_riverfront_assault'): { x: number; y: number } {
@@ -152,18 +130,24 @@ async function provisionNewPlayerAccount(username: string, rawPassword: string, 
   const homeBaseId = `base_home_${userId}`;
   const defaultMapId = 'map_riverfront_assault';
   const econ = gameStore.getEconomyConfig();
-  const coords = findPassableBaseLocation(defaultMapId);
 
+  // Atomically find & reserve base spawn location across maps based on capacity
+  const spawnRes = gameStore.findAndReserveBaseSpawnLocation(defaultMapId, null, 4);
+  if (!spawnRes.success) {
+    throw new Error(spawnRes.reason);
+  }
+
+  const assignedMapId = spawnRes.mapId;
   const newBase = {
     id: homeBaseId,
-    mapId: defaultMapId,
+    mapId: assignedMapId,
     name: `${username}'s Forward Redoubt`,
     type: 'home' as const,
     ownerId: userId,
     ownerName: username,
     allianceId: null,
-    x: coords.x,
-    y: coords.y,
+    x: spawnRes.x,
+    y: spawnRes.y,
     radius: 4,
     health: 3500,
     maxHealth: 3500,
@@ -171,6 +155,8 @@ async function provisionNewPlayerAccount(username: string, rawPassword: string, 
     maxShield: 1200,
     captureProgress: 0,
     isProtected: true,
+    isHomeBase: true,
+    lifecycleState: 'protected' as const,
     resources: { ...econ.startingResources },
     storageCap: { ...econ.baseStorageCap },
     productionRates: { ...econ.baseGenerationRates },
@@ -188,17 +174,18 @@ async function provisionNewPlayerAccount(username: string, rawPassword: string, 
       { id: `b_vt_${userId}`, type: 'vulcan_turret' as const, level: 2, health: 450, maxHealth: 450 },
     ],
   };
+  gameStore.releaseSpawnReservation(spawnRes.reservationId);
   data.bases.push(newBase);
 
-  const scoutPos = findPassableUnitSpawn(newBase.x + 2, newBase.y + 2, defaultMapId);
-  const infantryPos = findPassableUnitSpawn(newBase.x - 2, newBase.y + 2, defaultMapId);
+  const scoutPos = findPassableUnitSpawn(newBase.x + 2, newBase.y + 2, assignedMapId);
+  const infantryPos = findPassableUnitSpawn(newBase.x - 2, newBase.y + 2, assignedMapId);
 
   const scoutDef = gameStore.getEffectiveUnitDef('vanguard_scout');
   const infantryDef = gameStore.getEffectiveUnitDef('rifle_infantry');
 
   const starterScout: Unit = {
     id: `unit_scout_${now}_${crypto.randomBytes(3).toString('hex')}`,
-    mapId: defaultMapId,
+    mapId: assignedMapId,
     type: 'vanguard_scout',
     ownerId: userId,
     ownerName: username,
@@ -216,7 +203,7 @@ async function provisionNewPlayerAccount(username: string, rawPassword: string, 
 
   const starterInfantry: Unit = {
     id: `unit_inf_${now}_${crypto.randomBytes(3).toString('hex')}`,
-    mapId: defaultMapId,
+    mapId: assignedMapId,
     type: 'rifle_infantry',
     ownerId: userId,
     ownerName: username,
@@ -234,6 +221,7 @@ async function provisionNewPlayerAccount(username: string, rawPassword: string, 
 
   data.units.push(starterScout, starterInfantry);
 
+  const beginnerDurationMs = (econ.homeBaseProtectionDurationHours || 48) * 3600000;
   const profile: PlayerProfile = {
     id: userId,
     username,
@@ -243,7 +231,8 @@ async function provisionNewPlayerAccount(username: string, rawPassword: string, 
     level: 1,
     avatar: 'scout_operator',
     homeBaseId,
-    currentMapId: defaultMapId,
+    homeMapId: assignedMapId,
+    currentMapId: assignedMapId,
     totalBasesCaptured: 0,
     totalUnitsProduced: 2,
     totalUnitsDestroyed: 0,
@@ -252,13 +241,18 @@ async function provisionNewPlayerAccount(username: string, rawPassword: string, 
     claimedRewardIds: [],
     joinedAt: now,
     lastLoginAt: now,
-    beginnerProtectionUntil: now + 86400000 * 2,
+    lastActiveAt: now,
+    beginnerProtectionUntil: now + beginnerDurationMs,
     isAdmin: false,
     adminRole: null,
     status: 'active',
     suspendedUntil: null,
     banReason: null,
     moderationHistory: [],
+    weeklyCapturesCount: 0,
+    weeklyCaptureTimestamps: [],
+    homeBaseDestroyedCount: 0,
+    isInactiveRelocated: false,
   };
 
   const token = `token_${userId}_${crypto.randomBytes(16).toString('hex')}`;
@@ -377,7 +371,11 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(503).json({ error: 'Server is currently in Maintenance Mode.' });
     }
 
-    user.profile.lastLoginAt = Date.now();
+    const now = Date.now();
+    user.profile.lastLoginAt = now;
+    user.profile.lastActiveAt = now;
+    gameStore.recoverInactivePlayerBaseIfNeeded(userId, now);
+
     const token = `token_${userId}_${crypto.randomBytes(16).toString('hex')}`;
     data.tokens[token] = userId;
     gameStore.saveData();
@@ -446,6 +444,10 @@ app.get('/api/auth/me', (req, res) => {
   if (!access.allowed) {
     return res.status(403).json({ error: access.reason });
   }
+
+  const now = Date.now();
+  user.profile.lastActiveAt = now;
+  gameStore.recoverInactivePlayerBaseIfNeeded(userId, now);
 
   res.json({ profile: gameStore.sanitizeProfile(user.profile) });
 });

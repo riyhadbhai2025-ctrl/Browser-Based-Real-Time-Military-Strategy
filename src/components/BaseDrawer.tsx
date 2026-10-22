@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Hammer, Wrench, Shield, Clock, Crosshair, ArrowUpCircle, MapPin } from 'lucide-react';
+import { X, Hammer, Wrench, Shield, Clock, Crosshair, ArrowUpCircle, MapPin, AlertTriangle } from 'lucide-react';
 import { Base, BuildingType, UnitType } from '../types/game';
 import { BUILDING_CATALOG, UNIT_CATALOG } from '../game/catalog';
 import { assetManager } from '../game/assets/assetManager';
@@ -48,13 +48,25 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
             <Shield className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="font-bold text-xs text-slate-100 font-mono tracking-wider">{base.name}</h3>
+            <div className="flex items-center gap-1.5">
+              <h3 className="font-bold text-xs text-slate-100 font-mono tracking-wider">{base.name}</h3>
+              {base.isHomeBase && (
+                <span className="px-1 py-0.2 rounded bg-purple-950 text-purple-300 border border-purple-500/50 text-[9px] font-mono font-bold">
+                  HQ
+                </span>
+              )}
+              {base.isNewcomerBase && (
+                <span className="px-1 py-0.2 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/50 text-[9px] font-mono font-bold">
+                  NEWCOMER
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-2 text-[10px] text-slate-400">
               <span className="uppercase text-blue-400 font-semibold">{base.type} BASE</span>
               <span>•</span>
               <span className="font-mono">[{base.x}, {base.y}]</span>
               <span>•</span>
-              <span className={isOwner ? 'text-emerald-400' : 'text-amber-400'}>
+              <span className={isOwner ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
                 {isOwner ? 'OWNED' : base.ownerName}
               </span>
             </div>
@@ -121,28 +133,61 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
           <div className="h-full bg-cyan-500 transition-all" style={{ width: `${shieldPct * 100}%` }} />
         </div>
 
-        <div className="flex items-center justify-between text-[10px] font-mono mb-2 px-2 py-1 rounded bg-slate-950 border border-slate-800">
-          <span className="text-slate-400">POWER GRID:</span>
-          <span
-            className={
-              (base.powerUsed || 0) > (base.powerCapacity || 45)
-                ? 'text-rose-400 font-bold'
-                : 'text-amber-300 font-bold'
-            }
-          >
-            {base.powerUsed ?? 20} / {base.powerCapacity ?? 65} MW
-          </span>
-          {base.isProtected && (
+        <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] font-mono mb-2 px-2 py-1.5 rounded bg-slate-950 border border-slate-800">
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400">POWER:</span>
+            <span
+              className={
+                (base.powerUsed || 0) > (base.powerCapacity || 45)
+                  ? 'text-rose-400 font-bold'
+                  : 'text-amber-300 font-bold'
+              }
+            >
+              {base.powerUsed ?? 20}/{base.powerCapacity ?? 65} MW
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400">DEFENSES:</span>
+            <span className={base.defensesIntact ? 'text-cyan-400 font-bold' : 'text-rose-400 font-bold'}>
+              {base.activeTurretsCount !== undefined ? `${base.activeTurretsCount} TURRETS` : (base.defenseShield > 0 ? 'SHIELD UP' : 'DOWN')}
+            </span>
+          </div>
+
+          {base.rebuildProtectionUntil && base.rebuildProtectionUntil > now && (
+            <span className="px-1.5 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-500/50 flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              <span>REBUILD ({Math.ceil((base.rebuildProtectionUntil - now) / 60000)}m)</span>
+            </span>
+          )}
+
+          {base.isNewcomerBase && base.newcomerProtectionUntil && base.newcomerProtectionUntil > now && (
+            <span className="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/50">
+              NEWBASE ({Math.ceil((base.newcomerProtectionUntil - now) / 3600000)}h)
+            </span>
+          )}
+
+          {base.isProtected && !base.rebuildProtectionUntil && (
             <span className="px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-600/50">
               TRUCE SHIELD
             </span>
           )}
+
           {base.captureContested && (
             <span className="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600/50">
               CONTESTED
             </span>
           )}
         </div>
+
+        {base.captureBlockedReason && !isOwner && (
+          <div className="mb-2 px-2.5 py-1.5 rounded bg-amber-950/60 border border-amber-600/40 text-[11px] font-mono text-amber-200 flex items-start gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="leading-tight">
+              <span className="font-bold text-amber-300">SIEGE RESTRICTION:</span> {base.captureBlockedReason}
+            </div>
+          </div>
+        )}
 
         {isOwner && (base.health < base.maxHealth || base.defenseShield < base.maxShield) && (
           <button

@@ -1097,6 +1097,19 @@ export function createAdminRouter(
         maxSelectionGroupSize: Math.max(6, Math.min(60, Math.round(Number(body.maxSelectionGroupSize ?? current.maxSelectionGroupSize ?? 24)))),
         fuelTravelCostMultiplier: Math.max(0.2, Math.min(5.0, Number(body.fuelTravelCostMultiplier ?? current.fuelTravelCostMultiplier ?? 1.0))),
         captureSpeedPerTick: Math.round(captureSpeed),
+        minBaseSpawnDistance: Math.max(6, Math.min(30, Math.round(Number(body.minBaseSpawnDistance ?? current.minBaseSpawnDistance ?? 12)))),
+        homeBaseProtectionDurationHours: Math.max(1, Math.min(168, Math.round(Number(body.homeBaseProtectionDurationHours ?? current.homeBaseProtectionDurationHours ?? 48)))),
+        rebuildProtectionDurationMinutes: Math.max(5, Math.min(720, Math.round(Number(body.rebuildProtectionDurationMinutes ?? current.rebuildProtectionDurationMinutes ?? 60)))),
+        homeBaseArmorMultiplier: Math.max(1.0, Math.min(5.0, Number(body.homeBaseArmorMultiplier ?? current.homeBaseArmorMultiplier ?? 1.5))),
+        productionDestroyPercentOnNeutralize: Math.max(10, Math.min(100, Math.round(Number(body.productionDestroyPercentOnNeutralize ?? current.productionDestroyPercentOnNeutralize ?? 50)))),
+        destroyMaxCapBuildingsOnNeutralize: body.destroyMaxCapBuildingsOnNeutralize !== undefined ? Boolean(body.destroyMaxCapBuildingsOnNeutralize) : (current.destroyMaxCapBuildingsOnNeutralize ?? true),
+        newbaseMaxOwnedBasesThreshold: Math.max(1, Math.min(10, Math.round(Number(body.newbaseMaxOwnedBasesThreshold ?? current.newbaseMaxOwnedBasesThreshold ?? 2)))),
+        newbaseMaxWeeklyCapturesThreshold: Math.max(0, Math.min(20, Math.round(Number(body.newbaseMaxWeeklyCapturesThreshold ?? current.newbaseMaxWeeklyCapturesThreshold ?? 3)))),
+        newbaseProtectionDurationHours: Math.max(1, Math.min(168, Math.round(Number(body.newbaseProtectionDurationHours ?? current.newbaseProtectionDurationHours ?? 24)))),
+        weeklyCaptureLimitPerPlayer: Math.max(1, Math.min(50, Math.round(Number(body.weeklyCaptureLimitPerPlayer ?? current.weeklyCaptureLimitPerPlayer ?? 10)))),
+        inactivityEvictionDays: Math.max(1, Math.min(90, Math.round(Number(body.inactivityEvictionDays ?? current.inactivityEvictionDays ?? 14)))),
+        conquestUnitTypes: Array.isArray(body.conquestUnitTypes) && body.conquestUnitTypes.length > 0 ? body.conquestUnitTypes : (current.conquestUnitTypes || ['dominator_conquest']),
+        spawnMapFallbackPolicy: body.spawnMapFallbackPolicy === 'reject_when_full' ? 'reject_when_full' : 'next_eligible_map',
         updatedAt: now,
         updatedBy: session.username,
       };
@@ -1617,6 +1630,40 @@ export function createAdminRouter(
       });
 
       res.status(201).json({ success: true, map: newMap, basesCount: preview.bases.length });
+    }
+  );
+
+  router.get(
+    '/maps/migration-preview',
+    authenticateAdmin,
+    requirePermission('maps.view'),
+    (_req: AuthenticatedAdminRequest, res: Response) => {
+      const preview = gameStore.previewAndMigrateOverlappingBases(true);
+      res.json(preview);
+    }
+  );
+
+  router.post(
+    '/maps/migrate-overlaps',
+    authenticateAdmin,
+    requirePermission('maps.edit'),
+    (req: AuthenticatedAdminRequest, res: Response) => {
+      const session = req.adminSession!;
+      const result = gameStore.previewAndMigrateOverlappingBases(false);
+
+      gameStore.addAuditLog({
+        adminId: session.userId,
+        adminUsername: session.username,
+        adminRole: session.role,
+        action: 'maps.migrate_overlaps',
+        targetType: 'map',
+        targetId: 'all_sectors',
+        reason: sanitizeText(req.body?.reason, 300) || `Relocated ${result.relocatedBases.length} overlapping base(s) to safe sector coordinates`,
+        status: 'success',
+        ipAddress: getClientIp(req),
+      });
+
+      res.json(result);
     }
   );
 
