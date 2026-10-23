@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Zap,
   Award,
+  Target,
 } from 'lucide-react';
 import { Base, BuildingDefinition, BuildingType, MapSectorConfig, PlayerProfile, UnitType } from '../types/game';
 import { BUILDING_CATALOG, UNIT_CATALOG } from '../game/catalog';
@@ -70,7 +71,9 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
   const [buildingCategoryFilter, setBuildingCategoryFilter] = useState<'all' | BuildingCategory>('all');
   const [targetRelocateMapId, setTargetRelocateMapId] = useState<string>(base.mapId || 'map_riverfront_assault');
 
-  const isOwner = base.ownerId === currentUserId;
+  const isNeutral = base.ownerId === 'neutral' || base.lifecycleState === 'neutralized';
+  const isNeutralized = base.lifecycleState === 'neutralized';
+  const isOwner = !isNeutral && base.ownerId === currentUserId;
   const now = Date.now();
   const hpPct = Math.max(0, base.health / Math.max(1, base.maxHealth));
   const shieldPct = base.maxShield > 0 ? Math.max(0, base.defenseShield / base.maxShield) : 0;
@@ -78,7 +81,11 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
   const hqLevel =
     base.hqLevel || base.buildings.find((b) => b.type === 'command_center')?.level || 1;
   const armorMultiplier = base.armorMultiplier || (isHomeBase ? 3.0 : 1.0);
-  const ownerFaction = isOwner ? profile?.faction || '1st Vanguard Coalition' : 'Sector Garrison';
+  const ownerFaction = isOwner
+    ? profile?.faction || '1st Vanguard Coalition'
+    : isNeutral
+    ? (base.previousOwnerName ? `Former: ${base.previousOwnerName}` : 'Neutral Installation')
+    : 'Sector Garrison';
   const currentMapName =
     maps.find((m) => m.id === base.mapId)?.name ||
     (base.mapId === 'map_iron_ridge_corridor'
@@ -152,6 +159,11 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
                   ★ COMMAND HQ · LVL {hqLevel}
                 </span>
               )}
+              {isNeutralized && (
+                <span className="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-500/70 text-[9px] font-mono font-bold tracking-wider animate-pulse">
+                  ⚠ NEUTRALIZED · CONQUEST READY
+                </span>
+              )}
               {base.isNewcomerBase && (
                 <span className="px-1 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/50 text-[9px] font-mono font-bold">
                   NEWCOMER
@@ -167,8 +179,22 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
                 [{base.x}, {base.y}]
               </span>
               <span>•</span>
-              <span className={isOwner ? 'text-emerald-400 font-bold' : 'text-amber-400'}>
-                {isOwner ? 'OWNED' : base.ownerName}
+              <span
+                className={
+                  isOwner
+                    ? 'text-emerald-400 font-bold'
+                    : isNeutral
+                    ? 'text-amber-400 font-bold'
+                    : 'text-rose-400'
+                }
+              >
+                {isOwner
+                  ? 'OWNED'
+                  : isNeutral
+                  ? base.previousOwnerName
+                    ? `NEUTRAL (Former: ${base.previousOwnerName})`
+                    : 'NEUTRAL TERRITORY'
+                  : base.ownerName}
               </span>
             </div>
           </div>
@@ -270,13 +296,46 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
 
           <div className="flex items-center gap-1">
             <span className="text-slate-400">STATE:</span>
-            <span className="uppercase font-bold text-indigo-300">
+            <span
+              className={`uppercase font-bold ${
+                isNeutralized ? 'text-amber-300 animate-pulse' : 'text-indigo-300'
+              }`}
+            >
               {base.lifecycleState || 'ACTIVE'}
             </span>
           </div>
         </div>
 
-        {base.captureBlockedReason && !isOwner && (
+        {isNeutralized && (
+          <div className="mb-2 p-2 rounded bg-amber-950/50 border border-amber-500/60 space-y-1.5">
+            <div className="flex items-center justify-between text-[10px] font-bold text-amber-300 font-mono">
+              <span className="flex items-center gap-1">
+                <Target className="w-3.5 h-3.5 text-amber-400" />
+                <span>CONQUEST UPLINK</span>
+              </span>
+              <span>{Math.round(base.captureProgress || 0)}%</span>
+            </div>
+            <div className="w-full h-1.5 bg-slate-950 rounded overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-amber-500 to-yellow-300 transition-all duration-300"
+                style={{ width: `${Math.min(100, Math.max(0, base.captureProgress || 0))}%` }}
+              />
+            </div>
+            <div className="text-[9px] text-slate-300 leading-snug">
+              {(base.captureProgress || 0) > 0 ? (
+                <span className="text-emerald-400 font-bold">
+                  Dominator uplink in progress — transmitting conquest authorization cipher...
+                </span>
+              ) : (
+                <span>
+                  Deploy a designated <strong className="text-amber-200">Dominator Command Vehicle</strong> within capture perimeter ({Math.max(6.0, (base.radius || 4) + 2.5).toFixed(1)} tiles) to capture this base.
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {base.captureBlockedReason && !isOwner && !isNeutralized && (
           <div className="mb-1.5 px-2.5 py-1.5 rounded bg-amber-950/60 border border-amber-600/40 text-[10px] font-mono text-amber-200 flex items-start gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
             <div className="leading-tight">
@@ -375,8 +434,14 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
               <div className="grid grid-cols-2 gap-2 text-[10px]">
                 <div className="p-1.5 rounded bg-slate-950 border border-slate-800/80">
                   <div className="text-slate-500">COMMANDER / FACTION</div>
-                  <div className="text-slate-200 font-bold truncate">{base.ownerName}</div>
-                  <div className="text-cyan-400 truncate">{ownerFaction}</div>
+                  <div className="text-slate-200 font-bold truncate">
+                    {isNeutral ? 'Neutral Territory' : base.ownerName}
+                  </div>
+                  <div className="text-cyan-400 truncate">
+                    {isNeutral && base.previousOwnerName
+                      ? `Former: ${base.previousOwnerName}`
+                      : ownerFaction}
+                  </div>
                 </div>
                 <div className="p-1.5 rounded bg-slate-950 border border-slate-800/80">
                   <div className="text-slate-500">SECTOR & GRID</div>
@@ -648,6 +713,17 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
                 </button>
               ))}
             </div>
+
+            {!isOwner && (
+              <div className="p-2 rounded bg-slate-900/90 border border-amber-600/40 text-[10px] text-amber-300 font-mono flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>
+                  {isNeutralized
+                    ? 'Facility engineering offline: installation is NEUTRALIZED. Deploy a Dominator to conquer and assume command.'
+                    : 'Facility engineering locked: installation belongs to another commander.'}
+                </span>
+              </div>
+            )}
 
             {availableBuildings.map((def) => {
               const existing = base.buildings.find((b) => b.type === def.type);

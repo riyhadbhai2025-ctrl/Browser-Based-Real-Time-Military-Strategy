@@ -197,6 +197,8 @@ export interface Base {
   lifecycleState?: BaseLifecycleState;
   ownerId: string; // userId or 'neutral' or 'enemy_insurgent'
   ownerName: string;
+  previousOwnerId?: string | null;
+  previousOwnerName?: string | null;
   allianceId?: string | null;
   x: number; // grid cell
   y: number; // grid cell

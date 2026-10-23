@@ -581,6 +581,8 @@ export class GameSimulation {
           if (base.ownerId === unit.ownerId) continue;
           if (unit.allianceId && base.allianceId && unit.allianceId === base.allianceId) continue;
           if (this.isBaseProtectedNow(base, now)) continue;
+          // Neutralized bases cannot be attacked by weapons
+          if (base.lifecycleState === 'neutralized' || base.ownerId === 'neutral') continue;
 
           const dist = Math.hypot(base.x - unit.x, base.y - unit.y);
           if (dist <= def.attackRange + base.radius) {
@@ -618,8 +620,10 @@ export class GameSimulation {
                 if (base.health <= 0) {
                   if (isAuthHome) {
                     this.destroyAndRelocateHomeBase(base, unit, now);
-                  } else if (base.ownerId !== 'neutral') {
+                    hasStateChange = true;
+                  } else {
                     this.neutralizeOrdinaryBase(base, unit, now);
+                    hasStateChange = true;
                   }
                 }
               }
@@ -648,6 +652,14 @@ export class GameSimulation {
 
     // 3. Base Turrets Auto-Firing at Hostile Units on the same map
     for (const base of data.bases) {
+      if (
+        base.lifecycleState === 'neutralized' ||
+        base.lifecycleState === 'destroyed' ||
+        base.ownerId === 'neutral' ||
+        base.health <= 0
+      ) {
+        continue;
+      }
       const baseMapId = base.mapId || 'map_riverfront_assault';
       const turrets = base.buildings.filter(
         (b: BuildingInstance) =>
@@ -757,7 +769,7 @@ export class GameSimulation {
       }
 
       // 2. Only neutralized (ownerless/neutral) bases can be conquered
-      if (base.ownerId !== 'neutral') {
+      if (base.lifecycleState !== 'neutralized' && base.ownerId !== 'neutral') {
         if (base.captureProgress > 0) {
           base.captureProgress = 0;
           base.capturingPlayerId = null;
@@ -770,15 +782,18 @@ export class GameSimulation {
 
       // 3. Find designated conquest units in range
       const allowedConquestTypes = econ.conquestUnitTypes || ['dominator_conquest'];
+      const captureRadius = Math.max(6.0, (base.radius || 4) + 2.5);
       const conquestUnits = data.units.filter((u) => {
         if ((u.mapId || 'map_riverfront_assault') !== baseMapId) return false;
         if (!allowedConquestTypes.includes(u.type)) return false;
         const uDef = gameStore.getEffectiveUnitDef(u.type);
         if (!uDef?.canCaptureBase) return false;
+        if (u.health <= 0) return false;
+        if (u.ownerId === 'neutral') return false;
         if (u.ownerId === base.ownerId) return false;
         if (base.allianceId && u.allianceId && base.allianceId === u.allianceId) return false;
         const dist = Math.hypot(u.x - base.x, u.y - base.y);
-        return dist <= base.radius + 1.8;
+        return dist <= captureRadius;
       });
 
       const factionKeys = new Set(conquestUnits.map((u) => u.allianceId || `owner_${u.ownerId}`));
@@ -1286,6 +1301,11 @@ export class GameSimulation {
 
   public neutralizeOrdinaryBase(base: Base, attackerUnit: Unit, now: number) {
     const lockRes = gameStore.withLock(`base_neutralize_${base.id}`, () => {
+      // Idempotency: if already neutralized, do not repeat destruction or event broadcasting
+      if (base.lifecycleState === 'neutralized' && base.ownerId === 'neutral') {
+        return false;
+      }
+
       const data = gameStore.getData();
       const econ = gameStore.getEconomyConfig();
       const mapId = base.mapId || 'map_riverfront_assault';
@@ -1293,18 +1313,22 @@ export class GameSimulation {
       const oldOwnerId = base.ownerId;
       const oldOwnerName = base.ownerName;
 
+      base.previousOwnerId = oldOwnerId;
+      base.previousOwnerName = oldOwnerName;
       base.ownerId = 'neutral';
       base.ownerName = 'Neutral Territory';
       base.allianceId = null;
       base.lifecycleState = 'neutralized';
       base.neutralizedAt = now;
       base.neutralizedByPlayerId = attackerUnit.ownerId;
-      base.health = 350;
+      base.health = 0; // Structural integrity clamped to zero
       base.defenseShield = 0;
+      base.activeTurretsCount = 0;
+      base.defensesIntact = false;
       base.captureProgress = 0;
       base.capturingPlayerId = null;
       base.captureContested = false;
-      base.captureBlockedReason = undefined;
+      base.captureBlockedReason = 'Requires designated conquest vehicle (Dominator) to capture';
 
       // 50% eligible production buildings destroyed (deterministic rounding)
       const eligibleTypes: BuildingType[] = [
@@ -1330,10 +1354,11 @@ export class GameSimulation {
         return true;
       });
 
-      // Turrets set to destroyed (0 health)
+      // Turrets set to destroyed (0 health) and disabled
       for (const b of base.buildings) {
         if (DEFENSIVE_TURRET_TYPES.includes(b.type)) {
           b.health = 0;
+          b.isConstructing = false;
         } else {
           b.health = Math.round(b.maxHealth * 0.4);
         }
@@ -1342,9 +1367,31 @@ export class GameSimulation {
       base.constructionQueue = [];
       base.productionQueue = [];
 
+      // Clear targeting on neutralized base for non-conquest units and reassign homeBaseId for surviving former owner units
+      const survivingFormerOwnerHome = data.bases.find((b) => b.ownerId === oldOwnerId && b.id !== base.id);
+      for (const u of data.units) {
+        if (u.targetBaseId === base.id) {
+          if (u.type !== 'dominator_conquest') {
+            u.targetBaseId = null;
+            if (u.command === 'attack') {
+              u.command = 'idle';
+            }
+          } else {
+            u.command = 'move';
+          }
+        }
+        if (u.homeBaseId === base.id && survivingFormerOwnerHome) {
+          u.homeBaseId = survivingFormerOwnerHome.id;
+        }
+      }
+
       const power = this.computeBasePower(base);
       base.powerUsed = power.powerUsed;
       base.powerCapacity = power.powerCapacity;
+
+      console.log(
+        `[BaseLifecycle] Base neutralized: baseId=${base.id}, name='${base.name}', mapId=${mapId}, formerOwner=${oldOwnerName} (${oldOwnerId}), neutralizedBy=${attackerUnit.ownerName} (${attackerUnit.ownerId})`
+      );
 
       const report = gameStore.recordBattleReport({
         mapId,
@@ -1365,128 +1412,161 @@ export class GameSimulation {
         baseId: base.id,
         mapId,
         neutralizedBy: attackerUnit.ownerName,
+        previousOwnerId: oldOwnerId,
+        previousOwnerName: oldOwnerName,
+        lifecycleState: 'neutralized',
       });
 
       gameStore.persistBaseAndUnits(base, []);
       gameStore.saveData();
+      this.broadcastWorldSync(now);
       return true;
     });
     return lockRes.result;
   }
 
-  private resolveBaseCapture(base: Base, capturingUnit: Unit, now: number) {
-    const data = gameStore.getData();
-    const mapId = base.mapId || 'map_riverfront_assault';
-    const mapCfg = gameStore.getMapConfig(mapId);
-    const oldOwnerId = base.ownerId;
-    const oldOwnerName = base.ownerName;
-
-    // 1. Plunder 35% of stored resources to attacker's base
-    const plunder: Resources = {
-      concrete: Math.round(base.resources.concrete * 0.35),
-      steel: Math.round(base.resources.steel * 0.35),
-      aluminum: Math.round(base.resources.aluminum * 0.35),
-      fuel: Math.round(base.resources.fuel * 0.35),
-    };
-    base.resources.concrete = Math.max(0, base.resources.concrete - plunder.concrete);
-    base.resources.steel = Math.max(0, base.resources.steel - plunder.steel);
-    base.resources.aluminum = Math.max(0, base.resources.aluminum - plunder.aluminum);
-    base.resources.fuel = Math.max(0, base.resources.fuel - plunder.fuel);
-
-    const attackerHome =
-      data.bases.find((b) => b.ownerId === capturingUnit.ownerId && b.mapId === mapId) ||
-      data.bases.find((b) => b.ownerId === capturingUnit.ownerId);
-
-    if (attackerHome) {
-      attackerHome.resources.concrete = Math.min(attackerHome.storageCap.concrete, attackerHome.resources.concrete + plunder.concrete);
-      attackerHome.resources.steel = Math.min(attackerHome.storageCap.steel, attackerHome.resources.steel + plunder.steel);
-      attackerHome.resources.aluminum = Math.min(attackerHome.storageCap.aluminum, attackerHome.resources.aluminum + plunder.aluminum);
-      attackerHome.resources.fuel = Math.min(attackerHome.storageCap.fuel, attackerHome.resources.fuel + plunder.fuel);
-    }
-
-    // 2. Apply collateral damage to building levels & restore turrets
-    let buildingsDamaged = 0;
-    for (const bld of base.buildings) {
-      if (bld.type !== 'command_center' && bld.level > 1) {
-        bld.level -= 1;
-        buildingsDamaged += 1;
+  public resolveBaseCapture(base: Base, capturingUnit: Unit, now: number) {
+    const lockRes = gameStore.withLock(`base_capture_${base.id}`, () => {
+      // Idempotency: prevent double-capturing if already transferred in a concurrent tick
+      if (base.ownerId === capturingUnit.ownerId && base.lifecycleState === 'active') {
+        return false;
       }
-      bld.health = Math.round(bld.maxHealth * 0.5);
-    }
 
-    // Record capture in player history and store
-    gameStore.recordPlayerBaseCapture(capturingUnit.ownerId, base.id, mapId, now);
+      const data = gameStore.getData();
+      const mapId = base.mapId || 'map_riverfront_assault';
+      const mapCfg = gameStore.getMapConfig(mapId);
+      const oldOwnerId = base.ownerId;
+      const oldOwnerName = base.ownerName;
 
-    const capturerProfile = data.users[capturingUnit.ownerId]?.profile;
-    if (capturerProfile) {
-      capturerProfile.totalBasesCaptured += 1;
-      capturerProfile.score += 500;
-      gameStore.recalculatePlayerProgression(capturerProfile);
-    }
+      // 1. Plunder 35% of stored resources to attacker's base
+      const plunder: Resources = {
+        concrete: Math.round(base.resources.concrete * 0.35),
+        steel: Math.round(base.resources.steel * 0.35),
+        aluminum: Math.round(base.resources.aluminum * 0.35),
+        fuel: Math.round(base.resources.fuel * 0.35),
+      };
+      base.resources.concrete = Math.max(0, base.resources.concrete - plunder.concrete);
+      base.resources.steel = Math.max(0, base.resources.steel - plunder.steel);
+      base.resources.aluminum = Math.max(0, base.resources.aluminum - plunder.aluminum);
+      base.resources.fuel = Math.max(0, base.resources.fuel - plunder.fuel);
 
-    // Transfer territory ownership
-    base.ownerId = capturingUnit.ownerId;
-    base.ownerName = capturingUnit.ownerName;
-    base.allianceId = capturingUnit.allianceId;
-    base.lifecycleState = 'active';
-    base.neutralizedAt = undefined;
-    base.neutralizedByPlayerId = undefined;
-    base.captureBlockedReason = undefined;
-    base.captureProgress = 0;
-    base.capturingPlayerId = null;
-    base.captureContested = false;
-    base.health = Math.round(base.maxHealth * 0.6);
-    base.defenseShield = Math.round(base.maxShield * 0.5);
-    base.constructionQueue = [];
-    base.productionQueue = [];
+      const attackerHome =
+        data.bases.find((b) => b.ownerId === capturingUnit.ownerId && b.mapId === mapId) ||
+        data.bases.find((b) => b.ownerId === capturingUnit.ownerId);
 
-    const report = gameStore.recordBattleReport({
-      mapId,
-      mapName: mapCfg.name,
-      type: 'base_captured',
-      attackerId: capturingUnit.ownerId,
-      attackerName: capturingUnit.ownerName,
-      defenderId: oldOwnerId,
-      defenderName: oldOwnerName,
-      baseId: base.id,
-      baseName: base.name,
-      coords: { x: base.x, y: base.y },
-      plunderedResources: plunder,
-      buildingsDamaged,
-      summary: `${capturingUnit.ownerName} conquered and claimed '${base.name}' in ${mapCfg.name}!`,
+      if (attackerHome) {
+        attackerHome.resources.concrete = Math.min(attackerHome.storageCap.concrete, attackerHome.resources.concrete + plunder.concrete);
+        attackerHome.resources.steel = Math.min(attackerHome.storageCap.steel, attackerHome.resources.steel + plunder.steel);
+        attackerHome.resources.aluminum = Math.min(attackerHome.storageCap.aluminum, attackerHome.resources.aluminum + plunder.aluminum);
+        attackerHome.resources.fuel = Math.min(attackerHome.storageCap.fuel, attackerHome.resources.fuel + plunder.fuel);
+      }
+
+      // 2. Apply collateral damage to building levels & restore turrets
+      let buildingsDamaged = 0;
+      for (const bld of base.buildings) {
+        if (bld.type !== 'command_center' && bld.level > 1) {
+          bld.level -= 1;
+          buildingsDamaged += 1;
+        }
+        bld.health = Math.round(bld.maxHealth * 0.5);
+      }
+
+      // Record capture in player history and store
+      gameStore.recordPlayerBaseCapture(capturingUnit.ownerId, base.id, mapId, now);
+
+      const capturerProfile = data.users[capturingUnit.ownerId]?.profile;
+      if (capturerProfile) {
+        capturerProfile.totalBasesCaptured += 1;
+        capturerProfile.score += 500;
+        gameStore.recalculatePlayerProgression(capturerProfile);
+      }
+
+      // Transfer territory ownership
+      base.previousOwnerId = oldOwnerId !== 'neutral' ? oldOwnerId : base.previousOwnerId || null;
+      base.previousOwnerName = oldOwnerName !== 'Neutral Territory' ? oldOwnerName : base.previousOwnerName || null;
+      base.ownerId = capturingUnit.ownerId;
+      base.ownerName = capturingUnit.ownerName;
+      base.allianceId = capturingUnit.allianceId || null;
+      base.lifecycleState = 'active';
+      base.neutralizedAt = null;
+      base.neutralizedByPlayerId = null;
+      base.captureBlockedReason = undefined;
+      base.captureProgress = 0;
+      base.capturingPlayerId = null;
+      base.captureContested = false;
+      base.health = Math.round(base.maxHealth * 0.5);
+      base.defenseShield = Math.round(base.maxShield * 0.25);
+      base.constructionQueue = [];
+      base.productionQueue = [];
+
+      // Clear targeting for capturing unit
+      if (capturingUnit.targetBaseId === base.id) {
+        capturingUnit.targetBaseId = null;
+        if (capturingUnit.command === 'attack') {
+          capturingUnit.command = 'idle';
+        }
+      }
+
+      console.log(
+        `[BaseConquest] Capture completed: baseId=${base.id}, name='${base.name}', mapId=${mapId}, newOwner=${capturingUnit.ownerName} (${capturingUnit.ownerId})`
+      );
+
+      const report = gameStore.recordBattleReport({
+        mapId,
+        mapName: mapCfg.name,
+        type: 'base_captured',
+        attackerId: capturingUnit.ownerId,
+        attackerName: capturingUnit.ownerName,
+        defenderId: oldOwnerId,
+        defenderName: oldOwnerName,
+        baseId: base.id,
+        baseName: base.name,
+        coords: { x: base.x, y: base.y },
+        plunderedResources: plunder,
+        buildingsDamaged,
+        summary: `${capturingUnit.ownerName} conquered and claimed '${base.name}' in ${mapCfg.name}!`,
+      });
+
+      this.io?.to('authenticated_commanders').emit('battle:report', report);
+
+      const notif: GameNotification = {
+        id: `notif_cap_${now}`,
+        userId: capturingUnit.ownerId,
+        mapId,
+        type: 'capture',
+        title: 'Territory Operation Complete!',
+        message: `Base '${base.name}' captured (${plunder.steel} Steel, ${plunder.fuel} Fuel plundered)!`,
+        coords: { x: base.x, y: base.y },
+        timestamp: now,
+        read: false,
+      };
+      data.notifications.unshift(notif);
+
+      data.chat.push({
+        id: `chat_cap_${now}`,
+        mapId,
+        senderId: 'system',
+        senderName: 'HQ War Net',
+        channel: 'system',
+        content: `CRITICAL ALERT: Base '${base.name}' (${mapCfg.name}) has been conquered by ${capturingUnit.ownerName}!`,
+        coords: { x: base.x, y: base.y },
+        timestamp: now,
+      });
+
+      gameStore.persistBaseAndUnits(base, []);
+      gameStore.saveData();
+      this.io?.to('authenticated_commanders').emit('notification:new', notif);
+      this.io?.to('authenticated_commanders').emit('base:captured', {
+        baseId: base.id,
+        mapId,
+        newOwnerId: base.ownerId,
+        newOwnerName: base.ownerName,
+        allianceId: base.allianceId,
+      });
+      this.broadcastWorldSync(now);
+      return true;
     });
-
-    this.io?.to('authenticated_commanders').emit('battle:report', report);
-
-    const notif: GameNotification = {
-      id: `notif_cap_${now}`,
-      userId: capturingUnit.ownerId,
-      mapId,
-      type: 'capture',
-      title: 'Territory Operation Complete!',
-      message: `Base '${base.name}' captured (${plunder.steel} Steel, ${plunder.fuel} Fuel plundered)!`,
-      coords: { x: base.x, y: base.y },
-      timestamp: now,
-      read: false,
-    };
-    data.notifications.unshift(notif);
-
-    data.chat.push({
-      id: `chat_cap_${now}`,
-      mapId,
-      senderId: 'system',
-      senderName: 'HQ War Net',
-      channel: 'system',
-      content: `CRITICAL ALERT: Base '${base.name}' (${mapCfg.name}) has been conquered by ${capturingUnit.ownerName}!`,
-      coords: { x: base.x, y: base.y },
-      timestamp: now,
-    });
-
-    gameStore.persistBaseAndUnits(base, []);
-    this.io?.to('authenticated_commanders').emit('notification:new', notif);
-    this.io
-      ?.to('authenticated_commanders')
-      .emit('base:captured', { baseId: base.id, mapId, newOwnerId: base.ownerId, newOwnerName: base.ownerName });
+    return lockRes.result;
   }
 
   // ==========================================================================
@@ -1896,6 +1976,17 @@ export class GameSimulation {
       unit.command = command;
       unit.targetUnitId = targetUnitId || null;
       unit.targetBaseId = targetBaseId || null;
+
+      // If targeting a neutralized or neutral base, units should move to it for capture instead of attacking
+      if (targetBaseId) {
+        const tBase = data.bases.find(
+          (b) => b.id === targetBaseId && (b.mapId || 'map_riverfront_assault') === unitMapId
+        );
+        if (tBase && (tBase.lifecycleState === 'neutralized' || tBase.ownerId === 'neutral')) {
+          unit.targetBaseId = null;
+          unit.command = 'move';
+        }
+      }
 
       if (command === 'hold' || command === 'stop') {
         unit.path = [];

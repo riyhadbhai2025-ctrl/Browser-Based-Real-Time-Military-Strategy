@@ -419,13 +419,57 @@ export default function App() {
       soundEngine.playBuildComplete();
     });
 
-    socket.on('base:captured', (data) => {
+    socket.on('base:neutralized', (data: { baseId: string; baseName?: string; previousOwnerName?: string }) => {
+      soundEngine.playExplosion();
+      setNotificationToast({
+        title: 'BASE NEUTRALIZED!',
+        message: `${data.baseName || 'Sector Base'} defenses have collapsed and is now OPEN FOR CONQUEST!`,
+      });
+      setTimeout(() => setNotificationToast(null), 5000);
+      setBases((prev) =>
+        prev.map((b) =>
+          b.id === data.baseId
+            ? {
+                ...b,
+                ownerId: 'neutral',
+                ownerName: 'Neutral Territory',
+                previousOwnerName: data.previousOwnerName || b.ownerName,
+                lifecycleState: 'neutralized',
+                health: 0,
+                defenseShield: 0,
+                activeTurretsCount: 0,
+                captureProgress: 0,
+                capturingPlayerId: null,
+              }
+            : b
+        )
+      );
+    });
+
+    socket.on('base:captured', (data: { baseId: string; baseName?: string; newOwnerId: string; newOwnerName: string }) => {
       soundEngine.playCaptureSuccess();
       setNotificationToast({
         title: 'BASE CAPTURED!',
-        message: `${data.newOwnerName} has seized control of sector base!`,
+        message: `${data.newOwnerName} has seized control of ${data.baseName || 'sector base'}!`,
       });
       setTimeout(() => setNotificationToast(null), 5000);
+      setBases((prev) =>
+        prev.map((b) =>
+          b.id === data.baseId
+            ? {
+                ...b,
+                ownerId: data.newOwnerId,
+                ownerName: data.newOwnerName,
+                lifecycleState: 'active',
+                health: Math.round(b.maxHealth * 0.5),
+                defenseShield: Math.round(b.maxShield * 0.25),
+                captureProgress: 0,
+                capturingPlayerId: null,
+                captureBlockedReason: undefined,
+              }
+            : b
+        )
+      );
     });
 
     socket.on('notification:new', (notif) => {
@@ -1022,7 +1066,11 @@ export default function App() {
             selectedUnitIds.size > 0 &&
             picked.base.ownerId !== currentUserId
           ) {
-            issueUnitCommand('attack', undefined, undefined, undefined, picked.base.id);
+            if (picked.base.lifecycleState === 'neutralized' || picked.base.ownerId === 'neutral') {
+              issueUnitCommand('move', picked.base.x, picked.base.y);
+            } else {
+              issueUnitCommand('attack', undefined, undefined, undefined, picked.base.id);
+            }
           } else {
             setSelectedBaseId(picked.base.id);
             setSelectedUnitIds(new Set());
@@ -1072,7 +1120,11 @@ export default function App() {
     }
 
     if (picked && picked.kind === 'base' && picked.base.ownerId !== currentUserId) {
-      issueUnitCommand('attack', undefined, undefined, undefined, picked.base.id);
+      if (picked.base.lifecycleState === 'neutralized' || picked.base.ownerId === 'neutral') {
+        issueUnitCommand('move', picked.base.x, picked.base.y);
+      } else {
+        issueUnitCommand('attack', undefined, undefined, undefined, picked.base.id);
+      }
       return;
     }
 

@@ -1273,14 +1273,15 @@ export class TacticalRenderer {
     for (const base of sourceBases) {
       if (!Number.isFinite(base.x) || !Number.isFinite(base.y)) continue;
       activeBaseIds.add(base.id);
-      const isPlayer = this.isPreviewMode
+      const isNeutral = base.ownerId === 'neutral' || base.lifecycleState === 'neutralized';
+      const isPlayer = !isNeutral && (this.isPreviewMode
         ? base.ownerId === 'preview_vanguard'
-        : Boolean(this.currentUserId && base.ownerId === this.currentUserId);
-      const isAllied = !this.isPreviewMode && Boolean(this.userAllianceId && base.allianceId === this.userAllianceId);
-      const isEnemy = this.isPreviewMode
+        : Boolean(this.currentUserId && base.ownerId === this.currentUserId));
+      const isAllied = !isNeutral && !this.isPreviewMode && Boolean(this.userAllianceId && base.allianceId === this.userAllianceId);
+      const isEnemy = !isNeutral && (this.isPreviewMode
         ? base.ownerId === 'preview_kodiak'
-        : base.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied && base.ownerId !== 'neutral');
-      const teamHex = isPlayer ? 0x3b82f6 : isAllied ? 0x10b981 : isEnemy ? 0xef4444 : 0xf59e0b;
+        : base.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied));
+      const teamHex = isNeutral ? 0x94a3b8 : isPlayer ? 0x3b82f6 : isAllied ? 0x10b981 : isEnemy ? 0xef4444 : 0xf59e0b;
 
       const isHome = Boolean(base.isHomeBase || base.type === 'home');
       const sig = `${base.ownerId}_${isHome ? 'HQ' : base.type}_${base.lifecycleState || 'active'}_${base.buildings
@@ -1925,10 +1926,10 @@ export class TacticalRenderer {
       const sp = this.worldToScreen(base.x, base.y, isHome ? 2.45 : 1.9);
       if (!sp.visible) continue;
 
-      const isPlayer = base.ownerId === this.currentUserId;
-      const isAllied = this.userAllianceId && base.allianceId === this.userAllianceId;
-      const isEnemy =
-        base.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied && base.ownerId !== 'neutral');
+      const isNeutral = base.ownerId === 'neutral' || base.lifecycleState === 'neutralized';
+      const isPlayer = !isNeutral && base.ownerId === this.currentUserId;
+      const isAllied = !isNeutral && Boolean(this.userAllianceId && base.allianceId === this.userAllianceId);
+      const isEnemy = !isNeutral && (base.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied));
 
       const hpPct = Math.max(0, base.health / base.maxHealth);
       const shieldPct = base.maxShield > 0 ? Math.max(0, base.defenseShield / base.maxShield) : 0;
@@ -1940,12 +1941,12 @@ export class TacticalRenderer {
       ctx.textAlign = 'center';
       ctx.fillStyle = isHome ? 'rgba(8, 15, 32, 0.94)' : 'rgba(9, 14, 23, 0.88)';
       ctx.fillRect(sp.x - barW / 2 - 6, sp.y - 24, barW + 12, 30);
-      ctx.strokeStyle = isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
+      ctx.strokeStyle = isNeutral ? '#f59e0b' : isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
       ctx.lineWidth = isHome ? 1.6 : 1;
       ctx.strokeRect(sp.x - barW / 2 - 6, sp.y - 24, barW + 12, 30);
 
-      ctx.fillStyle = isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
-      const displayLabel = isHome ? `★ HQ · ${base.name}` : base.name;
+      ctx.fillStyle = isNeutral ? '#fef3c7' : isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
+      const displayLabel = isNeutral ? `[NEUTRAL] ${base.name}` : isHome ? `★ HQ · ${base.name}` : base.name;
       ctx.fillText(displayLabel, sp.x, sp.y - 10);
 
       // Shield bar
@@ -1962,7 +1963,15 @@ export class TacticalRenderer {
       ctx.fillStyle = hpPct > 0.5 ? '#22c55e' : hpPct > 0.25 ? '#f59e0b' : '#ef4444';
       ctx.fillRect(sp.x - barW / 2, sp.y - 2, barW * hpPct, barH);
 
-      if (base.lifecycleState === 'rebuilding') {
+      if (base.lifecycleState === 'neutralized' || base.ownerId === 'neutral') {
+        ctx.fillStyle = 'rgba(180, 83, 9, 0.95)';
+        ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 10);
+        ctx.fillStyle = '#fef3c7';
+        ctx.font = 'bold 8px "JetBrains Mono", monospace';
+        const uplinkText =
+          (base.captureProgress || 0) > 0 ? `UPLINK ${Math.round(base.captureProgress)}%` : 'NEUTRALIZED · OPEN';
+        ctx.fillText(uplinkText, sp.x, sp.y + 13);
+      } else if (base.lifecycleState === 'rebuilding') {
         ctx.fillStyle = 'rgba(30, 58, 138, 0.94)';
         ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 10);
         ctx.fillStyle = '#bfdbfe';

@@ -1960,4 +1960,183 @@ test('23. Combat Siege Strategic Home Base System: Complete 14-Point End-to-End 
   });
 });
 
+test('24. Critical Base Neutralization, Ownership Clear & Dominator Conquest Lifecycle', async () => {
+  const storeData = gameStore.getData();
+  const econ = gameStore.getEconomyConfig();
+  const now = Date.now();
+  const testMapId = 'map_riverfront_assault';
+
+  // 1. Create a simulated Tank Base owned by Kodiak PMC
+  const testBaseId = `test_tank_stronghold_${now}`;
+  const testBase: any = {
+    id: testBaseId,
+    mapId: testMapId,
+    name: 'Kodiak Tank Bastion',
+    type: 'tank',
+    ownerId: 'enemy_insurgent',
+    ownerName: 'Kodiak PMC',
+    allianceId: null,
+    x: 88,
+    y: 65,
+    radius: 4,
+    health: 50, // very low health to trigger neutralization in 1 hit
+    maxHealth: 2800,
+    defenseShield: 0,
+    maxShield: 800,
+    captureProgress: 0,
+    isProtected: false,
+    lifecycleState: 'active',
+    activeTurretsCount: 2,
+    resources: { concrete: 1000, steel: 1000, aluminum: 500, fuel: 800 },
+    storageCap: { ...econ.baseStorageCap },
+    productionRates: { ...econ.baseGenerationRates },
+    lastResourceUpdate: now,
+    constructionQueue: [],
+    productionQueue: [],
+    buildings: [
+      { id: `b_cc_${testBaseId}`, type: 'command_center', level: 2, health: 1000, maxHealth: 1000 },
+      { id: `b_vt_${testBaseId}`, type: 'vulcan_turret', level: 2, health: 500, maxHealth: 500 },
+    ],
+  };
+  storeData.bases.push(testBase);
+
+  // 2. Spawn an attacking player unit targeting this base
+  const attackerUnitId = `test_attacker_${now}`;
+  const attackerUnit: any = {
+    id: attackerUnitId,
+    mapId: testMapId,
+    type: 'titan_mbt',
+    ownerId: 'player_default',
+    ownerName: 'Vanguard Commander',
+    x: 88,
+    y: 71,
+    rotation: -Math.PI / 2,
+    health: 900,
+    maxHealth: 900,
+    command: 'attack',
+    targetBaseId: testBaseId,
+    targetUnitId: null,
+    path: [],
+    lastAttackTime: 0,
+    kills: 0,
+    homeBaseId: 'base_home_player',
+  };
+  storeData.units.push(attackerUnit);
+
+  // 3. Execute neutralization trigger via simulation tick or direct method
+  const neutralized = (gameSimulation as any).neutralizeOrdinaryBase(testBase, attackerUnit, now);
+  assert.strictEqual(neutralized, true, 'Base must transition into neutralized state');
+
+  // Verify atomic neutralization requirements:
+  assert.strictEqual(testBase.lifecycleState, 'neutralized', 'Base lifecycleState must be neutralized');
+  assert.strictEqual(testBase.health, 0, 'Structural integrity must clamp to 0 (not reset to 350)');
+  assert.strictEqual(testBase.defenseShield, 0, 'Defense shield must be 0');
+  assert.strictEqual(testBase.activeTurretsCount, 0, 'Active turrets count must be 0');
+  assert.strictEqual(testBase.ownerId, 'neutral', 'Current ownerId must be set to neutral');
+  assert.strictEqual(testBase.ownerName, 'Neutral Territory', 'Current ownerName must be Neutral Territory');
+  assert.strictEqual(testBase.previousOwnerId, 'enemy_insurgent', 'Historical previousOwnerId must be preserved');
+  assert.strictEqual(testBase.previousOwnerName, 'Kodiak PMC', 'Historical previousOwnerName must be preserved');
+  assert.strictEqual(attackerUnit.targetBaseId, null, 'Attacking units must disengage targetBaseId upon neutralization');
+
+  // 4. Test Idempotency: Calling neutralizeOrdinaryBase again should not execute duplicate logic
+  const reNeutralize = (gameSimulation as any).neutralizeOrdinaryBase(testBase, attackerUnit, now);
+  assert.strictEqual(reNeutralize, false, 'Duplicate neutralization call must return false (idempotent)');
+
+  // 5. Test Combat Inactivity: Neutralized base turrets must not fire and units must not damage neutralized base
+  const dummyEnemyNearby: any = {
+    id: `dummy_nearby_${now}`,
+    mapId: testMapId,
+    type: 'rifle_infantry',
+    ownerId: 'player_default',
+    ownerName: 'Vanguard Commander',
+    x: testBase.x + 1,
+    y: testBase.y + 1,
+    rotation: 0,
+    health: 100,
+    maxHealth: 100,
+    command: 'idle',
+    targetUnitId: null,
+    targetBaseId: null,
+    path: [],
+    lastAttackTime: 0,
+    kills: 0,
+    homeBaseId: 'base_home_player',
+  };
+  storeData.units.push(dummyEnemyNearby);
+  (gameSimulation as any).tick();
+  assert.strictEqual(dummyEnemyNearby.health, 100, 'Neutralized base turrets must NOT fire at nearby units');
+  assert.strictEqual(testBase.health, 0, 'Neutralized base must remain at 0 health');
+
+  // 6. Test Conquest Vehicle Eligibility: Non-conquest tanks cannot capture base
+  attackerUnit.x = testBase.x + 1;
+  attackerUnit.y = testBase.y + 1;
+  (gameSimulation as any).tick();
+  assert.strictEqual(
+    testBase.captureProgress,
+    0,
+    'Non-conquest unit (titan_mbt) must NOT progress base capture'
+  );
+
+  // 7. Test Out-of-Range Dominator: Dominator too far away cannot capture base
+  const dominatorUnitId = `test_dominator_${now}`;
+  const dominatorUnit: any = {
+    id: dominatorUnitId,
+    mapId: testMapId,
+    type: 'dominator_conquest',
+    ownerId: 'player_default',
+    ownerName: 'Vanguard Commander',
+    x: testBase.x + 15, // Out of range (> Math.max(6.0, radius + 2.5) = 6.5)
+    y: testBase.y + 15,
+    rotation: 0,
+    health: 1100,
+    maxHealth: 1100,
+    command: 'idle',
+    targetUnitId: null,
+    targetBaseId: null,
+    path: [],
+    lastAttackTime: 0,
+    kills: 0,
+    homeBaseId: 'base_home_player',
+  };
+  storeData.units.push(dominatorUnit);
+  (gameSimulation as any).tick();
+  assert.strictEqual(
+    testBase.captureProgress,
+    0,
+    'Dominator outside capture perimeter must NOT progress base capture'
+  );
+
+  // 8. Test In-Range Dominator: Dominator within capture radius triggers capture uplink
+  dominatorUnit.x = testBase.x + 2;
+  dominatorUnit.y = testBase.y + 2;
+  (gameSimulation as any).tick();
+  assert.ok(
+    testBase.captureProgress > 0,
+    `Dominator within capture perimeter must progress capture (actual: ${testBase.captureProgress}%)`
+  );
+
+  // 9. Progress capture to 100% and test full conquest completion & state restoration
+  testBase.captureProgress = 99;
+  (gameSimulation as any).tick();
+
+  assert.strictEqual(testBase.ownerId, 'player_default', 'Captured base ownerId must transfer to player');
+  assert.strictEqual(testBase.ownerName, 'Vanguard Commander', 'Captured base ownerName must transfer to player');
+  assert.strictEqual(testBase.lifecycleState, 'active', 'Captured base must restore to active lifecycleState');
+  assert.strictEqual(testBase.health, Math.round(testBase.maxHealth * 0.5), 'Captured base health restored to 50%');
+  assert.strictEqual(testBase.defenseShield, Math.round(testBase.maxShield * 0.25), 'Captured base shield restored to 25%');
+  assert.strictEqual(testBase.captureProgress, 0, 'captureProgress must reset to 0 after capture completes');
+  assert.strictEqual(testBase.previousOwnerId, 'enemy_insurgent', 'previousOwnerId must remain recorded');
+  assert.strictEqual(testBase.previousOwnerName, 'Kodiak PMC', 'previousOwnerName must remain recorded');
+
+  // 10. Test Concurrent Capture Lock: ensure resolveBaseCapture returns false when already owned
+  const duplicateCapture = (gameSimulation as any).resolveBaseCapture(testBase, dominatorUnit, now);
+  assert.strictEqual(duplicateCapture, false, 'Duplicate capture resolution must be safely rejected');
+
+  // Clean up test entities
+  storeData.bases = storeData.bases.filter((b) => b.id !== testBaseId);
+  storeData.units = storeData.units.filter(
+    (u) => u.id !== attackerUnitId && u.id !== dominatorUnitId && u.id !== dummyEnemyNearby.id
+  );
+});
+
 
