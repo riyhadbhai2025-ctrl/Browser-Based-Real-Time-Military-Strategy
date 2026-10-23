@@ -311,14 +311,53 @@ export class GameSimulation {
       return false;
     });
 
-    // Sanitize enemy bases so private queues aren't leaked
+    // Sanitize enemy bases so private queues aren't leaked and resolve live owner & alliance info
     const sanitizedBases = mapBases.map((b) => {
-      const friendly = isFriendly(b.ownerId, b.allianceId);
-      const power = this.computeBasePower(b);
       const isAuthHome = this.isAuthoritativeHomeBase(b);
       const ccLevel = (b.buildings || []).find((bld) => bld.type === 'command_center')?.level || 1;
+
+      // Authoritative Owner Display Name & Alliance Resolution
+      let currentOwnerName = b.ownerName;
+      let currentAllianceId = b.allianceId || null;
+      let currentAllianceName: string | null = b.allianceName || null;
+      let currentAllianceTag: string | null = b.allianceTag || null;
+
+      if (b.ownerId && b.ownerId !== 'neutral' && b.ownerId !== 'enemy_insurgent') {
+        const ownerProf = data.users[b.ownerId]?.profile;
+        if (ownerProf) {
+          currentOwnerName = ownerProf.username;
+          currentAllianceId = ownerProf.allianceId || null;
+          if (currentAllianceId) {
+            const ally = data.alliances.find((a) => a.id === currentAllianceId);
+            if (ally) {
+              currentAllianceName = ally.name;
+              currentAllianceTag = ally.tag;
+            } else {
+              currentAllianceId = null;
+              currentAllianceName = null;
+              currentAllianceTag = null;
+            }
+          } else {
+            currentAllianceName = null;
+            currentAllianceTag = null;
+          }
+        }
+      } else if (b.ownerId === 'neutral' || b.lifecycleState === 'neutralized') {
+        currentOwnerName = 'Neutral Territory';
+        currentAllianceId = null;
+        currentAllianceName = null;
+        currentAllianceTag = null;
+      }
+
+      const friendly = isFriendly(b.ownerId, currentAllianceId);
+      const power = this.computeBasePower(b);
+
       return {
         ...b,
+        ownerName: currentOwnerName,
+        allianceId: currentAllianceId,
+        allianceName: currentAllianceName,
+        allianceTag: currentAllianceTag,
         isHomeBase: isAuthHome,
         hqLevel: ccLevel,
         armorMultiplier: isAuthHome ? econ.homeBaseArmorMultiplier || 3.0 : 1.0,
@@ -1431,6 +1470,14 @@ export class GameSimulation {
       if (base.ownerId === capturingUnit.ownerId && base.lifecycleState === 'active') {
         return false;
       }
+      // Permanent home bases cannot be captured
+      if (base.isHomeBase || base.type === 'home') {
+        return false;
+      }
+      // Active, protected, or rebuilding bases cannot be captured without neutralization
+      if (base.lifecycleState !== 'neutralized' && base.lifecycleState !== 'ownerless') {
+        return false;
+      }
 
       const data = gameStore.getData();
       const mapId = base.mapId || 'map_riverfront_assault';
@@ -1481,12 +1528,49 @@ export class GameSimulation {
         gameStore.recalculatePlayerProgression(capturerProfile);
       }
 
+      // Authoritatively resolve capturing commander identity and alliance
+      const capturerDisplayName = capturerProfile?.username || capturingUnit.ownerName;
+      const capturerAllianceId = capturerProfile?.allianceId || capturingUnit.allianceId || null;
+      const capturerAlliance = capturerAllianceId ? data.alliances.find((a) => a.id === capturerAllianceId) : null;
+      const allianceDisplay = capturerAlliance ? `${capturerAlliance.name} [${capturerAlliance.tag}]` : 'Independent';
+
       // Transfer territory ownership
       base.previousOwnerId = oldOwnerId !== 'neutral' ? oldOwnerId : base.previousOwnerId || null;
       base.previousOwnerName = oldOwnerName !== 'Neutral Territory' ? oldOwnerName : base.previousOwnerName || null;
       base.ownerId = capturingUnit.ownerId;
-      base.ownerName = capturingUnit.ownerName;
-      base.allianceId = capturingUnit.allianceId || null;
+      base.ownerName = capturerDisplayName;
+      base.allianceId = capturerAlliance?.id || null;
+      base.allianceName = capturerAlliance?.name || null;
+      base.allianceTag = capturerAlliance?.tag || null;
+
+      // Maintain authoritative historical capture attribution
+      base.capturedByUserId = capturingUnit.ownerId;
+      base.capturedByName = capturerDisplayName;
+      base.capturedAt = now;
+      base.capturedAllianceId = capturerAlliance?.id || null;
+      base.capturedAllianceName = capturerAlliance?.name || null;
+      base.capturedAllianceTag = capturerAlliance?.tag || null;
+
+      const captureRecord = {
+        id: `cap_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        baseId: base.id,
+        previousOwnerId: base.previousOwnerId,
+        previousOwnerName: base.previousOwnerName,
+        newOwnerId: base.ownerId,
+        newOwnerName: base.ownerName,
+        capturedByUserId: base.capturedByUserId,
+        capturedByName: base.capturedByName,
+        allianceId: base.allianceId,
+        allianceName: base.allianceName,
+        allianceTag: base.allianceTag,
+        capturedAt: now,
+      };
+      base.captureHistory = base.captureHistory || [];
+      base.captureHistory.unshift(captureRecord);
+      if (base.captureHistory.length > 20) {
+        base.captureHistory = base.captureHistory.slice(0, 20);
+      }
+
       base.lifecycleState = 'active';
       base.neutralizedAt = null;
       base.neutralizedByPlayerId = null;
@@ -1508,7 +1592,7 @@ export class GameSimulation {
       }
 
       console.log(
-        `[BaseConquest] Capture completed: baseId=${base.id}, name='${base.name}', mapId=${mapId}, newOwner=${capturingUnit.ownerName} (${capturingUnit.ownerId})`
+        `[BaseConquest] Capture completed: baseId=${base.id}, name='${base.name}', mapId=${mapId}, newOwner=${capturerDisplayName} (${capturingUnit.ownerId}), alliance=${allianceDisplay}`
       );
 
       const report = gameStore.recordBattleReport({
@@ -1516,7 +1600,7 @@ export class GameSimulation {
         mapName: mapCfg.name,
         type: 'base_captured',
         attackerId: capturingUnit.ownerId,
-        attackerName: capturingUnit.ownerName,
+        attackerName: capturerDisplayName,
         defenderId: oldOwnerId,
         defenderName: oldOwnerName,
         baseId: base.id,
@@ -1524,18 +1608,18 @@ export class GameSimulation {
         coords: { x: base.x, y: base.y },
         plunderedResources: plunder,
         buildingsDamaged,
-        summary: `${capturingUnit.ownerName} conquered and claimed '${base.name}' in ${mapCfg.name}!`,
+        summary: `${capturerDisplayName} conquered and claimed '${base.name}' in ${mapCfg.name}! Alliance: ${allianceDisplay}`,
       });
 
       this.io?.to('authenticated_commanders').emit('battle:report', report);
 
       const notif: GameNotification = {
         id: `notif_cap_${now}`,
-        userId: capturingUnit.ownerId,
+        userId: 'all',
         mapId,
         type: 'capture',
-        title: 'Territory Operation Complete!',
-        message: `Base '${base.name}' captured (${plunder.steel} Steel, ${plunder.fuel} Fuel plundered)!`,
+        title: 'BASE CAPTURED',
+        message: `${capturerDisplayName} captured ${base.name}.\nAlliance: ${allianceDisplay}`,
         coords: { x: base.x, y: base.y },
         timestamp: now,
         read: false,
@@ -1548,7 +1632,7 @@ export class GameSimulation {
         senderId: 'system',
         senderName: 'HQ War Net',
         channel: 'system',
-        content: `CRITICAL ALERT: Base '${base.name}' (${mapCfg.name}) has been conquered by ${capturingUnit.ownerName}!`,
+        content: `BASE CAPTURED: ${capturerDisplayName} captured ${base.name}. Alliance: ${allianceDisplay}`,
         coords: { x: base.x, y: base.y },
         timestamp: now,
       });
@@ -1558,10 +1642,16 @@ export class GameSimulation {
       this.io?.to('authenticated_commanders').emit('notification:new', notif);
       this.io?.to('authenticated_commanders').emit('base:captured', {
         baseId: base.id,
+        baseName: base.name,
         mapId,
         newOwnerId: base.ownerId,
         newOwnerName: base.ownerName,
         allianceId: base.allianceId,
+        allianceName: base.allianceName,
+        allianceTag: base.allianceTag,
+        capturedByUserId: base.capturedByUserId,
+        capturedByName: base.capturedByName,
+        capturedAt: base.capturedAt,
       });
       this.broadcastWorldSync(now);
       return true;

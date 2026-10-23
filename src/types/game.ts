@@ -188,6 +188,21 @@ export interface ArchivedHomeBaseSnapshot {
   archivedAt: number;
 }
 
+export interface BaseCaptureRecord {
+  id: string;
+  baseId: string;
+  previousOwnerId: string | null;
+  previousOwnerName: string | null;
+  newOwnerId: string;
+  newOwnerName: string;
+  capturedByUserId: string;
+  capturedByName: string;
+  allianceId?: string | null;
+  allianceName?: string | null;
+  allianceTag?: string | null;
+  capturedAt: number;
+}
+
 export interface Base {
   id: string;
   mapId?: string; // Sector map ID (e.g. 'map_riverfront_assault')
@@ -200,6 +215,15 @@ export interface Base {
   previousOwnerId?: string | null;
   previousOwnerName?: string | null;
   allianceId?: string | null;
+  allianceName?: string | null;
+  allianceTag?: string | null;
+  capturedByUserId?: string | null;
+  capturedByName?: string | null;
+  capturedAt?: number | null;
+  capturedAllianceId?: string | null;
+  capturedAllianceName?: string | null;
+  capturedAllianceTag?: string | null;
+  captureHistory?: BaseCaptureRecord[];
   x: number; // grid cell
   y: number; // grid cell
   radius: number; // visual & interaction radius in cells

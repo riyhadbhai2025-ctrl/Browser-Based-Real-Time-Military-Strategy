@@ -3642,7 +3642,11 @@ export class GameStore {
     user.profile.allianceRole = 'leader';
 
     for (const b of this.data.bases) {
-      if (b.ownerId === userId) b.allianceId = newAlliance.id;
+      if (b.ownerId === userId) {
+        b.allianceId = newAlliance.id;
+        b.allianceName = newAlliance.name;
+        b.allianceTag = newAlliance.tag;
+      }
     }
     for (const u of this.data.units) {
       if (u.ownerId === userId) u.allianceId = newAlliance.id;
@@ -3709,7 +3713,11 @@ export class GameStore {
     user.profile.allianceRole = 'member';
 
     for (const b of this.data.bases) {
-      if (b.ownerId === userId) b.allianceId = alliance.id;
+      if (b.ownerId === userId) {
+        b.allianceId = alliance.id;
+        b.allianceName = alliance.name;
+        b.allianceTag = alliance.tag;
+      }
     }
     for (const u of this.data.units) {
       if (u.ownerId === userId) u.allianceId = alliance.id;
@@ -3735,7 +3743,11 @@ export class GameStore {
     user.profile.allianceRole = null;
 
     for (const b of this.data.bases) {
-      if (b.ownerId === userId) b.allianceId = null;
+      if (b.ownerId === userId) {
+        b.allianceId = null;
+        b.allianceName = null;
+        b.allianceTag = null;
+      }
     }
     for (const u of this.data.units) {
       if (u.ownerId === userId) u.allianceId = null;
@@ -3754,6 +3766,13 @@ export class GameStore {
     if (alliance.memberIds.length === 0) {
       // Disband empty alliance
       this.data.alliances = this.data.alliances.filter((a) => a.id !== alliance.id);
+      for (const b of this.data.bases) {
+        if (b.allianceId === alliance.id) {
+          b.allianceId = null;
+          b.allianceName = null;
+          b.allianceTag = null;
+        }
+      }
       this.saveData();
       void persistAllianceTransaction(null, alliance.id);
       return { success: true, disbanded: true, message: 'Alliance disbanded as the final member departed' };
@@ -3883,7 +3902,11 @@ export class GameStore {
     applicant.allianceRole = 'member';
 
     for (const b of this.data.bases) {
-      if (b.ownerId === applicantUserId) b.allianceId = alliance.id;
+      if (b.ownerId === applicantUserId) {
+        b.allianceId = alliance.id;
+        b.allianceName = alliance.name;
+        b.allianceTag = alliance.tag;
+      }
     }
     for (const u of this.data.units) {
       if (u.ownerId === applicantUserId) u.allianceId = alliance.id;
@@ -3926,7 +3949,11 @@ export class GameStore {
       targetProfile.allianceRole = null;
     }
     for (const b of this.data.bases) {
-      if (b.ownerId === targetUserId) b.allianceId = null;
+      if (b.ownerId === targetUserId) {
+        b.allianceId = null;
+        b.allianceName = null;
+        b.allianceTag = null;
+      }
     }
     for (const u of this.data.units) {
       if (u.ownerId === targetUserId) u.allianceId = null;

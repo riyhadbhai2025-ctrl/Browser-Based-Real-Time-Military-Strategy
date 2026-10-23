@@ -1965,6 +1965,10 @@ test('24. Critical Base Neutralization, Ownership Clear & Dominator Conquest Lif
   const econ = gameStore.getEconomyConfig();
   const now = Date.now();
   const testMapId = 'map_riverfront_assault';
+  const prevDefaultUsername = storeData.users['player_default']?.profile?.username;
+  if (storeData.users['player_default']?.profile) {
+    storeData.users['player_default'].profile.username = 'Vanguard Commander';
+  }
 
   // 1. Create a simulated Tank Base owned by Kodiak PMC
   const testBaseId = `test_tank_stronghold_${now}`;
@@ -2133,10 +2137,251 @@ test('24. Critical Base Neutralization, Ownership Clear & Dominator Conquest Lif
   assert.strictEqual(duplicateCapture, false, 'Duplicate capture resolution must be safely rejected');
 
   // Clean up test entities
+  if (prevDefaultUsername && storeData.users['player_default']?.profile) {
+    storeData.users['player_default'].profile.username = prevDefaultUsername;
+  }
   storeData.bases = storeData.bases.filter((b) => b.id !== testBaseId);
   storeData.units = storeData.units.filter(
     (u) => u.id !== attackerUnitId && u.id !== dominatorUnitId && u.id !== dummyEnemyNearby.id
   );
 });
+
+test('25. Server-Authoritative Base Ownership Identity & Alliance Display (Combat Siege System)', async () => {
+  resetRateLimiterForTests();
+  const storeData = (gameStore as any).data;
+  const now = Date.now();
+  const testMapId = 'map_riverfront_assault';
+
+  // Setup test players: Player A (in Alliance) and Player B (Independent)
+  const userAId = `test_player_a_${now}`;
+  const userBId = `test_player_b_${now}`;
+  const allianceId = `test_alliance_${now}`;
+
+  storeData.users[userAId] = {
+    passwordHash: 'testhash',
+    profile: {
+      id: userAId,
+      username: 'Riyadh',
+      rank: 'Major General',
+      score: 5000,
+      level: 15,
+      avatar: 'commander',
+      homeBaseId: `home_${userAId}`,
+      allianceId: allianceId,
+      allianceRole: 'leader',
+      currentMapId: testMapId,
+      playerType: 'human',
+      controlSource: 'human',
+      verificationStatus: 'registered',
+      resources: { concrete: 1000, steel: 1000, aluminum: 1000, fuel: 1000 },
+    },
+  };
+
+  storeData.users[userBId] = {
+    passwordHash: 'testhash',
+    profile: {
+      id: userBId,
+      username: 'Sarah',
+      rank: 'Brigadier',
+      score: 4200,
+      level: 12,
+      avatar: 'officer',
+      homeBaseId: `home_${userBId}`,
+      allianceId: null,
+      allianceRole: null,
+      currentMapId: testMapId,
+      playerType: 'human',
+      controlSource: 'human',
+      verificationStatus: 'registered',
+      resources: { concrete: 1000, steel: 1000, aluminum: 1000, fuel: 1000 },
+    },
+  };
+
+  storeData.alliances.push({
+    id: allianceId,
+    name: 'Iron Legion',
+    tag: 'IRN',
+    description: 'Heavy Armor Vanguard',
+    leaderId: userAId,
+    leaderName: 'Riyadh',
+    memberIds: [userAId],
+    memberRoles: { [userAId]: 'leader' },
+    recruitmentMode: 'open',
+    maxMembers: 25,
+    joinRequests: [],
+    invites: [],
+    activityLog: [],
+    bannerColor: '#2563eb',
+    createdTime: now,
+    score: 5000,
+    territoryBasesCount: 1,
+  });
+
+  // Create neutral test base
+  const neutralBaseId = `base_neutral_${now}`;
+  const testBase: any = {
+    id: neutralBaseId,
+    mapId: testMapId,
+    type: 'outpost',
+    name: 'Kodiak Stronghold',
+    ownerId: 'neutral',
+    ownerName: 'Neutral Territory',
+    previousOwnerId: null,
+    previousOwnerName: null,
+    allianceId: null,
+    allianceName: null,
+    allianceTag: null,
+    capturedByUserId: null,
+    capturedByName: null,
+    capturedAt: null,
+    captureHistory: [],
+    x: 40,
+    y: 35,
+    radius: 4,
+    health: 0,
+    maxHealth: 1000,
+    defenseShield: 0,
+    maxShield: 500,
+    defensesIntact: false,
+    activeTurretsCount: 0,
+    powerCapacity: 50,
+    powerUsed: 0,
+    isHomeBase: false,
+    isProtected: false,
+    lifecycleState: 'neutralized',
+    captureProgress: 0,
+    capturingPlayerId: null,
+    resources: { concrete: 100, steel: 100, aluminum: 100, fuel: 100 },
+    storageCap: { concrete: 2500, steel: 2500, aluminum: 2500, fuel: 2500 },
+    productionRates: { concrete: 1, steel: 1, aluminum: 1, fuel: 1 },
+    lastResourceUpdate: now,
+    constructionQueue: [],
+    productionQueue: [],
+    buildings: [],
+  };
+  storeData.bases.push(testBase);
+
+  // 1. Point 4: Capture of neutral base by allied player (Riyadh [IRN])
+  const dominatorA: any = {
+    id: `dom_a_${now}`,
+    mapId: testMapId,
+    type: 'dominator_conquest',
+    ownerId: userAId,
+    ownerName: 'Riyadh',
+    allianceId: allianceId,
+    x: testBase.x + 1,
+    y: testBase.y + 1,
+    health: 1200,
+    maxHealth: 1200,
+  };
+  storeData.units.push(dominatorA);
+
+  testBase.captureProgress = 100;
+  const capturedA = (gameSimulation as any).resolveBaseCapture(testBase, dominatorA, now);
+  assert.strictEqual(capturedA, true, 'Base capture must succeed authoritatively');
+
+  // Point 1: Player display name shown as new base owner
+  assert.strictEqual(testBase.ownerId, userAId, 'Base ownerId must be set to capturing player');
+  assert.strictEqual(testBase.ownerName, 'Riyadh', 'Base ownerName must be set to player display name');
+
+  // Point 2: Alliance name and tag set next to owner
+  assert.strictEqual(testBase.allianceId, allianceId, 'Base allianceId must match player alliance');
+  assert.strictEqual(testBase.allianceName, 'Iron Legion', 'Base allianceName must match player alliance');
+  assert.strictEqual(testBase.allianceTag, 'IRN', 'Base allianceTag must match player alliance tag');
+
+  // Point 14: Historical capture attribution recorded
+  assert.strictEqual(testBase.capturedByUserId, userAId, 'capturedByUserId must record capturer');
+  assert.strictEqual(testBase.capturedByName, 'Riyadh', 'capturedByName must record capturer display name');
+  assert.strictEqual(testBase.capturedAllianceTag, 'IRN', 'capturedAllianceTag must record capturer tag');
+  assert.ok(testBase.captureHistory.length >= 1, 'captureHistory record must be saved');
+  assert.strictEqual(testBase.captureHistory[0].capturedByName, 'Riyadh');
+
+  // 2. Point 5: Capture of enemy-controlled base replaces old owner and alliance completely
+  // Neutralize base first
+  testBase.health = 0;
+  testBase.defenseShield = 0;
+  testBase.lifecycleState = 'neutralized';
+  testBase.captureProgress = 100;
+
+  // Independent commander Sarah captures the base
+  const dominatorB: any = {
+    id: `dom_b_${now}`,
+    mapId: testMapId,
+    type: 'dominator_conquest',
+    ownerId: userBId,
+    ownerName: 'Sarah',
+    allianceId: null,
+    x: testBase.x + 1,
+    y: testBase.y + 1,
+    health: 1200,
+    maxHealth: 1200,
+  };
+  storeData.units.push(dominatorB);
+
+  const capturedB = (gameSimulation as any).resolveBaseCapture(testBase, dominatorB, now + 1000);
+  assert.strictEqual(capturedB, true, 'Second capture must succeed');
+
+  // Point 1 & 5: New owner is Sarah, previous owner was Riyadh
+  assert.strictEqual(testBase.ownerId, userBId, 'Owner must be updated to new capturer Sarah');
+  assert.strictEqual(testBase.ownerName, 'Sarah', 'Owner display name must be Sarah');
+  assert.strictEqual(testBase.previousOwnerId, userAId, 'previousOwnerId must record Riyadh');
+  assert.strictEqual(testBase.previousOwnerName, 'Riyadh', 'previousOwnerName must record Riyadh');
+
+  // Point 3: Independent player shows Independent (alliance is null)
+  assert.strictEqual(testBase.allianceId, null, 'Independent player base must have null allianceId');
+  assert.strictEqual(testBase.allianceName, null, 'Independent player base must have null allianceName');
+  assert.strictEqual(testBase.allianceTag, null, 'Independent player base must have null allianceTag');
+
+  // Point 14: Capture history preserved across recaptures
+  assert.strictEqual(testBase.capturedByName, 'Sarah');
+  assert.ok(testBase.captureHistory.length >= 2, 'History must contain both capture events');
+  assert.strictEqual(testBase.captureHistory[0].capturedByName, 'Sarah');
+  assert.strictEqual(testBase.captureHistory[1].capturedByName, 'Riyadh');
+
+  // 3. Point 7: Joining an alliance updates all bases owned by that player
+  const joinRes = gameStore.joinOrRequestAlliance(userBId, allianceId);
+  assert.ok(joinRes.success, 'Player Sarah must successfully join Iron Legion');
+  // Dynamic world state resolution verifies bases owned by Sarah reflect the alliance
+  const visibleStateAfterJoin = (gameSimulation as any).getVisibleWorldState(userBId, testMapId);
+  const userBBaseInWorld = visibleStateAfterJoin.bases.find((b: any) => b.id === testBase.id);
+  assert.ok(userBBaseInWorld, 'Base must be in visible world state');
+  assert.strictEqual(userBBaseInWorld.allianceId, allianceId, 'Base allianceId must update on alliance join');
+  assert.strictEqual(userBBaseInWorld.allianceName, 'Iron Legion', 'Base allianceName must update on alliance join');
+  assert.strictEqual(userBBaseInWorld.allianceTag, 'IRN', 'Base allianceTag must update on alliance join');
+
+  // 4. Point 8: Leaving an alliance reverts all bases owned by that player to Independent
+  const leaveRes = gameStore.leaveAlliance(userBId);
+  assert.ok(leaveRes.success, 'Player Sarah must successfully leave alliance');
+  const visibleStateAfterLeave = (gameSimulation as any).getVisibleWorldState(userBId, testMapId);
+  const userBBaseAfterLeave = visibleStateAfterLeave.bases.find((b: any) => b.id === testBase.id);
+  assert.strictEqual(userBBaseAfterLeave.allianceId, null, 'Base allianceId must revert to null on leave');
+  assert.strictEqual(userBBaseAfterLeave.allianceName, null, 'Base allianceName must revert to null on leave');
+  assert.strictEqual(userBBaseAfterLeave.allianceTag, null, 'Base allianceTag must revert to null on leave');
+
+  // 5. Point 9: Disbanding an alliance updates all bases
+  // Riyadh leaves, leaving alliance empty -> alliance is disbanded
+  const disbandRes = gameStore.leaveAlliance(userAId);
+  assert.ok(disbandRes.success && disbandRes.disbanded, 'Empty alliance must disband');
+  assert.ok(!storeData.alliances.some((a: any) => a.id === allianceId), 'Disbanded alliance must be removed');
+
+  // 6. Point 15: Client cannot spoof ownership
+  // Direct client request without dominator vehicle at neutralized base must not capture
+  testBase.ownerId = 'neutral';
+  testBase.ownerName = 'Neutral Territory';
+  testBase.lifecycleState = 'active';
+  testBase.health = 1000;
+  testBase.captureProgress = 0;
+
+  // Dominator on active base (not neutralized) cannot capture
+  const nonCaptureAttempt = (gameSimulation as any).resolveBaseCapture(testBase, dominatorA, now);
+  assert.strictEqual(nonCaptureAttempt, false, 'Client cannot capture an active unneutralized base');
+
+  // Clean up
+  storeData.bases = storeData.bases.filter((b: any) => b.id !== neutralBaseId);
+  storeData.units = storeData.units.filter((u: any) => u.id !== dominatorA.id && u.id !== dominatorB.id);
+  delete storeData.users[userAId];
+  delete storeData.users[userBId];
+});
+
 
 

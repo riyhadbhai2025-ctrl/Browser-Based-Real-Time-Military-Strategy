@@ -1933,77 +1933,93 @@ export class TacticalRenderer {
 
       const hpPct = Math.max(0, base.health / base.maxHealth);
       const shieldPct = base.maxShield > 0 ? Math.max(0, base.defenseShield / base.maxShield) : 0;
-      const barW = isHome ? 114 : 92;
-      const barH = 5;
+      const barW = isHome ? 124 : 106;
+      const boxH = 34;
 
-      // Base Name Tag
-      ctx.font = isHome ? 'bold 11.5px "Chakra Petch", sans-serif' : 'bold 11px "Chakra Petch", sans-serif';
+      // Base Name & Ownership Identity Tag
       ctx.textAlign = 'center';
-      ctx.fillStyle = isHome ? 'rgba(8, 15, 32, 0.94)' : 'rgba(9, 14, 23, 0.88)';
-      ctx.fillRect(sp.x - barW / 2 - 6, sp.y - 24, barW + 12, 30);
+      ctx.fillStyle = isHome ? 'rgba(8, 15, 32, 0.94)' : 'rgba(9, 14, 23, 0.90)';
+      ctx.fillRect(sp.x - barW / 2 - 6, sp.y - 30, barW + 12, boxH);
       ctx.strokeStyle = isNeutral ? '#f59e0b' : isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
       ctx.lineWidth = isHome ? 1.6 : 1;
-      ctx.strokeRect(sp.x - barW / 2 - 6, sp.y - 24, barW + 12, 30);
+      ctx.strokeRect(sp.x - barW / 2 - 6, sp.y - 30, barW + 12, boxH);
 
+      // Line 1: Facility Title
+      ctx.font = isHome ? 'bold 11px "Chakra Petch", sans-serif' : 'bold 10.5px "Chakra Petch", sans-serif';
       ctx.fillStyle = isNeutral ? '#fef3c7' : isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
       const displayLabel = isNeutral ? `[NEUTRAL] ${base.name}` : isHome ? `★ HQ · ${base.name}` : base.name;
-      ctx.fillText(displayLabel, sp.x, sp.y - 10);
+      ctx.fillText(displayLabel, sp.x, sp.y - 18);
+
+      // Line 2: Authoritative Base Owner & Alliance Identity
+      ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
+      if (isNeutral) {
+        ctx.fillStyle = '#fde68a';
+        ctx.fillText(
+          base.previousOwnerName ? `FORMER: ${base.previousOwnerName}` : 'NEUTRAL TERRITORY',
+          sp.x,
+          sp.y - 7
+        );
+      } else {
+        const alliancePart = base.allianceTag ? `[${base.allianceTag}] ` : '';
+        ctx.fillStyle = isPlayer ? '#7dd3fc' : isAllied ? '#6ee7b7' : isEnemy ? '#fca5a5' : '#fde68a';
+        ctx.fillText(`${alliancePart}${base.ownerName}`, sp.x, sp.y - 7);
+      }
 
       // Shield bar
       if (base.maxShield > 0) {
         ctx.fillStyle = '#0f172a';
-        ctx.fillRect(sp.x - barW / 2, sp.y - 6, barW, 3);
+        ctx.fillRect(sp.x - barW / 2, sp.y - 2, barW, 2.5);
         ctx.fillStyle = '#06b6d4';
-        ctx.fillRect(sp.x - barW / 2, sp.y - 6, barW * shieldPct, 3);
+        ctx.fillRect(sp.x - barW / 2, sp.y - 2, barW * shieldPct, 2.5);
       }
 
       // Health bar
       ctx.fillStyle = '#0f172a';
-      ctx.fillRect(sp.x - barW / 2, sp.y - 2, barW, barH);
+      ctx.fillRect(sp.x - barW / 2, sp.y + 2, barW, 4);
       ctx.fillStyle = hpPct > 0.5 ? '#22c55e' : hpPct > 0.25 ? '#f59e0b' : '#ef4444';
-      ctx.fillRect(sp.x - barW / 2, sp.y - 2, barW * hpPct, barH);
+      ctx.fillRect(sp.x - barW / 2, sp.y + 2, barW * hpPct, 4);
 
       if (base.lifecycleState === 'neutralized' || base.ownerId === 'neutral') {
         ctx.fillStyle = 'rgba(180, 83, 9, 0.95)';
-        ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 10);
+        ctx.fillRect(sp.x - barW / 2, sp.y + 8, barW, 10);
         ctx.fillStyle = '#fef3c7';
         ctx.font = 'bold 8px "JetBrains Mono", monospace';
         const uplinkText =
           (base.captureProgress || 0) > 0 ? `UPLINK ${Math.round(base.captureProgress)}%` : 'NEUTRALIZED · OPEN';
-        ctx.fillText(uplinkText, sp.x, sp.y + 13);
+        ctx.fillText(uplinkText, sp.x, sp.y + 16);
       } else if (base.lifecycleState === 'rebuilding') {
         ctx.fillStyle = 'rgba(30, 58, 138, 0.94)';
-        ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 10);
+        ctx.fillRect(sp.x - barW / 2, sp.y + 8, barW, 10);
         ctx.fillStyle = '#bfdbfe';
         ctx.font = 'bold 8px "JetBrains Mono", monospace';
-        ctx.fillText('HQ REBUILDING SHIELD', sp.x, sp.y + 12);
+        ctx.fillText('HQ REBUILDING SHIELD', sp.x, sp.y + 15);
       } else if (base.isProtected) {
         ctx.fillStyle = 'rgba(14, 116, 144, 0.92)';
-        ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 9);
+        ctx.fillRect(sp.x - barW / 2, sp.y + 8, barW, 9);
         ctx.fillStyle = '#e0f2fe';
         ctx.font = 'bold 8px "JetBrains Mono", monospace';
-        ctx.fillText(isHome ? 'HQ SHIELD · 3X ARMOR' : 'SHIELD PROTECTED', sp.x, sp.y + 12);
+        ctx.fillText(isHome ? 'HQ SHIELD · 3X ARMOR' : 'SHIELD PROTECTED', sp.x, sp.y + 15);
       } else if (isHome) {
         ctx.fillStyle = 'rgba(49, 46, 129, 0.88)';
-        ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 9);
+        ctx.fillRect(sp.x - barW / 2, sp.y + 8, barW, 9);
         ctx.fillStyle = '#ddd6fe';
         ctx.font = 'bold 8px "JetBrains Mono", monospace';
-        ctx.fillText(`COMMAND HQ · ${base.armorMultiplier || 3}X ARMOR`, sp.x, sp.y + 12);
+        ctx.fillText(`COMMAND HQ · ${base.armorMultiplier || 3}X ARMOR`, sp.x, sp.y + 15);
       } else if (base.captureContested) {
         ctx.fillStyle = 'rgba(180, 83, 9, 0.95)';
-        ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 9);
+        ctx.fillRect(sp.x - barW / 2, sp.y + 8, barW, 9);
         ctx.fillStyle = '#fef3c7';
         ctx.font = 'bold 8px "JetBrains Mono", monospace';
-        ctx.fillText(`CONTESTED (${base.captureProgress}%)`, sp.x, sp.y + 12);
+        ctx.fillText(`CONTESTED (${base.captureProgress}%)`, sp.x, sp.y + 15);
       } else if (base.captureProgress > 0) {
         const capPct = base.captureProgress / 100;
         ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
-        ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 8);
+        ctx.fillRect(sp.x - barW / 2, sp.y + 8, barW, 8);
         ctx.fillStyle = '#f43f5e';
-        ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW * capPct, 8);
+        ctx.fillRect(sp.x - barW / 2, sp.y + 8, barW * capPct, 8);
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 9px "JetBrains Mono", monospace';
-        ctx.fillText(`CAPTURE ${base.captureProgress}%`, sp.x, sp.y + 12);
+        ctx.fillText(`CAPTURE ${base.captureProgress}%`, sp.x, sp.y + 15);
       }
     }
 
@@ -2146,13 +2162,14 @@ export class TacticalRenderer {
 
     // Base Dots & Home Base Command Markers
     this.bases.forEach((b) => {
-      const isPlayer = b.ownerId === this.currentUserId;
-      const isAllied = this.userAllianceId && b.allianceId === this.userAllianceId;
-      const isEnemy = base.ownerIsEnemy(b.ownerId, isPlayer, !!isAllied);
+      const isNeutral = b.ownerId === 'neutral' || b.lifecycleState === 'neutralized';
+      const isPlayer = !isNeutral && b.ownerId === this.currentUserId;
+      const isAllied = !isNeutral && Boolean(this.userAllianceId && b.allianceId === this.userAllianceId);
+      const isEnemy = !isNeutral && !isPlayer && !isAllied;
       const isHome = Boolean(b.isHomeBase || b.type === 'home');
       const bx = b.x * cellW;
       const by = b.y * cellH;
-      const fillCol = isPlayer ? '#3b82f6' : isAllied ? '#10b981' : isEnemy ? '#ef4444' : '#f59e0b';
+      const fillCol = isNeutral ? '#f59e0b' : isPlayer ? '#3b82f6' : isAllied ? '#10b981' : isEnemy ? '#ef4444' : '#fbbf24';
 
       if (isHome) {
         mCtx.save();
@@ -2176,6 +2193,15 @@ export class TacticalRenderer {
         mCtx.beginPath();
         mCtx.arc(bx, by, 4.5, 0, Math.PI * 2);
         mCtx.fill();
+      }
+
+      // Alliance indicator badge border on minimap when owner belongs to an alliance
+      if (!isNeutral && b.allianceTag) {
+        mCtx.save();
+        mCtx.strokeStyle = isPlayer ? '#93c5fd' : isAllied ? '#6ee7b7' : '#fca5a5';
+        mCtx.lineWidth = 1.1;
+        mCtx.strokeRect(bx - 5.5, by - 5.5, 11, 11);
+        mCtx.restore();
       }
     });
 

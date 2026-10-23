@@ -4,6 +4,7 @@ import { TacticalRenderer } from './game/renderer';
 import { soundEngine } from './game/audio';
 import {
   AIDifficulty,
+  Alliance,
   AtmospherePreset,
   Base,
   BuildingType,
@@ -446,11 +447,23 @@ export default function App() {
       );
     });
 
-    socket.on('base:captured', (data: { baseId: string; baseName?: string; newOwnerId: string; newOwnerName: string }) => {
+    socket.on('base:captured', (data: {
+      baseId: string;
+      baseName?: string;
+      newOwnerId: string;
+      newOwnerName: string;
+      allianceId?: string | null;
+      allianceName?: string | null;
+      allianceTag?: string | null;
+      capturedByUserId?: string | null;
+      capturedByName?: string | null;
+      capturedAt?: number | null;
+    }) => {
       soundEngine.playCaptureSuccess();
+      const allianceBadge = data.allianceTag ? ` [${data.allianceTag}]` : '';
       setNotificationToast({
         title: 'BASE CAPTURED!',
-        message: `${data.newOwnerName} has seized control of ${data.baseName || 'sector base'}!`,
+        message: `${data.newOwnerName}${allianceBadge} has seized control of ${data.baseName || 'sector base'}!`,
       });
       setTimeout(() => setNotificationToast(null), 5000);
       setBases((prev) =>
@@ -460,6 +473,12 @@ export default function App() {
                 ...b,
                 ownerId: data.newOwnerId,
                 ownerName: data.newOwnerName,
+                allianceId: data.allianceId ?? null,
+                allianceName: data.allianceName ?? null,
+                allianceTag: data.allianceTag ?? null,
+                capturedByUserId: data.capturedByUserId || data.newOwnerId,
+                capturedByName: data.capturedByName || data.newOwnerName,
+                capturedAt: data.capturedAt || Date.now(),
                 lifecycleState: 'active',
                 health: Math.round(b.maxHealth * 0.5),
                 defenseShield: Math.round(b.maxShield * 0.25),
@@ -481,7 +500,7 @@ export default function App() {
       setChatMessages((prev) => [...prev.slice(-60), msg]);
     });
 
-    socket.on('alliance:update', (alliance) => {
+    socket.on('alliance:update', (alliance: Alliance) => {
       setAlliances((prev) => {
         const idx = prev.findIndex((a) => a.id === alliance.id);
         if (idx >= 0) {
@@ -491,6 +510,28 @@ export default function App() {
         }
         return [...prev, alliance];
       });
+      // Synchronize local bases for members of this alliance
+      setBases((prev) =>
+        prev.map((b) => {
+          if (alliance.memberIds.includes(b.ownerId)) {
+            return {
+              ...b,
+              allianceId: alliance.id,
+              allianceName: alliance.name,
+              allianceTag: alliance.tag,
+            };
+          }
+          if (b.allianceId === alliance.id && !alliance.memberIds.includes(b.ownerId)) {
+            return {
+              ...b,
+              allianceId: null,
+              allianceName: null,
+              allianceTag: null,
+            };
+          }
+          return b;
+        })
+      );
     });
 
     return () => {
@@ -1596,6 +1637,7 @@ export default function App() {
               currentUserId={currentUserId}
               profile={profile}
               maps={maps}
+              alliances={alliances}
               onClose={() => setSelectedBaseId(null)}
               onBuild={handleBuild}
               onCancelBuild={handleCancelBuild}

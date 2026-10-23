@@ -17,7 +17,7 @@ import {
   Award,
   Target,
 } from 'lucide-react';
-import { Base, BuildingDefinition, BuildingType, MapSectorConfig, PlayerProfile, UnitType } from '../types/game';
+import { Alliance, Base, BuildingDefinition, BuildingType, MapSectorConfig, PlayerProfile, UnitType } from '../types/game';
 import { BUILDING_CATALOG, UNIT_CATALOG } from '../game/catalog';
 import { assetManager } from '../game/assets/assetManager';
 
@@ -38,6 +38,7 @@ interface BaseDrawerProps {
   currentUserId: string;
   profile?: PlayerProfile | null;
   maps?: MapSectorConfig[];
+  alliances?: Alliance[];
   onClose: () => void;
   onBuild: (baseId: string, buildingType: BuildingType) => void;
   onCancelBuild?: (baseId: string, orderId: string) => void;
@@ -54,6 +55,7 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
   currentUserId,
   profile,
   maps = [],
+  alliances = [],
   onClose,
   onBuild,
   onCancelBuild,
@@ -77,6 +79,13 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
   const now = Date.now();
   const hpPct = Math.max(0, base.health / Math.max(1, base.maxHealth));
   const shieldPct = base.maxShield > 0 ? Math.max(0, base.defenseShield / base.maxShield) : 0;
+
+  // Resolve authoritative alliance name & tag
+  const matchingAlliance = base.allianceId
+    ? alliances.find((a) => a.id === base.allianceId)
+    : null;
+  const displayAllianceName = base.allianceName || matchingAlliance?.name || null;
+  const displayAllianceTag = base.allianceTag || matchingAlliance?.tag || null;
 
   const hqLevel =
     base.hqLevel || base.buildings.find((b) => b.type === 'command_center')?.level || 1;
@@ -170,9 +179,9 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-1.5 text-[10px] text-slate-400 truncate">
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-400 truncate flex-wrap mt-0.5">
               <span className="uppercase text-cyan-400 font-semibold">
-                {isHomeBase ? 'PERMANENT HEADQUARTERS' : `${base.type} BASE`}
+                {isHomeBase ? 'HQ' : `${base.type.toUpperCase()}`}
               </span>
               <span>•</span>
               <span className="font-mono">
@@ -185,24 +194,32 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
                     ? 'text-emerald-400 font-bold'
                     : isNeutral
                     ? 'text-amber-400 font-bold'
-                    : 'text-rose-400'
+                    : 'text-rose-400 font-bold'
                 }
               >
-                {isOwner
-                  ? 'OWNED'
-                  : isNeutral
-                  ? base.previousOwnerName
-                    ? `NEUTRAL (Former: ${base.previousOwnerName})`
-                    : 'NEUTRAL TERRITORY'
-                  : base.ownerName}
+                OWNER: {isNeutral ? 'Neutral Territory' : base.ownerName}
               </span>
+              {!isNeutral && (
+                <>
+                  <span>•</span>
+                  {displayAllianceTag ? (
+                    <span className="px-1.5 py-0.5 rounded bg-blue-950/90 text-blue-300 border border-blue-500/50 text-[9px] font-mono font-bold tracking-wider">
+                      [{displayAllianceTag}] {displayAllianceName || ''}
+                    </span>
+                  ) : (
+                    <span className="px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-700/60 text-[9px] font-mono">
+                      Independent
+                    </span>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </div>
 
         <button
           onClick={onClose}
-          className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition"
+          className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition shrink-0 ml-1"
           title="Close Base Management Panel"
         >
           <X className="w-4 h-4" />
@@ -433,14 +450,31 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
 
               <div className="grid grid-cols-2 gap-2 text-[10px]">
                 <div className="p-1.5 rounded bg-slate-950 border border-slate-800/80">
-                  <div className="text-slate-500">COMMANDER / FACTION</div>
-                  <div className="text-slate-200 font-bold truncate">
+                  <div className="text-slate-500">BASE OWNER</div>
+                  <div className="text-slate-100 font-bold truncate">
                     {isNeutral ? 'Neutral Territory' : base.ownerName}
                   </div>
                   <div className="text-cyan-400 truncate">
                     {isNeutral && base.previousOwnerName
                       ? `Former: ${base.previousOwnerName}`
                       : ownerFaction}
+                  </div>
+                </div>
+                <div className="p-1.5 rounded bg-slate-950 border border-slate-800/80">
+                  <div className="text-slate-500">ALLIANCE</div>
+                  <div className="text-slate-100 font-bold truncate">
+                    {isNeutral ? (
+                      <span className="text-slate-400">Neutral Territory</span>
+                    ) : displayAllianceTag ? (
+                      <span className="text-blue-300">
+                        {displayAllianceName} [{displayAllianceTag}]
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">Independent</span>
+                    )}
+                  </div>
+                  <div className="text-slate-500 text-[9px] truncate">
+                    {isNeutral ? 'Unclaimed Territory' : displayAllianceTag ? 'Coalition Member' : 'No Alliance'}
                   </div>
                 </div>
                 <div className="p-1.5 rounded bg-slate-950 border border-slate-800/80">
@@ -457,17 +491,77 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
                     {isHomeBase ? 'Capture Immune (HQ)' : 'Capturable Sector Base'}
                   </div>
                 </div>
-                <div className="p-1.5 rounded bg-slate-950 border border-slate-800/80">
-                  <div className="text-slate-500"> LIFECYCLE STATUS</div>
-                  <div className="text-slate-200 font-bold uppercase">{base.lifecycleState || 'active'}</div>
-                  <div className="text-slate-400">
-                    {base.rebuildProtectionUntil && base.rebuildProtectionUntil > now
-                      ? `Rebuild Shield (${Math.ceil((base.rebuildProtectionUntil - now) / 60000)}m)`
-                      : base.isProtected
-                      ? 'Protected Truce Active'
-                      : 'Combat Ready'}
-                  </div>
+              </div>
+
+              {/* Tactical Capture Attribution Card */}
+              <div className="p-2 rounded bg-slate-950 border border-slate-800/90 text-[10px] space-y-1">
+                <div className="flex items-center justify-between border-b border-slate-800/70 pb-1">
+                  <span className="text-slate-400 font-bold text-[9px] uppercase tracking-wider flex items-center gap-1">
+                    <Target className="w-3 h-3 text-cyan-400" />
+                    <span>Tactical Capture Attribution</span>
+                  </span>
+                  {base.capturedAt && (
+                    <span className="text-slate-500 text-[9px]">
+                      {new Date(base.capturedAt).toLocaleTimeString()}
+                    </span>
+                  )}
                 </div>
+
+                {isHomeBase ? (
+                  <div className="text-slate-300 text-[10px] py-0.5">
+                    <span className="text-slate-500">ORIGIN:</span> Permanent Command Headquarters of{' '}
+                    <span className="text-purple-300 font-bold">{base.ownerName}</span>
+                  </div>
+                ) : isNeutral ? (
+                  <div className="text-slate-400 text-[10px] py-0.5">
+                    {base.previousOwnerName ? (
+                      <span>
+                        <span className="text-slate-500">STATUS:</span> Neutralized. Former Controller:{' '}
+                        <span className="text-amber-300 font-bold">{base.previousOwnerName}</span>
+                      </span>
+                    ) : (
+                      <span>
+                        <span className="text-slate-500">STATUS:</span> Unclaimed Sector Base. Ready for conquest.
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-0.5 py-0.5">
+                    <div className="text-[10px] flex items-center gap-1 flex-wrap">
+                      <span className="text-slate-500">CAPTURED BY:</span>
+                      <span className="text-emerald-400 font-bold text-xs">{base.capturedByName || base.ownerName}</span>
+                      {base.capturedAllianceTag && (
+                        <span className="px-1 py-0.2 rounded bg-blue-950 border border-blue-500/50 text-blue-300 font-mono text-[9px] font-bold">
+                          [{base.capturedAllianceTag}]
+                        </span>
+                      )}
+                    </div>
+                    {base.previousOwnerName && (
+                      <div className="text-[9px] text-slate-500">
+                        Seized from former owner: <span className="text-rose-400">{base.previousOwnerName}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {base.captureHistory && base.captureHistory.length > 0 && (
+                  <div className="mt-1 pt-1 border-t border-slate-900 text-[9px] text-slate-400">
+                    <div className="text-slate-500 font-bold mb-0.5">CAPTURE LOG:</div>
+                    <div className="space-y-0.5 max-h-20 overflow-y-auto">
+                      {base.captureHistory.map((rec) => (
+                        <div key={rec.id} className="flex items-center justify-between text-[9px]">
+                          <span className="text-slate-300">
+                            Captured by <strong className="text-cyan-300">{rec.capturedByName}</strong>
+                            {rec.allianceTag ? ` [${rec.allianceTag}]` : ''}
+                          </span>
+                          <span className="text-slate-500 font-mono">
+                            {new Date(rec.capturedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {isHomeBase && (
