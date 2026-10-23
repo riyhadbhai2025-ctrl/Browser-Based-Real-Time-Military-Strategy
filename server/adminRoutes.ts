@@ -2588,5 +2588,28 @@ export function createAdminRouter(
     }
   );
 
+  router.post(
+    '/system/reset',
+    authenticateAdmin,
+    requirePermission('admins.manage'),
+    (req: AuthenticatedAdminRequest, res: Response) => {
+      const session = req.adminSession!;
+      gameStore.resetAllData();
+      gameStore.addAuditLog({
+        adminId: session.userId,
+        adminUsername: session.username,
+        adminRole: session.role,
+        action: 'system.reset_all_data',
+        targetType: 'system',
+        targetId: 'all',
+        reason: sanitizeText(req.body?.reason, 300) || 'Full system reset cleared all users and bases',
+        status: 'success',
+        ipAddress: getClientIp(req),
+      });
+      gameSimulation.broadcastWorldSync();
+      res.json({ success: true, message: 'All users, bases, units, and persistent records have been successfully reset.' });
+    }
+  );
+
   return router;
 }

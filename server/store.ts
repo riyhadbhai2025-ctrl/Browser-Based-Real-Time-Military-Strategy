@@ -157,7 +157,7 @@ export function createDefaultSystemSettings(): SystemSettings {
     gameVersion: 'v3.0.0-MULTI-SECTOR',
     maintenanceMode: false,
     maintenanceMessage: 'Scheduled tactical server maintenance in progress. Operations will resume shortly.',
-    fogOfWarEnforced: true,
+    fogOfWarEnforced: false,
     alliancesEnabled: true,
     aiAggressionEnabled: true,
     allowNewRegistrations: true,
@@ -4632,6 +4632,24 @@ export class GameStore {
       }
     }
     return list;
+  }
+
+  public resetAllData(): void {
+    this.data.users = {};
+    this.data.tokens = {};
+    this.data.adminSessions = {};
+    const world = generateWorld(this.data.worldConfig || { width: 100, height: 75, tileSize: 40, seed: 202610 });
+    this.data.bases = [];
+    this.data.units = [];
+    this.data.envObjects = world.envObjects;
+    this.data.alliances = [];
+    this.data.chat = [];
+    this.data.notifications = [];
+    this.data.battleReports = [];
+    this.data.supportTickets = [];
+    this.data.auditLogs = [];
+    this.data.matches = [];
+    this.saveData();
   }
 }
 
