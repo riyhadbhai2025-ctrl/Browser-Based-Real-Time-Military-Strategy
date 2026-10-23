@@ -1,6 +1,6 @@
 import { Server, Socket } from 'socket.io';
 import { generateWorld } from '../src/game/mapGenerator';
-import { findPath, isCellPassable, isRailCell, getConnectedRailwayCells, findRailwayPath } from '../src/game/pathfinder';
+import { findPath, isCellPassable, isRailCell, getConnectedRailwayCells, getConnectedRailwayCellsForBase, findRailwayPath } from '../src/game/pathfinder';
 import {
   AIDifficulty,
   Base,
@@ -1056,8 +1056,8 @@ export class GameSimulation {
                   // Cannot deploy rail unit at non-rail base; skip
                   continue;
                 }
-                const connected = getConnectedRailwayCells(terrain, Math.round(base.x), Math.round(base.y));
-                for (let r = 0; r <= base.radius + 4 && !foundSpot; r++) {
+                const connected = getConnectedRailwayCellsForBase(terrain, base);
+                for (let r = 0; r <= base.radius + 6 && !foundSpot; r++) {
                   for (let dy = -r; dy <= r && !foundSpot; dy++) {
                     for (let dx = -r; dx <= r && !foundSpot; dx++) {
                       const tx = Math.round(base.x + dx);
@@ -1079,6 +1079,8 @@ export class GameSimulation {
                   // Retain order in production queue as pending deployment (WAITING FOR RAIL ACCESS)
                   base.productionQueue.push({
                     ...prod,
+                    status: 'WAITING FOR RAIL ACCESS',
+                    blockedReason: 'Track exit or nearby railway cells are occupied or obstructed',
                     finishTime: now + 2000,
                   });
                   continue;
@@ -2371,7 +2373,7 @@ export class GameSimulation {
       if (uDef.enabled === false) return { success: false, message: 'This unit type is currently disabled by Command' };
 
       // Home Base ground-vehicle & infantry production specialization rule
-      if ((this.isAuthoritativeHomeBase(base) || base.type === 'home') && uDef.category !== 'ground') {
+      if (base.type === 'home' && uDef.category !== 'ground') {
         return {
           success: false,
           message: `Home Base Motor Pool is restricted to ground infantry and armored vehicles. Capture a specialized ${uDef.category.toUpperCase()} base to deploy ${uDef.name}.`,
@@ -2409,7 +2411,7 @@ export class GameSimulation {
           return { success: false, message: 'Rail units can only be produced at Armored Rail Bases.' };
         }
         const terrain = this.getTerrain(baseMapId);
-        const connected = getConnectedRailwayCells(terrain, Math.round(base.x), Math.round(base.y));
+        const connected = getConnectedRailwayCellsForBase(terrain, base);
         if (connected.size === 0) {
           return { success: false, message: 'Rail Base has no connected railway track network.' };
         }

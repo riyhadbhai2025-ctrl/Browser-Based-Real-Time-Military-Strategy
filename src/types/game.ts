@@ -141,6 +141,8 @@ export interface UnitProductionOrder {
   startTime: number;
   finishTime: number;
   cost: Resources;
+  status?: 'queued' | 'in_progress' | 'WAITING FOR RAIL ACCESS' | 'RAIL SPAWN BLOCKED';
+  blockedReason?: string;
 }
 
 export type BaseLifecycleState =

@@ -260,6 +260,14 @@ export function generateWorld(config: WorldMapConfig = { width: 100, height: 75,
     }
   }
 
+  // Spur line going south to base_rail_fortress depot
+  for (let y = railY; y <= 52; y++) {
+    const rx = 62;
+    if (rx < width && terrain[y][rx] !== 'water' && terrain[y][rx] !== 'deep_water') {
+      terrain[y][rx] = 'railway';
+    }
+  }
+
 
 
 

@@ -91,6 +91,78 @@ export function getConnectedRailwayCells(terrain: TerrainType[][], startX: numbe
   return connected;
 }
 
+export function getConnectedRailwayCellsForBase(
+  terrain: TerrainType[][],
+  base: { x: number; y: number; radius?: number }
+): Set<string> {
+  const connected = new Set<string>();
+  const height = terrain.length;
+  const width = terrain[0]?.length || 0;
+  if (height === 0 || width === 0) return connected;
+
+  const searchRadius = (base.radius || 4) + 8;
+  const bx = Math.round(base.x);
+  const by = Math.round(base.y);
+
+  const seeds: { x: number; y: number }[] = [];
+  for (let dy = -searchRadius; dy <= searchRadius; dy++) {
+    for (let dx = -searchRadius; dx <= searchRadius; dx++) {
+      const tx = bx + dx;
+      const ty = by + dy;
+      if (tx >= 0 && tx < width && ty >= 0 && ty < height) {
+        if (isRailCell(terrain, tx, ty)) {
+          seeds.push({ x: tx, y: ty });
+        }
+      }
+    }
+  }
+
+  if (seeds.length === 0) return connected;
+
+  const queue: { x: number; y: number }[] = [];
+  for (const s of seeds) {
+    const key = `${s.x},${s.y}`;
+    if (!connected.has(key)) {
+      connected.add(key);
+      queue.push(s);
+    }
+  }
+
+  const dirs = [
+    { dx: 1, dy: 0 },
+    { dx: -1, dy: 0 },
+    { dx: 0, dy: 1 },
+    { dx: 0, dy: -1 },
+    { dx: 1, dy: 1 },
+    { dx: -1, dy: 1 },
+    { dx: 1, dy: -1 },
+    { dx: -1, dy: -1 },
+  ];
+
+  while (queue.length > 0) {
+    const { x, y } = queue.shift()!;
+
+    for (const d of dirs) {
+      const nx = x + d.dx;
+      const ny = y + d.dy;
+      const key = `${nx},${ny}`;
+      if (connected.has(key)) continue;
+
+      if (isRailCell(terrain, nx, ny)) {
+        if (d.dx !== 0 && d.dy !== 0) {
+          if (!isRailCell(terrain, x + d.dx, y) || !isRailCell(terrain, x, y + d.dy)) {
+            continue;
+          }
+        }
+        connected.add(key);
+        queue.push({ x: nx, y: ny });
+      }
+    }
+  }
+
+  return connected;
+}
+
 export function findRailwayPath(
   terrain: TerrainType[][],
   startX: number,

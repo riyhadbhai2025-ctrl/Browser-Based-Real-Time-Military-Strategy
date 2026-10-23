@@ -4638,8 +4638,9 @@ export class GameStore {
     this.data.users = {};
     this.data.tokens = {};
     this.data.adminSessions = {};
+    this.data.accountsPurged = false;
     const world = generateWorld(this.data.worldConfig || { width: 100, height: 75, tileSize: 40, seed: 202610 });
-    this.data.bases = [];
+    this.data.bases = [...world.bases];
     this.data.units = [];
     this.data.envObjects = world.envObjects;
     this.data.alliances = [];
@@ -4649,6 +4650,7 @@ export class GameStore {
     this.data.supportTickets = [];
     this.data.auditLogs = [];
     this.data.matches = [];
+    this.ensureAdminBootstrapUsers(this.data);
     this.saveData();
   }
 }

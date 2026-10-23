@@ -1841,6 +1841,7 @@ test('23. Combat Siege Strategic Home Base System: Complete 14-Point End-to-End 
     );
 
     // 10. Home Map Relocation API (POST /api/player/home-map) & Cooldown Enforcement
+    storeData.users[playerProfile.id].profile.lastHomeMapChangeAt = 0;
     const targetMapId = homeBase.mapId === 'map_iron_ridge_corridor' ? 'map_riverfront_assault' : 'map_iron_ridge_corridor';
     const cooldownTargetMapId = homeBase.mapId;
     const relocateRes = await fetch(`${baseUrl}/api/player/home-map`, {
@@ -2431,6 +2432,76 @@ test('26. Server-Authoritative Rail Base, Railway Network, and Rail Unit Movemen
   const disconnectedPath = findRailwayPath(terrain, foundRailX, foundRailY, 1, 1);
   assert.strictEqual(disconnectedPath.length, 0, 'Path to non-rail or disconnected cell must be empty');
 });
+
+test('27. Rail Base Unit Production Pipeline, Depot Prerequisites, Blocked Track Queueing & Error Callbacks', async () => {
+  const { gameSimulation } = await import('../server/simulation');
+  const state = gameStore.getData();
+  const now = Date.now();
+
+  // Find a rail base
+  const railBase = state.bases.find((b: any) => b.type === 'rail');
+  assert.ok(railBase, 'Server must contain a rail base');
+
+  const userId = 'player_default';
+  railBase.ownerId = userId;
+  railBase.ownerName = 'Command Headquarters';
+
+  // Ensure rail_depot building exists on base
+  let depot = railBase.buildings.find((b: any) => b.type === 'rail_depot');
+  if (!depot) {
+    depot = {
+      id: `b_depot_${now}`,
+      type: 'rail_depot',
+      level: 1,
+      health: 500,
+      maxHealth: 500,
+      isConstructing: false,
+    };
+    railBase.buildings.push(depot);
+  } else {
+    depot.isConstructing = false;
+    depot.health = 500;
+  }
+
+  // Ensure ample resources
+  railBase.resources = { concrete: 5000, steel: 5000, aluminum: 5000, fuel: 5000 };
+
+  // 1. Valid rail unit production order succeeds
+  const prodRes = gameSimulation.produceUnit(userId, railBase.id, 'iron_dreadnought');
+  assert.strictEqual(prodRes.success, true, 'Rail unit production at rail base with depot must succeed');
+  assert.ok(prodRes.orderId, 'Order ID must be returned');
+
+  // Verify order in base.productionQueue
+  const order = railBase.productionQueue.find((p: any) => p.id === prodRes.orderId);
+  assert.ok(order, 'Order must be present in base.productionQueue');
+  assert.strictEqual(order.unitType, 'iron_dreadnought');
+
+  // 2. Production at non-rail base fails with explicit error
+  const nonRailBase = state.bases.find((b: any) => b.type !== 'rail');
+  if (nonRailBase) {
+    const invalidProd = gameSimulation.produceUnit(nonRailBase.ownerId, nonRailBase.id, 'iron_dreadnought');
+    assert.strictEqual(invalidProd.success, false, 'Rail unit production at non-rail base must fail');
+    assert.ok(invalidProd.message, 'Failure message must explain restriction');
+  }
+
+  // 3. Simulation tick completes production and spawns unit on connected track
+  order.finishTime = Date.now() - 100;
+  (gameSimulation as any).lastEconomyTickMs = 0;
+  const initialUnitCount = state.units.length;
+
+  (gameSimulation as any).tick();
+
+  const finalUnitCount = state.units.length;
+  assert.strictEqual(finalUnitCount, initialUnitCount + 1, 'Unit must spawn on completed production tick');
+
+  const spawnedUnit = state.units[state.units.length - 1];
+  assert.strictEqual(spawnedUnit.type, 'iron_dreadnought');
+  assert.strictEqual(isRailCell((gameSimulation as any).getTerrain(railBase.mapId || 'map_riverfront_assault'), Math.round(spawnedUnit.x), Math.round(spawnedUnit.y)), true, 'Spawned rail unit must strictly sit on a valid rail cell');
+
+  // Clean up
+  state.units = state.units.filter((u: any) => u.id !== spawnedUnit.id);
+});
+
 
 
 

@@ -151,7 +151,39 @@ export default function App() {
   const [showIntel, setShowIntel] = useState<boolean>(false);
   const [showTutorial, setShowTutorial] = useState<boolean>(false);
   const [showShortcuts, setShowShortcuts] = useState<boolean>(false);
-  const [notificationToast, setNotificationToast] = useState<{ title: string; message: string } | null>(null);
+
+  // Multi-toast Notification Queue
+  const [toasts, setToasts] = useState<
+    Array<{ id: string; type: 'error' | 'success' | 'warning' | 'info'; title: string; message: string; timestamp: number }>
+  >([]);
+
+  const addToast = useCallback((type: 'error' | 'success' | 'warning' | 'info', title: string, message: string) => {
+    if (!message) return;
+    const now = Date.now();
+    const id = `toast_${now}_${Math.random().toString(36).substring(2, 6)}`;
+    setToasts((prev) => {
+      if (prev.some((t) => t.title === title && t.message === message && now - t.timestamp < 2000)) {
+        return prev;
+      }
+      return [...prev.slice(-4), { id, type, title, message, timestamp: now }];
+    });
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 5000);
+  }, []);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const setNotificationToast = useCallback(
+    (toast: { title: string; message: string } | null) => {
+      if (toast) {
+        addToast('info', toast.title, toast.message);
+      }
+    },
+    [addToast]
+  );
 
   // Apply root DOM attributes & soundEngine settings whenever settings change
   useEffect(() => {
@@ -491,9 +523,12 @@ export default function App() {
       );
     });
 
+    socket.on('action:error', (data: { title?: string; message: string; error?: string }) => {
+      addToast('error', data.title || 'ACTION BLOCKED', data.message || data.error || 'Operation failed');
+    });
+
     socket.on('notification:new', (notif) => {
-      setNotificationToast({ title: notif.title, message: notif.message });
-      setTimeout(() => setNotificationToast(null), 5000);
+      addToast('info', notif.title, notif.message);
     });
 
     socket.on('chat:message', (msg: ChatMessage) => {
@@ -1191,7 +1226,11 @@ export default function App() {
   const handleBuild = (baseId: string, buildingType: BuildingType, offsetX?: number, offsetY?: number) => {
     if (!isAuthenticated) return;
     socketRef.current?.emit('base:build', { baseId, buildingType, offsetX, offsetY }, (res: any) => {
-      if (res?.success) soundEngine.playBuildComplete();
+      if (res?.success) {
+        soundEngine.playBuildComplete();
+      } else if (res?.message || res?.error) {
+        addToast('error', 'CONSTRUCTION BLOCKED', res.message || res.error);
+      }
     });
   };
 
@@ -1203,24 +1242,32 @@ export default function App() {
       setCameraCoords({ x: base.x, y: base.y });
     }
     setPlacingBuilding({ baseId, buildingType });
-    setNotificationToast({
-      title: '3D FACILITY PLACEMENT',
-      message: 'Left-click inside base perimeter to construct, Right-click or Esc to cancel.',
-    });
-    setTimeout(() => setNotificationToast(null), 4000);
+    addToast(
+      'info',
+      '3D FACILITY PLACEMENT',
+      'Left-click inside base perimeter to construct, Right-click or Esc to cancel.'
+    );
   };
 
   const handleProduceUnit = (baseId: string, unitType: UnitType) => {
     if (!isAuthenticated) return;
     socketRef.current?.emit('base:produce_unit', { baseId, unitType }, (res: any) => {
-      if (res?.success) soundEngine.playBuildComplete();
+      if (res?.success) {
+        soundEngine.playBuildComplete();
+      } else if (res?.message || res?.error) {
+        addToast('error', 'PRODUCTION BLOCKED', res.message || res.error);
+      }
     });
   };
 
   const handleRepairBase = (baseId: string) => {
     if (!isAuthenticated) return;
     socketRef.current?.emit('base:repair', { baseId }, (res: any) => {
-      if (res?.success) soundEngine.playBuildComplete();
+      if (res?.success) {
+        soundEngine.playBuildComplete();
+      } else if (res?.message || res?.error) {
+        addToast('error', 'REPAIR BLOCKED', res.message || res.error);
+      }
     });
   };
 
@@ -1229,11 +1276,9 @@ export default function App() {
     socketRef.current?.emit('base:cancel_build', { baseId, orderId }, (res: any) => {
       if (res?.success) {
         soundEngine.playCommandAck();
-        setNotificationToast({
-          title: 'CONSTRUCTION CANCELLED',
-          message: 'Construction order cancelled and 100% resources refunded.',
-        });
-        setTimeout(() => setNotificationToast(null), 3000);
+        addToast('info', 'CONSTRUCTION CANCELLED', 'Construction order cancelled and 100% resources refunded.');
+      } else if (res?.message || res?.error) {
+        addToast('error', 'CANCEL FAILED', res.message || res.error);
       }
     });
   };
@@ -1243,11 +1288,9 @@ export default function App() {
     socketRef.current?.emit('base:cancel_unit', { baseId, orderId }, (res: any) => {
       if (res?.success) {
         soundEngine.playCommandAck();
-        setNotificationToast({
-          title: 'UNIT PRODUCTION CANCELLED',
-          message: 'Unit training cancelled and 100% resources refunded.',
-        });
-        setTimeout(() => setNotificationToast(null), 3000);
+        addToast('info', 'UNIT PRODUCTION CANCELLED', 'Unit training cancelled and 100% resources refunded.');
+      } else if (res?.message || res?.error) {
+        addToast('error', 'CANCEL FAILED', res.message || res.error);
       }
     });
   };
@@ -1257,12 +1300,8 @@ export default function App() {
     socketRef.current?.emit('base:repair_building', { baseId, buildingId }, (res: any) => {
       if (res?.success) {
         soundEngine.playBuildComplete();
-      } else if (res?.error) {
-        setNotificationToast({
-          title: 'REPAIR BLOCKED',
-          message: res.error,
-        });
-        setTimeout(() => setNotificationToast(null), 3500);
+      } else if (res?.message || res?.error) {
+        addToast('error', 'REPAIR BLOCKED', res.message || res.error);
       }
     });
   };
@@ -1283,17 +1322,9 @@ export default function App() {
             homeMapChangeCooldownUntil: Date.now() + 5 * 60 * 1000,
           });
         }
-        setNotificationToast({
-          title: 'HOME BASE RELOCATED',
-          message: res.message || 'Command Headquarters relocated to target sector.',
-        });
-        setTimeout(() => setNotificationToast(null), 4500);
-      } else if (res?.error) {
-        setNotificationToast({
-          title: 'HQ RELOCATION BLOCKED',
-          message: res.error,
-        });
-        setTimeout(() => setNotificationToast(null), 4500);
+        addToast('info', 'HOME BASE RELOCATED', res.message || 'Command Headquarters relocated to target sector.');
+      } else if (res?.message || res?.error) {
+        addToast('error', 'HQ RELOCATION BLOCKED', res.message || res.error);
       }
     });
   };
@@ -1668,11 +1699,52 @@ export default function App() {
         </>
       )}
 
-      {/* 7. Notification Toast */}
-      {notificationToast && (
-        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-lg bg-slate-900 border border-cyan-500/60 shadow-2xl text-center pointer-events-none">
-          <div className="text-xs font-bold font-mono text-cyan-300">{notificationToast.title}</div>
-          <div className="text-[11px] text-slate-300">{notificationToast.message}</div>
+      {/* 7. Notification Toasts Container */}
+      {toasts.length > 0 && (
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 w-full max-w-md px-4 pointer-events-none">
+          {toasts.map((toast) => {
+            const isError = toast.type === 'error';
+            const isWarning = toast.type === 'warning';
+            const isSuccess = toast.type === 'success';
+            const borderColor = isError
+              ? 'border-rose-500/80 bg-slate-950/95 text-rose-300'
+              : isWarning
+              ? 'border-amber-500/80 bg-slate-950/95 text-amber-300'
+              : isSuccess
+              ? 'border-emerald-500/80 bg-slate-950/95 text-emerald-300'
+              : 'border-cyan-500/80 bg-slate-950/95 text-cyan-300';
+            const titleColor = isError
+              ? 'text-rose-400'
+              : isWarning
+              ? 'text-amber-400'
+              : isSuccess
+              ? 'text-emerald-400'
+              : 'text-cyan-400';
+
+            return (
+              <div
+                key={toast.id}
+                className={`flex items-start justify-between gap-3 p-3 rounded-lg border shadow-2xl backdrop-blur-md transition-all duration-200 pointer-events-auto ${borderColor}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className={`text-xs font-bold font-mono tracking-wide uppercase ${titleColor}`}>
+                    {toast.title}
+                  </div>
+                  <div className="text-[12px] text-slate-200 mt-0.5 leading-snug break-words">
+                    {toast.message}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => removeToast(toast.id)}
+                  className="text-slate-400 hover:text-white p-1 rounded transition-colors text-xs font-mono font-bold shrink-0"
+                  title="Dismiss notification"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 

@@ -15,9 +15,6 @@ import { AllianceRecruitmentMode, AllianceRole, ChatMessage, PlayerProfile, Unit
 
 dotenv.config();
 
-// Perform full system reset to delete all users and bases as requested
-gameStore.resetAllData();
-
 export const app = express();
 export const server = http.createServer(app);
 const port = 3000;

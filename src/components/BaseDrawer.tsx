@@ -989,13 +989,20 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
                   const elapsed = Math.max(0, now - prod.startTime);
                   const pct = Math.min(100, Math.max(0, (elapsed / total) * 100));
                   const remainSec = Math.max(0, Math.round((prod.finishTime - now) / 1000));
+                  const isBlocked = prod.status === 'WAITING FOR RAIL ACCESS' || prod.status === 'RAIL SPAWN BLOCKED';
 
                   return (
-                    <div key={prod.id} className="p-1.5 rounded bg-slate-950 border border-slate-800">
+                    <div key={prod.id} className={`p-1.5 rounded border ${isBlocked ? 'bg-amber-950/40 border-amber-500/60' : 'bg-slate-950 border-slate-800'}`}>
                       <div className="flex items-center justify-between text-[10px] mb-1">
                         <span className="font-bold text-slate-200">{uDef?.name}</span>
                         <div className="flex items-center gap-2">
-                          <span className="text-amber-400">{remainSec}s</span>
+                          {isBlocked ? (
+                            <span className="text-amber-400 font-bold uppercase tracking-wider text-[9px] animate-pulse">
+                              {prod.status}
+                            </span>
+                          ) : (
+                            <span className="text-amber-400">{remainSec}s</span>
+                          )}
                           {isOwner && onCancelUnit && (
                             <button
                               onClick={() => onCancelUnit(base.id, prod.id)}
@@ -1006,8 +1013,13 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
                           )}
                         </div>
                       </div>
+                      {isBlocked && prod.blockedReason && (
+                        <div className="text-[9px] text-amber-300 font-mono mb-1">
+                          ⚠ {prod.blockedReason}
+                        </div>
+                      )}
                       <div className="w-full h-1.5 bg-slate-800 rounded overflow-hidden">
-                        <div className="h-full bg-emerald-500 transition-all" style={{ width: `${pct}%` }} />
+                        <div className={`h-full transition-all ${isBlocked ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} />
                       </div>
                     </div>
                   );
