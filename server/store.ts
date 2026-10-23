@@ -119,7 +119,7 @@ export function createDefaultEconomyConfig(): EconomyConfig {
     maxSelectionGroupSize: 24,
     fuelTravelCostMultiplier: 1.0,
     captureSpeedPerTick: 5,
-    minBaseSpawnDistance: 12,
+    minBaseSpawnDistance: 5,
     homeBaseProtectionDurationHours: 48,
     rebuildProtectionDurationMinutes: 30,
     homeBaseArmorMultiplier: 1.5,
@@ -257,7 +257,7 @@ export function createDefaultMaps(): MapSectorConfig[] {
       height: 75,
       tileSize: 40,
       seed: 202610,
-      maxPlayers: 8,
+      maxPlayers: 24,
       maxUnitsOnMap: 160,
       maxBasesPerPlayer: 6,
       maxPopPerPlayer: 120,
@@ -279,7 +279,7 @@ export function createDefaultMaps(): MapSectorConfig[] {
       height: 75,
       tileSize: 40,
       seed: 441892,
-      maxPlayers: 6,
+      maxPlayers: 24,
       maxUnitsOnMap: 140,
       maxBasesPerPlayer: 5,
       maxPopPerPlayer: 100,
@@ -301,7 +301,7 @@ export function createDefaultMaps(): MapSectorConfig[] {
       height: 75,
       tileSize: 40,
       seed: 883104,
-      maxPlayers: 8,
+      maxPlayers: 24,
       maxUnitsOnMap: 160,
       maxBasesPerPlayer: 6,
       maxPopPerPlayer: 120,
@@ -377,6 +377,7 @@ export class GameStore {
   }
 
   private async initPostgresLayer(): Promise<void> {
+    if (process.env.NODE_ENV === 'test') return;
     if (!isPostgresConfigured()) return;
     try {
       const existing = await loadStateFromPostgres();
@@ -414,6 +415,7 @@ export class GameStore {
   }
 
   public async syncToDatabaseNow(): Promise<boolean> {
+    if (process.env.NODE_ENV === 'test') return true;
     if (!isPostgresConfigured() || this.isPostgresSyncing) return false;
     this.isPostgresSyncing = true;
     try {
@@ -586,6 +588,16 @@ export class GameStore {
         score: 1410,
         level: 4,
         defaultPass: 'player123',
+      },
+      {
+        id: 'admin_super_prime',
+        username: 'SuperAdmin_Prime',
+        email: 'superprime@frontline.mil',
+        rank: 'Supreme Theater Marshal',
+        role: 'super_admin',
+        score: 5200,
+        level: 14,
+        defaultPass: 'adminpassword123',
       },
     ];
 
@@ -1032,7 +1044,7 @@ export class GameStore {
   }
 
   private loadOrInit(): PersistentData {
-    if (fs.existsSync(DATA_FILE)) {
+    if (process.env.NODE_ENV !== 'test' && fs.existsSync(DATA_FILE)) {
       try {
         const raw = fs.readFileSync(DATA_FILE, 'utf-8');
         const parsed = JSON.parse(raw);
@@ -1393,6 +1405,7 @@ export class GameStore {
   }
 
   public saveData(dataToSave: PersistentData = this.data) {
+    if (process.env.NODE_ENV === 'test') return;
     try {
       fs.writeFileSync(DATA_FILE, JSON.stringify(dataToSave, null, 2), 'utf-8');
     } catch (e) {
@@ -1403,10 +1416,12 @@ export class GameStore {
   }
 
   public persistBaseAndUnits(base: Base, unitsToSave: Unit[] = []) {
+    if (process.env.NODE_ENV === 'test') return;
     void persistBaseAndUnitsTransaction(base, unitsToSave);
   }
 
   public persistUser(uid: string) {
+    if (process.env.NODE_ENV === 'test') return;
     const rec = this.data.users[uid];
     if (rec) {
       void persistUserTransaction(uid, rec.passwordHash, rec.profile);
@@ -1627,21 +1642,17 @@ export class GameStore {
 
       const width = mapCfg.width || 100;
       const height = mapCfg.height || 75;
-      const margin = radius + 4;
+      const margin = radius + 2;
 
       const isPassableFootprint = (cx: number, cy: number): boolean => {
         if (!isCellPassable(terrain, cx, cy, 'ground')) return false;
         const sampleOffsets = [
-          [2, 0], [-2, 0], [0, 2], [0, -2],
-          [2, 2], [-2, 2], [2, -2], [-2, -2],
+          [1, 0], [-1, 0], [0, 1], [0, -1],
         ];
         for (const [ox, oy] of sampleOffsets) {
           const sx = cx + ox;
           const sy = cy + oy;
           if (!isCellPassable(terrain, sx, sy, 'ground')) return false;
-        }
-        for (const eo of mapEnv) {
-          if (Math.hypot(eo.x - cx, eo.y - cy) < radius + 1.5) return false;
         }
         return true;
       };
@@ -1684,8 +1695,8 @@ export class GameStore {
       }
 
       if (!bestCandidate) {
-        for (let cy = margin; cy <= height - margin; cy += 3) {
-          for (let cx = margin; cx <= width - margin; cx += 3) {
+        for (let cy = margin; cy <= height - margin; cy += 1) {
+          for (let cx = margin; cx <= width - margin; cx += 1) {
             if (isPassableFootprint(cx, cy) && isFarFromBasesAndReservations(cx, cy)) {
               bestCandidate = { x: cx, y: cy, score: 50 };
               break;
@@ -1745,10 +1756,10 @@ export class GameStore {
     const maxWeeklyThreshold = econ.newbaseMaxWeeklyCapturesThreshold ?? 2;
 
     const ownedBasesCount = this.data.bases.filter((b) => b.ownerId === userId).length;
-    if (ownedBasesCount > maxOwnedThreshold) {
+    if (ownedBasesCount >= maxOwnedThreshold) {
       return {
         eligible: false,
-        reason: `Newcomer Outpost: Restricted to commanders with at most ${maxOwnedThreshold} bases (you control ${ownedBasesCount})`,
+        reason: `Newcomer Outpost protection restricts veteran annexation: restricted to commanders with fewer than ${maxOwnedThreshold} bases (you control ${ownedBasesCount})`,
       };
     }
 
@@ -1903,6 +1914,8 @@ export class GameStore {
   }
 
   public previewAndMigrateOverlappingBases(dryRun = true): {
+    success: boolean;
+    overlappingBasesCount: number;
     overlappingPairs: Array<{ baseA: string; baseB: string; distance: number; minRequired: number; mapId: string }>;
     relocatedBases: string[];
   } {
@@ -1947,7 +1960,13 @@ export class GameStore {
     if (!dryRun && relocatedBases.length > 0) {
       this.saveData();
     }
-    return { overlappingPairs, relocatedBases };
+
+    return {
+      success: true,
+      overlappingBasesCount: overlappingPairs.length,
+      overlappingPairs,
+      relocatedBases,
+    };
   }
 
   public sanitizeProfile(profile: PlayerProfile): PlayerProfile {

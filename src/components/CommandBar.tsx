@@ -13,6 +13,7 @@ import {
   Users,
   Home,
   ArrowRightLeft,
+  X,
 } from 'lucide-react';
 import { HighwayExit, Unit } from '../types/game';
 import { UNIT_CATALOG } from '../game/catalog';
@@ -24,6 +25,7 @@ interface CommandBarProps {
   onSetCommand: (command: 'move' | 'attack' | 'hold' | 'patrol' | 'retreat' | 'stop') => void;
   onSelectSingleUnit: (id: string) => void;
   onSelectAllUnits?: () => void;
+  onClearSelection?: () => void;
   onJumpToHome?: () => void;
   onFocusUnit?: (unit: Unit) => void;
   controlGroups: Record<number, string[]>;
@@ -31,6 +33,10 @@ interface CommandBarProps {
   onAssignGroup: (groupNum: number) => void;
   highwayExits?: HighwayExit[];
   onHighwayTransfer?: (targetMapId: string) => void;
+  showSquadBar?: boolean;
+  compactHud?: boolean;
+  highContrastHud?: boolean;
+  largerTouchTargets?: boolean;
 }
 
 export const CommandBar: React.FC<CommandBarProps> = ({
@@ -40,6 +46,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   onSetCommand,
   onSelectSingleUnit,
   onSelectAllUnits,
+  onClearSelection,
   onJumpToHome,
   onFocusUnit,
   controlGroups,
@@ -47,6 +54,10 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   onAssignGroup,
   highwayExits = [],
   onHighwayTransfer,
+  showSquadBar = true,
+  compactHud = false,
+  highContrastHud = false,
+  largerTouchTargets = false,
 }) => {
   const [showHighwayMenu, setShowHighwayMenu] = useState(false);
 
@@ -64,11 +75,14 @@ export const CommandBar: React.FC<CommandBarProps> = ({
   const firstHpPct =
     firstUnit && firstDef ? Math.max(0, Math.min(1, firstUnit.health / firstDef.maxHealth)) : 1;
 
+  const cmdBtnSize = largerTouchTargets ? 'w-13 h-12 min-w-[48px] min-h-[46px]' : 'w-11 sm:w-12 h-11 min-w-[42px]';
+  const borderClass = highContrastHud ? 'border-2 border-cyan-500/80 bg-slate-950' : 'border border-slate-800 bg-slate-950/95';
+
   return (
-    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1 select-none pointer-events-auto">
+    <div className="absolute bottom-2 sm:bottom-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1 w-[calc(100vw-16px)] sm:w-auto max-w-[calc(100vw-16px)] select-none pointer-events-auto">
       {/* Highway Redeployment Popover */}
       {showHighwayMenu && selectedUnits.length > 0 && highwayExits.length > 0 && (
-        <div className="mb-1 p-3 rounded-lg bg-slate-950/95 border border-amber-500/60 shadow-2xl w-80 text-xs font-mono">
+        <div className="mb-1 p-3 rounded-lg bg-slate-950/98 border border-amber-500/60 shadow-2xl w-full max-w-xs sm:w-80 text-xs font-mono">
           <div className="flex items-center justify-between mb-2 pb-1 border-b border-slate-800">
             <span className="font-bold text-amber-300 uppercase">Highway Sector Redeployment</span>
             <button
@@ -108,63 +122,77 @@ export const CommandBar: React.FC<CommandBarProps> = ({
       )}
 
       {/* Control Groups Bar (Ctrl+1..9) */}
-      <div className="flex items-center gap-1 px-2.5 py-1 rounded bg-slate-950/95 border border-slate-800 text-[10px] font-mono text-slate-300 shadow-lg">
-        <span className="text-slate-500 mr-1">SQUADS (CTRL+1-9):</span>
-        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((g) => {
-          const hasUnits = controlGroups[g] && controlGroups[g].length > 0;
-          return (
-            <button
-              key={g}
-              onClick={() => onRecallGroup(g)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                onAssignGroup(g);
-              }}
-              className={`px-1.5 py-0.5 rounded font-mono transition ${
-                hasUnits
-                  ? 'bg-blue-900/80 text-blue-200 border border-blue-500/60 hover:bg-blue-800'
-                  : 'bg-slate-900 text-slate-500 hover:text-slate-300'
-              }`}
-              title={`Left-click to recall Squad ${g}, Right-click or Ctrl+${g} to assign selected`}
-            >
-              #{g}
-            </button>
-          );
-        })}
-      </div>
+      {showSquadBar && !compactHud && (
+        <div
+          className={`hidden sm:flex items-center gap-1 px-2.5 py-1 rounded ${borderClass} text-[10px] font-mono text-slate-300 shadow-lg overflow-x-auto max-w-full`}
+        >
+          <span className="text-slate-500 mr-1 shrink-0">SQUADS (CTRL+1-9):</span>
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((g) => {
+            const hasUnits = controlGroups[g] && controlGroups[g].length > 0;
+            return (
+              <button
+                key={g}
+                onClick={() => onRecallGroup(g)}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  onAssignGroup(g);
+                }}
+                className={`px-1.5 py-0.5 rounded font-mono transition shrink-0 ${
+                  hasUnits
+                    ? 'bg-blue-900/80 text-blue-200 border border-blue-500/60 hover:bg-blue-800'
+                    : 'bg-slate-900 text-slate-500 hover:text-slate-300'
+                }`}
+                title={`Left-click to recall Squad ${g}, Right-click or Ctrl+${g} to assign selected`}
+              >
+                #{g}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Main Tactical Command Console */}
       {selectedUnits.length === 0 ? (
-        <div className="flex items-center gap-3 px-4 py-2 rounded-lg bg-slate-950/95 border border-slate-800 shadow-2xl text-xs font-mono text-slate-300">
-          <span className="text-slate-400">
+        <div
+          className={`flex items-center justify-between sm:justify-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 rounded-lg ${borderClass} shadow-2xl text-xs font-mono text-slate-300 w-full sm:w-auto`}
+        >
+          <span className="hidden md:inline text-slate-400">
             LEFT-CLICK OR DRAG-BOX UNITS TO ISSUE 3D TACTICAL ORDERS
           </span>
-          {onSelectAllUnits && allPlayerUnitsCount > 0 && (
-            <button
-              onClick={onSelectAllUnits}
-              className="px-2.5 py-1 rounded bg-blue-700 hover:bg-blue-600 text-white font-semibold flex items-center gap-1.5 transition"
-              title="Select All Active Friendly Forces (Home)"
-            >
-              <Users className="w-3.5 h-3.5" />
-              <span>Select All Forces ({allPlayerUnitsCount})</span>
-            </button>
-          )}
-          {onJumpToHome && (
-            <button
-              onClick={onJumpToHome}
-              className="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 flex items-center gap-1.5 transition"
-              title="Center Camera on Allied Sector HQ (Space)"
-            >
-              <Home className="w-3.5 h-3.5" />
-              <span>Sector HQ</span>
-            </button>
-          )}
+          <span className="md:hidden text-[11px] text-slate-400 truncate">
+            TAP OR DRAG UNITS TO COMMAND
+          </span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onSelectAllUnits && allPlayerUnitsCount > 0 && (
+              <button
+                onClick={onSelectAllUnits}
+                className="px-2.5 py-1.5 rounded bg-blue-700 hover:bg-blue-600 text-white font-semibold flex items-center gap-1.5 transition"
+                title="Select All Active Friendly Forces (Home)"
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span className="hidden xs:inline">All Forces</span>
+                <span>({allPlayerUnitsCount})</span>
+              </button>
+            )}
+            {onJumpToHome && (
+              <button
+                onClick={onJumpToHome}
+                className="px-2.5 py-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 flex items-center gap-1.5 transition"
+                title="Center Camera on Allied Sector HQ (Space)"
+              >
+                <Home className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Sector HQ</span>
+              </button>
+            )}
+          </div>
         </div>
       ) : (
-        <div className="flex items-center gap-3 p-2.5 rounded-lg bg-slate-950/95 border border-slate-800 shadow-2xl">
-          {/* Left: Selected Unit Live Telemetry Inspector */}
-          {firstUnit && firstDef && (
-            <div className="hidden lg:flex items-center gap-3 pr-3 border-r border-slate-800 min-w-[265px]">
+        <div
+          className={`flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 p-2 sm:p-2.5 rounded-lg ${borderClass} shadow-2xl w-full sm:w-auto max-w-full overflow-x-auto`}
+        >
+          {/* Left (Desktop xl+): Selected Unit Live Telemetry Inspector */}
+          {firstUnit && firstDef && !compactHud && (
+            <div className="hidden xl:flex items-center gap-3 pr-3 border-r border-slate-800 min-w-[255px]">
               <div className="flex flex-col items-center justify-center w-12 h-12 rounded bg-slate-900 border border-blue-500/50 text-cyan-300 font-mono">
                 <span className="text-[9px] text-slate-400 uppercase">{firstDef.category}</span>
                 <span className="text-xs font-bold text-blue-300">
@@ -174,7 +202,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
 
               <div className="flex-1 text-[10px] font-mono">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="font-bold text-xs text-slate-100 truncate max-w-[150px]">
+                  <span className="font-bold text-xs text-slate-100 truncate max-w-[140px]">
                     {firstDef.name}
                   </span>
                   <span className="text-cyan-400 uppercase font-semibold">{firstUnit.command}</span>
@@ -200,7 +228,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
                   </span>
                 </div>
 
-                {/* Live Combat Statistics from Real Game State */}
+                {/* Live Combat Statistics */}
                 <div className="grid grid-cols-4 gap-1.5 text-[9px] text-slate-300 pt-0.5 border-t border-slate-800/80">
                   <div title="Attack Damage">
                     <Zap className="w-2.5 h-2.5 inline text-amber-400 mr-0.5" />
@@ -224,7 +252,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
           )}
 
           {/* Center: Selected Units Group Cards */}
-          <div className="flex items-center gap-1.5 max-w-md overflow-x-auto pr-2 border-r border-slate-800">
+          <div className="flex items-center gap-1.5 max-w-full sm:max-w-xs md:max-w-md overflow-x-auto pb-1 sm:pb-0 sm:pr-2 sm:border-r border-slate-800">
             {Object.entries(unitCountsByType).map(([type, data]) => {
               const def = UNIT_CATALOG[type as keyof typeof UNIT_CATALOG];
               const avgHp = Math.round(data.units.reduce((acc, u) => acc + u.health, 0) / data.count);
@@ -236,18 +264,18 @@ export const CommandBar: React.FC<CommandBarProps> = ({
                   key={type}
                   onClick={() => onSelectSingleUnit(data.units[0].id)}
                   onDoubleClick={() => onFocusUnit && onFocusUnit(data.units[0])}
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700/80 transition cursor-pointer"
+                  className="flex items-center gap-2 px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700/80 transition cursor-pointer shrink-0"
                   title="Click to inspect single unit, Double-click to center 3D camera"
                 >
-                  <div className="w-7 h-7 rounded bg-blue-950 border border-blue-500/50 flex items-center justify-center font-mono font-bold text-xs text-cyan-300">
+                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded bg-blue-950 border border-blue-500/50 flex items-center justify-center font-mono font-bold text-xs text-cyan-300">
                     {data.count}x
                   </div>
                   <div className="text-left">
-                    <div className="text-[11px] font-bold text-slate-100 truncate max-w-[110px] font-mono">
+                    <div className="text-[10px] sm:text-[11px] font-bold text-slate-100 truncate max-w-[90px] sm:max-w-[110px] font-mono">
                       {def?.name || type}
                     </div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <div className="w-14 h-1.5 bg-slate-800 rounded overflow-hidden">
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <div className="w-12 sm:w-14 h-1.5 bg-slate-800 rounded overflow-hidden">
                         <div
                           className={`h-full ${
                             hpPct > 0.5 ? 'bg-emerald-500' : hpPct > 0.25 ? 'bg-amber-500' : 'bg-rose-500'
@@ -264,11 +292,11 @@ export const CommandBar: React.FC<CommandBarProps> = ({
           </div>
 
           {/* Right: Tactical Command Action Buttons */}
-          <div className="flex items-center gap-1">
+          <div className="flex items-center justify-between sm:justify-start gap-1 overflow-x-auto">
             {onFocusUnit && firstUnit && (
               <button
                 onClick={() => onFocusUnit(firstUnit)}
-                className="flex flex-col items-center justify-center w-11 h-11 rounded text-[10px] font-mono font-semibold transition bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700"
+                className={`flex flex-col items-center justify-center ${cmdBtnSize} rounded text-[9px] sm:text-[10px] font-mono font-semibold transition bg-slate-900 hover:bg-slate-800 text-cyan-300 border border-slate-700 shrink-0`}
                 title="Center 3D Camera on Selected Unit (C)"
               >
                 <Focus className="w-4 h-4 mb-0.5 text-cyan-400" />
@@ -278,7 +306,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
 
             <button
               onClick={() => onSetCommand('move')}
-              className={`flex flex-col items-center justify-center w-12 h-11 rounded text-[10px] font-mono font-semibold transition border ${
+              className={`flex flex-col items-center justify-center ${cmdBtnSize} rounded text-[9px] sm:text-[10px] font-mono font-semibold transition border shrink-0 ${
                 activeCommand === 'move'
                   ? 'bg-blue-600 text-white border-blue-400 shadow'
                   : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
@@ -291,7 +319,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
 
             <button
               onClick={() => onSetCommand('attack')}
-              className={`flex flex-col items-center justify-center w-12 h-11 rounded text-[10px] font-mono font-semibold transition border ${
+              className={`flex flex-col items-center justify-center ${cmdBtnSize} rounded text-[9px] sm:text-[10px] font-mono font-semibold transition border shrink-0 ${
                 activeCommand === 'attack'
                   ? 'bg-rose-600 text-white border-rose-400 shadow'
                   : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
@@ -304,7 +332,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
 
             <button
               onClick={() => onSetCommand('hold')}
-              className={`flex flex-col items-center justify-center w-12 h-11 rounded text-[10px] font-mono font-semibold transition border ${
+              className={`flex flex-col items-center justify-center ${cmdBtnSize} rounded text-[9px] sm:text-[10px] font-mono font-semibold transition border shrink-0 ${
                 activeCommand === 'hold'
                   ? 'bg-amber-600 text-white border-amber-400 shadow'
                   : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
@@ -317,7 +345,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
 
             <button
               onClick={() => onSetCommand('patrol')}
-              className={`flex flex-col items-center justify-center w-12 h-11 rounded text-[10px] font-mono font-semibold transition border ${
+              className={`flex flex-col items-center justify-center ${cmdBtnSize} rounded text-[9px] sm:text-[10px] font-mono font-semibold transition border shrink-0 ${
                 activeCommand === 'patrol'
                   ? 'bg-emerald-600 text-white border-emerald-400 shadow'
                   : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700'
@@ -330,7 +358,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
 
             <button
               onClick={() => onSetCommand('retreat')}
-              className="flex flex-col items-center justify-center w-12 h-11 rounded text-[10px] font-mono font-semibold transition bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700"
+              className={`flex flex-col items-center justify-center ${cmdBtnSize} rounded text-[9px] sm:text-[10px] font-mono font-semibold transition bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 shrink-0`}
               title="Retreat to friendly Home Base"
             >
               <CornerDownLeft className="w-4 h-4 mb-0.5 text-cyan-400" />
@@ -339,7 +367,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
 
             <button
               onClick={() => onSetCommand('stop')}
-              className="flex flex-col items-center justify-center w-12 h-11 rounded text-[10px] font-mono font-semibold transition bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700"
+              className={`flex flex-col items-center justify-center ${cmdBtnSize} rounded text-[9px] sm:text-[10px] font-mono font-semibold transition bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 shrink-0`}
               title="Stop all movement and clear path (Press S)"
             >
               <Square className="w-4 h-4 mb-0.5 text-slate-400" />
@@ -349,7 +377,7 @@ export const CommandBar: React.FC<CommandBarProps> = ({
             {highwayExits.length > 0 && onHighwayTransfer && (
               <button
                 onClick={() => setShowHighwayMenu(!showHighwayMenu)}
-                className={`flex flex-col items-center justify-center w-14 h-11 rounded text-[9px] font-mono font-bold transition border ${
+                className={`flex flex-col items-center justify-center ${cmdBtnSize} rounded text-[9px] font-mono font-bold transition border shrink-0 ${
                   showHighwayMenu
                     ? 'bg-amber-600 text-white border-amber-300 shadow'
                     : 'bg-amber-950/70 hover:bg-amber-900 text-amber-300 border-amber-600/60'
@@ -358,6 +386,18 @@ export const CommandBar: React.FC<CommandBarProps> = ({
               >
                 <ArrowRightLeft className="w-4 h-4 mb-0.5 text-amber-300" />
                 <span>HIGHWAY</span>
+              </button>
+            )}
+
+            {onClearSelection && (
+              <button
+                onClick={onClearSelection}
+                aria-label="Clear Unit Selection"
+                className={`flex flex-col items-center justify-center ${cmdBtnSize} rounded text-[9px] font-mono font-semibold transition bg-slate-900 hover:bg-rose-950/80 text-slate-400 hover:text-rose-300 border border-slate-700 shrink-0`}
+                title="Clear Selection (Esc)"
+              >
+                <X className="w-4 h-4 mb-0.5" />
+                <span>CLEAR</span>
               </button>
             )}
           </div>

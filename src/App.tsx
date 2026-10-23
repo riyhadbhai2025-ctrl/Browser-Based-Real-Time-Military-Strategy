@@ -31,7 +31,15 @@ import { TutorialModal } from './components/TutorialModal';
 import { AuthModal } from './components/AuthModal';
 import { ShortcutsModal } from './components/ShortcutsModal';
 import { ProgressionModal } from './components/ProgressionModal';
+import { SettingsModal } from './components/SettingsModal';
 import { AdminPanel } from './components/admin/AdminPanel';
+import {
+  clearStoredSettings,
+  GameSettings,
+  getDefaultSettings,
+  loadSettings,
+  saveSettings,
+} from './lib/settings';
 
 export default function App() {
   const [isAdminRoute, setIsAdminRoute] = useState<boolean>(() =>
@@ -83,21 +91,58 @@ export default function App() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [combatLogs, setCombatLogs] = useState<CombatEvent[]>([]);
 
+  // Central Persistent Game Settings
+  const [settings, setSettings] = useState<GameSettings>(() => loadSettings());
+  const [showSettings, setShowSettings] = useState<boolean>(false);
+
+  const updateSettings = useCallback((updater: (prev: GameSettings) => GameSettings) => {
+    setSettings((prev) => {
+      const next = updater(prev);
+      saveSettings(next);
+      return next;
+    });
+  }, []);
+
+  const resetAllSettings = useCallback(() => {
+    const defaults = clearStoredSettings();
+    saveSettings(defaults);
+    setSettings(defaults);
+    setIsStrategicOverview(defaults.strategicOverviewDefault);
+  }, []);
+
+  const resetLayoutOnly = useCallback(() => {
+    const defaults = getDefaultSettings();
+    updateSettings((prev) => ({
+      ...prev,
+      uiScale: defaults.uiScale,
+      compactHud: defaults.compactHud,
+      showSubHeader: defaults.showSubHeader,
+      showMinimap: defaults.showMinimap,
+      minimapSize: defaults.minimapSize,
+      showChat: defaults.showChat,
+      showSquadBar: defaults.showSquadBar,
+      showUnitLabels: defaults.showUnitLabels,
+      uiAnimations: defaults.uiAnimations,
+    }));
+  }, [updateSettings]);
+
   // Selection, Commands & 3D Placement
   const [selectedUnitIds, setSelectedUnitIds] = useState<Set<string>>(new Set());
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
   const [activeCommand, setActiveCommand] = useState<'move' | 'attack' | 'hold' | 'patrol' | 'retreat' | 'stop'>('move');
   const [controlGroups, setControlGroups] = useState<Record<number, string[]>>({});
   const [placingBuilding, setPlacingBuilding] = useState<{ baseId: string; buildingType: BuildingType } | null>(null);
-  const [aiDifficulty, setAiDifficulty] = useState<AIDifficulty>('medium');
-  const [graphicsQuality, setGraphicsQuality] = useState<GraphicsQuality>('high');
-  const [atmospherePreset, setAtmospherePreset] = useState<AtmospherePreset>('daylight');
+
+  // Derived aliases synced with central settings
+  const aiDifficulty = settings.aiDifficulty;
+  const graphicsQuality = settings.graphicsQuality;
+  const atmospherePreset = settings.atmospherePreset;
+  const muted = settings.muted;
+  const fogEnabled = settings.fogEnabled;
+  const repairVisualsActive = settings.repairVisualsActive;
 
   // Modals & UI States
-  const [muted, setMuted] = useState<boolean>(false);
-  const [fogEnabled, setFogEnabled] = useState<boolean>(true);
-  const [repairVisualsActive, setRepairVisualsActive] = useState<boolean>(true);
-  const [isStrategicOverview, setIsStrategicOverview] = useState<boolean>(false);
+  const [isStrategicOverview, setIsStrategicOverview] = useState<boolean>(() => settings.strategicOverviewDefault);
   const [cameraCoords, setCameraCoords] = useState<{ x: number; y: number }>({ x: 16.8, y: 28.2 });
   const [showAdmin, setShowAdmin] = useState<boolean>(false);
   const [showAlliance, setShowAlliance] = useState<boolean>(false);
@@ -106,6 +151,38 @@ export default function App() {
   const [showTutorial, setShowTutorial] = useState<boolean>(false);
   const [showShortcuts, setShowShortcuts] = useState<boolean>(false);
   const [notificationToast, setNotificationToast] = useState<{ title: string; message: string } | null>(null);
+
+  // Apply root DOM attributes & soundEngine settings whenever settings change
+  useEffect(() => {
+    document.documentElement.dataset.uiScale = settings.uiScale;
+    document.documentElement.dataset.reducedMotion = String(settings.reducedMotion);
+    soundEngine.applySettings(settings);
+
+    const r = rendererRef.current;
+    if (r) {
+      if (r.graphicsQuality !== settings.graphicsQuality) {
+        r.setGraphicsQuality(settings.graphicsQuality);
+      }
+      if (r.atmospherePreset !== settings.atmospherePreset) {
+        r.setAtmospherePreset(settings.atmospherePreset);
+      }
+      if (Math.abs(r.renderScale - settings.renderScale) > 0.01) {
+        r.setRenderScale(settings.renderScale);
+      }
+      if (r.shadowsEnabled !== settings.shadowsEnabled) {
+        r.setShadowsEnabled(settings.shadowsEnabled);
+      }
+      if (r.particlesEnabled !== settings.particlesEnabled) {
+        r.setParticlesEnabled(settings.particlesEnabled);
+      }
+      r.fogEnabled = settings.fogEnabled;
+      r.showRepairCranes = settings.repairVisualsActive;
+      r.showUnitLabels = settings.showUnitLabels;
+      r.reducedMotion = settings.reducedMotion;
+      r.reducedFlashes = settings.reducedFlashes;
+      r.showFpsCounter = settings.showFpsCounter;
+    }
+  }, [settings]);
 
   // Keys & Mouse tracking for 3D Camera
   const keysHeld = useRef<Set<string>>(new Set());
@@ -433,15 +510,22 @@ export default function App() {
     if (isAdminRoute || !canvasRef.current) return;
     const canvas = canvasRef.current;
 
-    const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
-    resize();
-    window.addEventListener('resize', resize);
-
     const renderer = new TacticalRenderer(canvas);
     rendererRef.current = renderer;
+
+    // Apply initial persisted settings
+    renderer.renderScale = settings.renderScale;
+    renderer.shadowsEnabled = settings.shadowsEnabled;
+    renderer.particlesEnabled = settings.particlesEnabled;
+    renderer.fogEnabled = settings.fogEnabled;
+    renderer.showRepairCranes = settings.repairVisualsActive;
+    renderer.showUnitLabels = settings.showUnitLabels;
+    renderer.reducedMotion = settings.reducedMotion;
+    renderer.reducedFlashes = settings.reducedFlashes;
+    renderer.showFpsCounter = settings.showFpsCounter;
+    renderer.setGraphicsQuality(settings.graphicsQuality);
+    renderer.setAtmospherePreset(settings.atmospherePreset);
+
     renderer.setPreviewMode(!isAuthenticated);
     renderer.startRenderLoop();
 
@@ -449,8 +533,30 @@ export default function App() {
       renderer.setTerrain(terrain);
     }
 
+    const handleResize = () => {
+      if (rendererRef.current && canvasRef.current) {
+        const rect = canvasRef.current.getBoundingClientRect();
+        rendererRef.current.resize(
+          rect.width || window.innerWidth,
+          rect.height || window.innerHeight
+        );
+      }
+    };
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        handleResize();
+      });
+      resizeObserver.observe(canvas);
+    }
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('orientationchange', handleResize);
+
     return () => {
-      window.removeEventListener('resize', resize);
+      if (resizeObserver) resizeObserver.disconnect();
+      window.removeEventListener('resize', handleResize);
+      window.removeEventListener('orientationchange', handleResize);
       renderer.stopRenderLoop();
       rendererRef.current = null;
     };
@@ -509,7 +615,7 @@ export default function App() {
       lastTime = time;
 
       const renderer = rendererRef.current;
-      if (renderer && !renderer.isPreviewMode && keysHeld.current.size > 0) {
+      if (renderer && !renderer.isPreviewMode) {
         let forward = 0;
         let strafe = 0;
         if (keysHeld.current.has('KeyW') || keysHeld.current.has('ArrowUp')) forward -= 1;
@@ -517,12 +623,26 @@ export default function App() {
         if (keysHeld.current.has('KeyA') || keysHeld.current.has('ArrowLeft')) strafe -= 1;
         if (keysHeld.current.has('KeyD') || keysHeld.current.has('ArrowRight')) strafe += 1;
 
+        // Optional Desktop Screen-Edge Panning
+        if (
+          settings.edgeScrollEnabled &&
+          !showSettings &&
+          mousePos.current.x > 0 &&
+          mousePos.current.y > 0
+        ) {
+          const edgeThreshold = 22;
+          if (mousePos.current.x <= edgeThreshold) strafe -= 0.7;
+          else if (mousePos.current.x >= window.innerWidth - edgeThreshold) strafe += 0.7;
+          if (mousePos.current.y <= edgeThreshold) forward -= 0.7;
+          else if (mousePos.current.y >= window.innerHeight - edgeThreshold) forward += 0.7;
+        }
+
         if (keysHeld.current.has('KeyQ')) renderer.cameraYaw -= 0.028 * dt;
         if (keysHeld.current.has('KeyE')) renderer.cameraYaw += 0.028 * dt;
 
         if (forward !== 0 || strafe !== 0) {
           const mag = Math.hypot(forward, strafe);
-          const speed = (0.52 * dt) / Math.max(0.5, renderer.zoom);
+          const speed = ((0.52 * settings.cameraPanSpeed * dt) / Math.max(0.5, renderer.zoom));
           const nf = forward / mag;
           const ns = strafe / mag;
 
@@ -542,6 +662,7 @@ export default function App() {
     animId = requestAnimationFrame(panLoop);
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (showSettings) return;
       if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement).tagName)) return;
 
       if (
@@ -574,37 +695,49 @@ export default function App() {
         }
       }
 
-      // Hotkey shortcuts
-      if (e.code === 'KeyM') setActiveCommand('move');
-      if (e.code === 'KeyH') {
+      const kb = settings.keybindings;
+
+      // Customizable Hotkey Shortcuts
+      if (e.code === kb.moveCommand) setActiveCommand('move');
+      if (e.code === kb.attackCommand) setActiveCommand('attack');
+      if (e.code === kb.holdCommand) {
         setActiveCommand('hold');
         issueUnitCommand('hold');
       }
-      if (e.code === 'KeyP') setActiveCommand('patrol');
-      if (e.code === 'KeyN' && rendererRef.current) {
+      if (e.code === kb.patrolCommand) setActiveCommand('patrol');
+      if (e.code === kb.stopCommand) {
+        setActiveCommand('stop');
+        issueUnitCommand('stop');
+      }
+      if (e.code === kb.resetNorth && rendererRef.current) {
         rendererRef.current.cameraYaw = 0;
         rendererRef.current.cameraPitch = 0.92;
       }
-      if (e.code === 'KeyV') {
+      if (e.code === kb.strategicOverview) {
         setIsStrategicOverview((prev) => !prev);
       }
-      if (e.code === 'KeyF') {
-        setFogEnabled((prev) => !prev);
+      if (e.code === kb.toggleFog) {
+        updateSettings((prev) => ({ ...prev, fogEnabled: !prev.fogEnabled }));
       }
-      if (e.code === 'KeyC') {
+      if (e.code === kb.focusUnit) {
         const firstId = Array.from(selectedUnitIds)[0];
         const u = units.find((unit) => unit.id === firstId);
         if (u) jumpToCoords(u.x, u.y);
       }
-      if (e.code === 'KeyR') {
+      if (e.code === kb.toggleRepair) {
         const nextState = !repairVisualsActive;
-        setRepairVisualsActive(nextState);
+        updateSettings((prev) => ({ ...prev, repairVisualsActive: nextState }));
         setNotificationToast({
           title: 'REPAIR VISUALS',
           message: nextState ? 'Repair activity ENABLED' : 'Repair activity HIDDEN',
         });
         setTimeout(() => setNotificationToast(null), 2000);
       }
+      if (e.code === kb.jumpHome) {
+        e.preventDefault();
+        jumpToHome();
+      }
+
       if (e.code === 'Enter') {
         const chatInput = document.getElementById('tactical-chat-input');
         if (chatInput) chatInput.focus();
@@ -645,10 +778,6 @@ export default function App() {
           });
         }
       }
-      if (e.code === 'Space') {
-        e.preventDefault();
-        jumpToHome();
-      }
       if (e.code === 'Escape') {
         if (placingBuilding) {
           setPlacingBuilding(null);
@@ -683,6 +812,11 @@ export default function App() {
     jumpToCoords,
     issueUnitCommand,
     placingBuilding,
+    settings.cameraPanSpeed,
+    settings.edgeScrollEnabled,
+    settings.keybindings,
+    showSettings,
+    updateSettings,
   ]);
 
   // 6. Canvas Mouse & Pointer Event Handlers (strictly blocked in unauthenticated preview mode)
@@ -777,7 +911,7 @@ export default function App() {
       const dy = e.clientY - lastDragPos.current.y;
       rightDragDistance.current += Math.hypot(dx, dy);
 
-      const scale = 38 * renderer.zoom;
+      const scale = (38 * renderer.zoom) / Math.max(0.4, settings.cameraPanSpeed);
       const cosY = Math.cos(renderer.cameraYaw);
       const sinY = Math.sin(renderer.cameraYaw);
 
@@ -847,36 +981,62 @@ export default function App() {
 
         if (picked && picked.kind === 'unit') {
           const clickedUnit = picked.unit;
-          const now = Date.now();
-          const isDoubleClick =
-            now - lastClickTimeRef.current < 320 && lastClickedUnitTypeRef.current === clickedUnit.type;
-          lastClickTimeRef.current = now;
-          lastClickedUnitTypeRef.current = clickedUnit.type;
-
-          if (isDoubleClick && clickedUnit.ownerId === currentUserId) {
-            const sameTypeUnits = units.filter(
-              (u) => u.ownerId === currentUserId && u.type === clickedUnit.type
-            );
-            setSelectedUnitIds(new Set(sameTypeUnits.map((u) => u.id)));
-            setSelectedBaseId(null);
-          } else if (e.shiftKey) {
-            setSelectedUnitIds((prev) => {
-              const next = new Set(prev);
-              if (next.has(clickedUnit.id)) next.delete(clickedUnit.id);
-              else next.add(clickedUnit.id);
-              return next;
-            });
+          // On touch devices with Touch Tap-to-Order enabled, tapping a hostile unit attacks it
+          if (
+            e.pointerType === 'touch' &&
+            settings.touchTapToOrder &&
+            selectedUnitIds.size > 0 &&
+            clickedUnit.ownerId !== currentUserId
+          ) {
+            issueUnitCommand('attack', undefined, undefined, clickedUnit.id);
           } else {
-            setSelectedUnitIds(new Set([clickedUnit.id]));
-            setSelectedBaseId(null);
+            const now = Date.now();
+            const isDoubleClick =
+              now - lastClickTimeRef.current < 320 && lastClickedUnitTypeRef.current === clickedUnit.type;
+            lastClickTimeRef.current = now;
+            lastClickedUnitTypeRef.current = clickedUnit.type;
+
+            if (isDoubleClick && clickedUnit.ownerId === currentUserId) {
+              const sameTypeUnits = units.filter(
+                (u) => u.ownerId === currentUserId && u.type === clickedUnit.type
+              );
+              setSelectedUnitIds(new Set(sameTypeUnits.map((u) => u.id)));
+              setSelectedBaseId(null);
+            } else if (e.shiftKey) {
+              setSelectedUnitIds((prev) => {
+                const next = new Set(prev);
+                if (next.has(clickedUnit.id)) next.delete(clickedUnit.id);
+                else next.add(clickedUnit.id);
+                return next;
+              });
+            } else {
+              setSelectedUnitIds(new Set([clickedUnit.id]));
+              setSelectedBaseId(null);
+            }
+            soundEngine.playCommandAck();
           }
-          soundEngine.playCommandAck();
         } else if (picked && picked.kind === 'base') {
-          setSelectedBaseId(picked.base.id);
-          setSelectedUnitIds(new Set());
-          soundEngine.playCommandAck();
+          if (
+            e.pointerType === 'touch' &&
+            settings.touchTapToOrder &&
+            selectedUnitIds.size > 0 &&
+            picked.base.ownerId !== currentUserId
+          ) {
+            issueUnitCommand('attack', undefined, undefined, undefined, picked.base.id);
+          } else {
+            setSelectedBaseId(picked.base.id);
+            setSelectedUnitIds(new Set());
+            soundEngine.playCommandAck();
+          }
         } else {
-          if (!e.shiftKey) {
+          if (e.pointerType === 'touch' && settings.touchTapToOrder && selectedUnitIds.size > 0) {
+            const worldPos = renderer.screenToWorld(e.clientX, e.clientY);
+            issueUnitCommand(
+              activeCommand === 'attack' ? 'attack' : activeCommand === 'patrol' ? 'patrol' : 'move',
+              worldPos.x,
+              worldPos.y
+            );
+          } else if (!e.shiftKey) {
             setSelectedUnitIds(new Set());
             setSelectedBaseId(null);
           }
@@ -928,7 +1088,9 @@ export default function App() {
     if (!isAuthenticated) return;
     const renderer = rendererRef.current;
     if (!renderer) return;
-    const delta = e.deltaY < 0 ? 0.12 : -0.12;
+    const rawDir = e.deltaY < 0 ? 1 : -1;
+    const dir = settings.invertScrollZoom ? -rawDir : rawDir;
+    const delta = dir * 0.12 * settings.cameraZoomSensitivity;
     renderer.zoom = Math.max(0.45, Math.min(2.4, renderer.zoom + delta));
   };
 
@@ -971,7 +1133,7 @@ export default function App() {
 
   const handleChangeAiDifficulty = (difficulty: AIDifficulty) => {
     if (!isAuthenticated) return;
-    setAiDifficulty(difficulty);
+    updateSettings((prev) => ({ ...prev, aiDifficulty: difficulty }));
     socketRef.current?.emit('ai:difficulty', { difficulty });
     setNotificationToast({
       title: 'AI COMMANDER UPDATED',
@@ -1201,9 +1363,10 @@ export default function App() {
             muted={muted}
             onToggleMute={() => {
               const nextMuted = !muted;
-              setMuted(nextMuted);
+              updateSettings((prev) => ({ ...prev, muted: nextMuted }));
               soundEngine.setMuted(nextMuted);
             }}
+            onOpenSettings={() => setShowSettings(true)}
             onOpenAdmin={() => setShowAdmin(true)}
             onOpenAdminConsole={openAdminConsole}
             onOpenAlliance={() => setShowAlliance(true)}
@@ -1220,30 +1383,41 @@ export default function App() {
             onResetSkirmish={handleResetSkirmish}
             graphicsQuality={graphicsQuality}
             onChangeGraphicsQuality={(q) => {
-              setGraphicsQuality(q);
+              updateSettings((prev) => ({ ...prev, graphicsQuality: q }));
               rendererRef.current?.setGraphicsQuality(q);
             }}
             atmospherePreset={atmospherePreset}
             onChangeAtmospherePreset={(p) => {
-              setAtmospherePreset(p);
+              updateSettings((prev) => ({ ...prev, atmospherePreset: p }));
               rendererRef.current?.setAtmospherePreset(p);
             }}
             onJumpToCoords={jumpToCoords}
             onLogout={handleLogout}
+            compactHud={settings.compactHud}
+            showSubHeader={settings.showSubHeader}
+            highContrastHud={settings.highContrastHud}
+            largerTouchTargets={settings.largerTouchTargets}
           />
 
           {/* 3. Radar Minimap & 3D Camera Controls (Bottom Left) */}
-          <Minimap
-            renderer={rendererRef.current}
-            cameraCoords={cameraCoords}
-            onJumpToHome={jumpToHome}
-            fogEnabled={fogEnabled}
-            onToggleFog={() => setFogEnabled(!fogEnabled)}
-            showRepairCranes={repairVisualsActive}
-            onToggleRepair={() => setRepairVisualsActive(!repairVisualsActive)}
-            isStrategicOverview={isStrategicOverview}
-            onToggleStrategicOverview={() => setIsStrategicOverview(!isStrategicOverview)}
-          />
+          {settings.showMinimap && (
+            <Minimap
+              renderer={rendererRef.current}
+              cameraCoords={cameraCoords}
+              onJumpToHome={jumpToHome}
+              fogEnabled={fogEnabled}
+              onToggleFog={() => updateSettings((prev) => ({ ...prev, fogEnabled: !prev.fogEnabled }))}
+              showRepairCranes={repairVisualsActive}
+              onToggleRepair={() =>
+                updateSettings((prev) => ({ ...prev, repairVisualsActive: !prev.repairVisualsActive }))
+              }
+              isStrategicOverview={isStrategicOverview}
+              onToggleStrategicOverview={() => setIsStrategicOverview(!isStrategicOverview)}
+              sizePreset={settings.minimapSize}
+              highContrastHud={settings.highContrastHud}
+              largerTouchTargets={settings.largerTouchTargets}
+            />
+          )}
 
           {/* 4. Unit Command Bar & Squad Inspector (Bottom Center) */}
           <CommandBar
@@ -1262,6 +1436,10 @@ export default function App() {
               setSelectedBaseId(null);
               soundEngine.playCommandAck();
             }}
+            onClearSelection={() => {
+              setSelectedUnitIds(new Set());
+              setSelectedBaseId(null);
+            }}
             onJumpToHome={jumpToHome}
             onFocusUnit={(u) => jumpToCoords(u.x, u.y)}
             controlGroups={controlGroups}
@@ -1279,6 +1457,10 @@ export default function App() {
             }}
             highwayExits={highwayExits}
             onHighwayTransfer={handleHighwayTransfer}
+            showSquadBar={settings.showSquadBar}
+            compactHud={settings.compactHud}
+            highContrastHud={settings.highContrastHud}
+            largerTouchTargets={settings.largerTouchTargets}
           />
 
           {/* 5. Base Management Drawer (Right Side) */}
@@ -1295,16 +1477,20 @@ export default function App() {
           )}
 
           {/* 6. Tactical Comms & Combat Logs (Bottom Right) */}
-          <TacticalChat
-            messages={chatMessages}
-            combatLogs={combatLogs}
-            onSendMessage={(content, channel, coords) => {
-              socketRef.current?.emit('chat:send', { content, channel, coords });
-            }}
-            onJumpToCoords={jumpToCoords}
-            currentCoords={cameraCoords}
-            allianceTag={alliances.find((a) => a.id === profile.allianceId)?.tag}
-          />
+          {settings.showChat && (
+            <TacticalChat
+              messages={chatMessages}
+              combatLogs={combatLogs}
+              onSendMessage={(content, channel, coords) => {
+                socketRef.current?.emit('chat:send', { content, channel, coords });
+              }}
+              onJumpToCoords={jumpToCoords}
+              currentCoords={cameraCoords}
+              allianceTag={alliances.find((a) => a.id === profile.allianceId)?.tag}
+              highContrastHud={settings.highContrastHud}
+              uiAnimations={settings.uiAnimations}
+            />
+          )}
         </>
       )}
 
@@ -1374,6 +1560,22 @@ export default function App() {
             setShowTutorial(false);
             jumpToHome();
           }}
+        />
+      )}
+
+      {/* 10. Complete In-Game Settings Modal */}
+      {showSettings && (
+        <SettingsModal
+          settings={settings}
+          onUpdateSettings={updateSettings}
+          onResetAllSettings={resetAllSettings}
+          onResetLayoutOnly={resetLayoutOnly}
+          onClearControlGroups={() => setControlGroups({})}
+          isStrategicOverview={isStrategicOverview}
+          onToggleStrategicOverview={setIsStrategicOverview}
+          onChangeAiDifficulty={isAuthenticated ? handleChangeAiDifficulty : undefined}
+          onResetSkirmish={isAuthenticated ? handleResetSkirmish : undefined}
+          onClose={() => setShowSettings(false)}
         />
       )}
     </div>

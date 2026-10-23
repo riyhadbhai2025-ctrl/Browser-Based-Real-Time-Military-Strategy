@@ -105,9 +105,21 @@ export class TacticalRenderer {
   private sunLight: THREE.DirectionalLight;
   private hemiLight: THREE.HemisphereLight;
   private isSoftwareGl: boolean = false;
+  private cssWidth: number = 1280;
+  private cssHeight: number = 720;
 
   public graphicsQuality: GraphicsQuality = 'high';
   public atmospherePreset: AtmospherePreset = 'daylight';
+  public renderScale: number = 1.0;
+  public shadowsEnabled: boolean = true;
+  public particlesEnabled: boolean = true;
+  public showUnitLabels: boolean = true;
+  public reducedMotion: boolean = false;
+  public reducedFlashes: boolean = false;
+  public showFpsCounter: boolean = false;
+  public currentFps: number = 60;
+  private fpsFrameCount: number = 0;
+  private fpsLastTimeMs: number = performance.now();
 
   private terrainSys: Terrain3DSystem;
   private modelsRegistry: Models3DRegistry;
@@ -224,11 +236,16 @@ export class TacticalRenderer {
       this.startRenderLoop();
     });
 
+    const initW = Math.max(1, Math.floor(canvas.clientWidth || window.innerWidth || 1280));
+    const initH = Math.max(1, Math.floor(canvas.clientHeight || window.innerHeight || 720));
+    this.cssWidth = initW;
+    this.cssHeight = initH;
+
     // Create 2D HUD overlay canvas for crisp screen-space bars, labels, and selection marquee
     this.hudCanvas = document.createElement('canvas');
     this.hudCanvas.className = 'absolute inset-0 w-full h-full pointer-events-none z-10';
-    this.hudCanvas.width = canvas.width || window.innerWidth;
-    this.hudCanvas.height = canvas.height || window.innerHeight;
+    this.hudCanvas.width = initW;
+    this.hudCanvas.height = initH;
     if (canvas.parentElement) {
       canvas.parentElement.appendChild(this.hudCanvas);
     }
@@ -237,7 +254,7 @@ export class TacticalRenderer {
     // 1. Initialize Renderer first, then detect Software GL from its context
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true, // We'll disable it later if software
+      antialias: true,
       powerPreference: 'high-performance',
     });
 
@@ -247,12 +264,13 @@ export class TacticalRenderer {
       const rendererStr = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : '';
       this.isSoftwareGl = /SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(rendererStr);
     }
-    this.renderer.setPixelRatio(this.isSoftwareGl ? 1.0 : Math.min(window.devicePixelRatio, 2));
-    this.renderer.setSize(canvas.width || window.innerWidth, canvas.height || window.innerHeight, false);
+    const initDpr = this.computeEffectivePixelRatio(initW, initH);
+    this.renderer.setPixelRatio(initDpr);
+    this.renderer.setSize(initW, initH, false);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.18;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.shadowMap.enabled = !this.isSoftwareGl;
+    this.renderer.shadowMap.enabled = !this.isSoftwareGl && this.shadowsEnabled;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     // Scene & Daylight Atmosphere Setup (Alpha Force Riverfront Assault look)
@@ -272,7 +290,7 @@ export class TacticalRenderer {
     // Perspective RTS Camera
     this.camera = new THREE.PerspectiveCamera(
       42,
-      (canvas.width || window.innerWidth) / Math.max(1, canvas.height || window.innerHeight),
+      initW / Math.max(1, initH),
       0.25,
       1000
     );
@@ -319,15 +337,6 @@ export class TacticalRenderer {
     );
     this.ghostPerimeterRing.visible = false;
     this.scene.add(this.ghostPerimeterRing);
-
-    // DIAGNOSTIC: Add a bright test cube to verify renderer pipeline
-    const testCube = new THREE.Mesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true })
-    );
-    testCube.position.set(36, 5, 28);
-    testCube.name = 'diagnostic_cube';
-    this.scene.add(testCube);
 
     // Rebuild base meshes when Kenney GLB models finish loading
     this.modelsRegistry.onModelsUpdated(() => {
@@ -493,28 +502,91 @@ export class TacticalRenderer {
     }
   }
 
+  private computeEffectivePixelRatio(w: number, h: number): number {
+    if (this.isSoftwareGl) return 1.0;
+    const rawDpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    let maxQualityDpr = 1.75;
+    if (this.graphicsQuality === 'low') maxQualityDpr = 1.0;
+    else if (this.graphicsQuality === 'medium') maxQualityDpr = 1.25;
+    else if (this.graphicsQuality === 'high') maxQualityDpr = 1.75;
+    else maxQualityDpr = 2.0;
+
+    const scaledDpr = Math.min(rawDpr, maxQualityDpr) * Math.max(0.5, Math.min(1.0, this.renderScale));
+    const maxBufferDim = 3840;
+    const maxAllowedByDim = Math.min(maxBufferDim / Math.max(1, w), maxBufferDim / Math.max(1, h));
+    return Math.max(0.5, Math.min(scaledDpr, maxAllowedByDim));
+  }
+
+  public resize(cssW?: number, cssH?: number) {
+    const w = Math.max(
+      1,
+      Math.floor(cssW || this.canvas.clientWidth || (typeof window !== 'undefined' ? window.innerWidth : 1280))
+    );
+    const h = Math.max(
+      1,
+      Math.floor(cssH || this.canvas.clientHeight || (typeof window !== 'undefined' ? window.innerHeight : 720))
+    );
+    this.cssWidth = w;
+    this.cssHeight = h;
+
+    const effectiveDpr = this.computeEffectivePixelRatio(w, h);
+    this.renderer.setPixelRatio(effectiveDpr);
+    this.renderer.setSize(w, h, false);
+
+    if (this.hudCanvas.width !== w || this.hudCanvas.height !== h) {
+      this.hudCanvas.width = w;
+      this.hudCanvas.height = h;
+    }
+
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+  }
+
   public setGraphicsQuality(quality: GraphicsQuality) {
     this.graphicsQuality = quality;
     if (this.isSoftwareGl) return;
 
-    if (quality === 'low') {
-      this.renderer.setPixelRatio(1.0);
-      this.renderer.shadowMap.enabled = false;
-    } else if (quality === 'medium') {
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
-      this.renderer.shadowMap.enabled = true;
-      this.sunLight.shadow.mapSize.set(1024, 1024);
-    } else if (quality === 'high') {
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
-      this.renderer.shadowMap.enabled = true;
-      this.sunLight.shadow.mapSize.set(2048, 2048);
-    } else {
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2.0));
-      this.renderer.shadowMap.enabled = true;
-      this.sunLight.shadow.mapSize.set(2048, 2048);
+    const enableShadows = quality !== 'low' && this.shadowsEnabled;
+    this.renderer.shadowMap.enabled = enableShadows;
+    this.sunLight.castShadow = enableShadows;
+
+    if (enableShadows) {
+      if (quality === 'medium') {
+        this.sunLight.shadow.mapSize.set(1024, 1024);
+      } else {
+        this.sunLight.shadow.mapSize.set(2048, 2048);
+      }
     }
     this.sunLight.shadow.map?.dispose();
     this.sunLight.shadow.map = null;
+
+    this.resize(this.cssWidth, this.cssHeight);
+  }
+
+  public setShadowsEnabled(enabled: boolean) {
+    this.shadowsEnabled = enabled;
+    if (this.isSoftwareGl) return;
+    const active = enabled && this.graphicsQuality !== 'low';
+    this.renderer.shadowMap.enabled = active;
+    this.sunLight.castShadow = active;
+    this.sunLight.shadow.map?.dispose();
+    this.sunLight.shadow.map = null;
+  }
+
+  public setRenderScale(scale: number) {
+    this.renderScale = Math.max(0.5, Math.min(1.0, scale));
+    this.resize(this.cssWidth, this.cssHeight);
+  }
+
+  public setParticlesEnabled(enabled: boolean) {
+    this.particlesEnabled = enabled;
+    if (!enabled) {
+      for (const dp of this.dustPlumes) {
+        this.fxRoot.remove(dp.mesh);
+        (dp.mesh.material as THREE.Material).dispose();
+      }
+      this.dustPlumes = [];
+    }
   }
 
   public setAtmospherePreset(preset: AtmospherePreset) {
@@ -742,7 +814,7 @@ export class TacticalRenderer {
     expGroup.add(shockwave);
 
     const smokePuffs: { mesh: THREE.Mesh; vx: number; vy: number; vz: number }[] = [];
-    const puffCount = this.graphicsQuality === 'low' ? 2 : evt.isFatal ? 6 : 3;
+    const puffCount = !this.particlesEnabled ? 0 : this.graphicsQuality === 'low' ? 2 : evt.isFatal ? 6 : 3;
     for (let i = 0; i < puffCount; i++) {
       const sMat = new THREE.MeshStandardMaterial({
         color: 0x1e293b,
@@ -773,9 +845,11 @@ export class TacticalRenderer {
       maxRadius: evt.isFatal ? 2.7 : 1.4,
     });
 
-    // Pulse transient point light
-    this.flashLight.position.copy(endPos).add(new THREE.Vector3(0, 1.3, 0));
-    this.flashLight.intensity = evt.isFatal ? 6.5 : 3.2;
+    // Pulse transient point light (suppressed if reducedFlashes is active)
+    if (!this.reducedFlashes) {
+      this.flashLight.position.copy(endPos).add(new THREE.Vector3(0, 1.3, 0));
+      this.flashLight.intensity = evt.isFatal ? 6.5 : 3.2;
+    }
 
     // 4. Floating damage number in HUD overlay
     this.damageTexts.push({
@@ -836,14 +910,14 @@ export class TacticalRenderer {
     this.renderer.dispose();
   }
 
-  // Project 3D world coordinate (wx, wy on grid) to 2D screen pixel coordinates
+  // Project 3D world coordinate (wx, wy on grid) to 2D CSS screen pixel coordinates
   public worldToScreen(wx: number, wy: number, heightOffset: number = 0): { x: number; y: number; visible?: boolean } {
     const gy = this.terrainSys.groundHeightAt(wx, wy, this.terrain) + heightOffset;
     this.projVec.set(wx, gy, wy);
     this.projVec.project(this.camera);
 
-    const halfW = this.canvas.width / 2;
-    const halfH = this.canvas.height / 2;
+    const halfW = this.cssWidth / 2;
+    const halfH = this.cssHeight / 2;
     return {
       x: this.projVec.x * halfW + halfW,
       y: -this.projVec.y * halfH + halfH,
@@ -854,8 +928,8 @@ export class TacticalRenderer {
   // Raycast 2D screen pixel coordinate (sx, sy) to 3D battlefield ground (x, y)
   public screenToWorld(sx: number, sy: number): { x: number; y: number } {
     const rect = this.canvas.getBoundingClientRect();
-    const w = rect.width || this.canvas.width || window.innerWidth;
-    const h = rect.height || this.canvas.height || window.innerHeight;
+    const w = rect.width || this.cssWidth || window.innerWidth;
+    const h = rect.height || this.cssHeight || window.innerHeight;
 
     this.ndcVec.x = ((sx - rect.left) / w) * 2 - 1;
     this.ndcVec.y = -((sy - rect.top) / h) * 2 + 1;
@@ -1023,15 +1097,19 @@ export class TacticalRenderer {
     const elapsed = this.clock.getElapsedTime();
     const now = performance.now();
 
-    if (
-      this.hudCanvas.width !== this.canvas.width ||
-      this.hudCanvas.height !== this.canvas.height
-    ) {
-      this.hudCanvas.width = this.canvas.width;
-      this.hudCanvas.height = this.canvas.height;
-      this.renderer.setSize(this.canvas.width, this.canvas.height, false);
-      this.camera.aspect = this.canvas.width / Math.max(1, this.canvas.height);
-      this.camera.updateProjectionMatrix();
+    // Track real-time FPS telemetry
+    this.fpsFrameCount++;
+    if (now - this.fpsLastTimeMs >= 500) {
+      this.currentFps = Math.min(144, Math.max(1, Math.round((this.fpsFrameCount * 1000) / (now - this.fpsLastTimeMs))));
+      this.fpsFrameCount = 0;
+      this.fpsLastTimeMs = now;
+    }
+
+    // Safely check CSS container dimensions without multiplying physical buffer size
+    const clientW = Math.max(1, Math.floor(this.canvas.clientWidth || window.innerWidth || 1280));
+    const clientH = Math.max(1, Math.floor(this.canvas.clientHeight || window.innerHeight || 720));
+    if (Math.abs(clientW - this.cssWidth) > 1 || Math.abs(clientH - this.cssHeight) > 1) {
+      this.resize(clientW, clientH);
     }
 
     // 0. Update Read-Only 3D Strategic Preview Camera & Patrol Animation when unauthenticated
@@ -1162,8 +1240,8 @@ export class TacticalRenderer {
       this.sunLight.target.updateMatrixWorld();
     }
 
-    // 2. Update Animated Water
-    this.terrainSys.updateWater(elapsed);
+    // 2. Update Animated Water (respects reducedMotion)
+    this.terrainSys.updateWater(this.reducedMotion ? elapsed * 0.25 : elapsed);
 
     // 3. Sync & Animate 3D Military Bases
     this.syncBases3D(elapsed);
@@ -1533,7 +1611,7 @@ export class TacticalRenderer {
       }
 
       const fireElapsed = now - st.lastFireMs;
-      st.muzzleFlash.visible = fireElapsed < 110;
+      st.muzzleFlash.visible = !this.reducedFlashes && fireElapsed < 110;
       if (st.muzzleFlash.visible) {
         st.muzzleFlash.rotation.y = -(st.turretRot - st.displayRot);
       }
@@ -1598,7 +1676,7 @@ export class TacticalRenderer {
   }
 
   private spawnDustPlume(x: number, y: number, z: number, isDamageSmoke: boolean) {
-    if (this.dustPlumes.length > 80) return;
+    if (!this.particlesEnabled || this.dustPlumes.length > 80) return;
     const mat = (isDamageSmoke ? this.damageSmokeMat : this.dustMat).clone();
     const mesh = new THREE.Mesh(this.dustGeom, mat);
     mesh.position.set(
@@ -1735,8 +1813,24 @@ export class TacticalRenderer {
       return;
     }
 
+    // Optional Real-Time FPS Telemetry Badge (when showFpsCounter setting is enabled)
+    if (this.showFpsCounter) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(2, 6, 23, 0.88)';
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+      ctx.lineWidth = 1;
+      ctx.fillRect(12, 92, 86, 22);
+      ctx.strokeRect(12, 92, 86, 22);
+      ctx.font = 'bold 10px "JetBrains Mono", monospace';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = this.currentFps >= 45 ? '#34d399' : this.currentFps >= 25 ? '#fbbf24' : '#f87171';
+      ctx.fillText(`FPS: ${this.currentFps} (${Math.round(this.renderScale * 100)}%)`, 18, 106);
+      ctx.restore();
+    }
+
     // 1. Base Labels, Health Bars, Shield Bars & Capture Progress
     for (const base of this.bases) {
+      if (!this.showUnitLabels && this.selectedBaseId !== base.id) continue;
       const sp = this.worldToScreen(base.x, base.y, 1.9);
       if (!sp.visible) continue;
 
@@ -1838,7 +1932,7 @@ export class TacticalRenderer {
       const maxHp = uDef?.maxHealth || unit.maxHealth;
       const hpPct = Math.max(0, unit.health / maxHp);
 
-      if (isSelected || hpPct < 0.99 || this.smoothZoom >= 1.1) {
+      if (isSelected || (this.showUnitLabels && (hpPct < 0.99 || this.smoothZoom >= 1.1))) {
         const uBarW = isSelected ? 42 : 32;
         const uBarH = isSelected ? 4.5 : 3.5;
 

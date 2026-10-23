@@ -40,7 +40,7 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
   });
 
   return (
-    <div className="absolute top-12 right-3 bottom-3 w-84 md:w-96 z-20 flex flex-col rounded-lg bg-slate-950/95 border border-slate-800 shadow-2xl overflow-hidden select-none pointer-events-auto">
+    <div className="absolute inset-x-2 top-16 bottom-2 sm:left-auto sm:top-14 sm:right-3 sm:bottom-3 sm:w-96 z-30 flex flex-col rounded-lg bg-slate-950/95 border border-slate-800 shadow-2xl overflow-hidden select-none pointer-events-auto">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 bg-slate-900 border-b border-slate-800">
         <div className="flex items-center gap-2">

@@ -956,9 +956,11 @@ io.on('connection', (socket) => {
       requestedMapId,
       Array.from(new Set(onlineSockets.values()))
     );
+    const terrain = gameSimulation.getTerrain(requestedMapId);
 
     socket.emit('world:state', {
       ...visible,
+      terrain,
       maps: state.maps.filter((m) => m.enabled),
       chat: state.chat.slice(-50),
       notifications: state.notifications

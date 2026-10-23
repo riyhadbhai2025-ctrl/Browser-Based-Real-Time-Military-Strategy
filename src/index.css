@@ -1,15 +1,39 @@
 @import "tailwindcss";
 
 @layer base {
+  html,
   body {
     margin: 0;
     padding: 0;
+    width: 100%;
+    height: 100%;
     overflow: hidden;
     user-select: none;
     -webkit-user-select: none;
     background-color: #020617;
     color: #f8fafc;
     font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    touch-action: none;
+  }
+
+  /* UI Scale Presets applied via root data-ui-scale attribute */
+  html[data-ui-scale="small"] {
+    font-size: 14.5px;
+  }
+  html[data-ui-scale="normal"] {
+    font-size: 16px;
+  }
+  html[data-ui-scale="large"] {
+    font-size: 17.5px;
+  }
+
+  /* Reduced motion override */
+  html[data-reduced-motion="true"] *,
+  html[data-reduced-motion="true"] *::before,
+  html[data-reduced-motion="true"] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 
   /* Custom tactical scrollbar */
