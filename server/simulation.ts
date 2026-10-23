@@ -1,6 +1,6 @@
 import { Server, Socket } from 'socket.io';
 import { generateWorld } from '../src/game/mapGenerator';
-import { findPath, isCellPassable } from '../src/game/pathfinder';
+import { findPath, isCellPassable, isRailCell, getConnectedRailwayCells, findRailwayPath } from '../src/game/pathfinder';
 import {
   AIDifficulty,
   Base,
@@ -1051,15 +1051,49 @@ export class GameSimulation {
               let spawnY = Math.round(base.y + base.radius * 0.6);
               let foundSpot = false;
 
-              for (let r = 1; r <= base.radius + 3 && !foundSpot; r++) {
-                for (let a = 0; a < 16 && !foundSpot; a++) {
-                  const angle = (a / 16) * Math.PI * 2;
-                  const tx = Math.round(base.x + Math.cos(angle) * (base.radius * 0.65 + r * 0.4));
-                  const ty = Math.round(base.y + Math.sin(angle) * (base.radius * 0.65 + r * 0.4));
-                  if (isCellPassable(terrain, tx, ty, uDef.category)) {
-                    spawnX = tx;
-                    spawnY = ty;
-                    foundSpot = true;
+              if (uDef.category === 'rail') {
+                if (base.type !== 'rail') {
+                  // Cannot deploy rail unit at non-rail base; skip
+                  continue;
+                }
+                const connected = getConnectedRailwayCells(terrain, Math.round(base.x), Math.round(base.y));
+                for (let r = 0; r <= base.radius + 4 && !foundSpot; r++) {
+                  for (let dy = -r; dy <= r && !foundSpot; dy++) {
+                    for (let dx = -r; dx <= r && !foundSpot; dx++) {
+                      const tx = Math.round(base.x + dx);
+                      const ty = Math.round(base.y + dy);
+                      const key = `${tx},${ty}`;
+                      if (connected.has(key)) {
+                        const occupied = data.units.some((u) => Math.hypot(u.x - tx, u.y - ty) < 0.85);
+                        if (!occupied) {
+                          spawnX = tx;
+                          spawnY = ty;
+                          foundSpot = true;
+                        }
+                      }
+                    }
+                  }
+                }
+
+                if (!foundSpot) {
+                  // Retain order in production queue as pending deployment (WAITING FOR RAIL ACCESS)
+                  base.productionQueue.push({
+                    ...prod,
+                    finishTime: now + 2000,
+                  });
+                  continue;
+                }
+              } else {
+                for (let r = 1; r <= base.radius + 3 && !foundSpot; r++) {
+                  for (let a = 0; a < 16 && !foundSpot; a++) {
+                    const angle = (a / 16) * Math.PI * 2;
+                    const tx = Math.round(base.x + Math.cos(angle) * (base.radius * 0.65 + r * 0.4));
+                    const ty = Math.round(base.y + Math.sin(angle) * (base.radius * 0.65 + r * 0.4));
+                    if (isCellPassable(terrain, tx, ty, uDef.category)) {
+                      spawnX = tx;
+                      spawnY = ty;
+                      foundSpot = true;
+                    }
                   }
                 }
               }
@@ -2102,20 +2136,30 @@ export class GameSimulation {
           }
         }
 
-        if (total > 1 && !targetUnitId) {
-          const row = Math.floor(idx / cols);
-          const col = idx % cols;
-          const spacing = 1.35;
-          const offsetX = (col - (cols - 1) / 2) * spacing;
-          const offsetY = (row - (Math.ceil(total / cols) - 1) / 2) * spacing;
-          destX = Math.max(1, Math.min(98, destX + offsetX));
-          destY = Math.max(1, Math.min(73, destY + offsetY));
-        }
-
         const def = gameStore.getEffectiveUnitDef(unit.type as UnitType);
         const category = def?.category || 'ground';
-        const path = findPath(terrain, unit.x, unit.y, destX, destY, category);
-        unit.path = path;
+
+        if (category === 'rail') {
+          const path = findPath(terrain, unit.x, unit.y, destX, destY, 'rail');
+          if (path.length === 0) {
+            unit.command = 'idle';
+            unit.path = [];
+          } else {
+            unit.path = path;
+          }
+        } else {
+          if (total > 1 && !targetUnitId) {
+            const row = Math.floor(idx / cols);
+            const col = idx % cols;
+            const spacing = 1.35;
+            const offsetX = (col - (cols - 1) / 2) * spacing;
+            const offsetY = (row - (Math.ceil(total / cols) - 1) / 2) * spacing;
+            destX = Math.max(1, Math.min(98, destX + offsetX));
+            destY = Math.max(1, Math.min(73, destY + offsetY));
+          }
+          const path = findPath(terrain, unit.x, unit.y, destX, destY, category);
+          unit.path = path;
+        }
       } else if (command === 'retreat') {
         const homeBase =
           data.bases.find((b) => b.id === unit.homeBaseId && (b.mapId || 'map_riverfront_assault') === unitMapId) ||
@@ -2358,6 +2402,17 @@ export class GameSimulation {
 
       if (userId !== 'enemy_insurgent' && currentOwnerPop + uDef.populationCost > maxOwnerPop) {
         return { success: false, message: `Sector population capacity reached (${currentOwnerPop}/${maxOwnerPop})` };
+      }
+
+      if (uDef.category === 'rail') {
+        if (base.type !== 'rail') {
+          return { success: false, message: 'Rail units can only be produced at Armored Rail Bases.' };
+        }
+        const terrain = this.getTerrain(baseMapId);
+        const connected = getConnectedRailwayCells(terrain, Math.round(base.x), Math.round(base.y));
+        if (connected.size === 0) {
+          return { success: false, message: 'Rail Base has no connected railway track network.' };
+        }
       }
 
       const reqBuilding = base.buildings.find((b: BuildingInstance) => b.type === uDef.requiredBuilding && b.level > 0);

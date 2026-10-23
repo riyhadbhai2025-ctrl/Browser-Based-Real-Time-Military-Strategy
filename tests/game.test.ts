@@ -2383,5 +2383,55 @@ test('25. Server-Authoritative Base Ownership Identity & Alliance Display (Comba
   delete storeData.users[userBId];
 });
 
+import { findRailwayPath, getConnectedRailwayCells, isRailCell } from '../src/game/pathfinder';
+
+test('26. Server-Authoritative Rail Base, Railway Network, and Rail Unit Movement System', async () => {
+  const terrain = (gameSimulation as any).getTerrain('map_riverfront_assault');
+  const data = gameStore.getData();
+
+  // 1. Verify rail base exists and is on railway network
+  const railBase = data.bases.find((b: any) => b.type === 'rail');
+  assert.ok(railBase, 'Map must contain at least one rail base');
+
+  // 2. Find any valid railway cell on the map
+  let foundRailX = -1;
+  let foundRailY = -1;
+  for (let y = 0; y < terrain.length && foundRailX === -1; y++) {
+    for (let x = 0; x < terrain[0].length && foundRailX === -1; x++) {
+      if (isRailCell(terrain, x, y)) {
+        foundRailX = x;
+        foundRailY = y;
+      }
+    }
+  }
+  assert.ok(foundRailX !== -1, 'Map must contain railway cells');
+
+  // 3. Test getConnectedRailwayCells and isRailCell
+  const railCells = getConnectedRailwayCells(terrain, foundRailX, foundRailY);
+  assert.ok(railCells.size > 0, 'Connected railway network must contain track cells');
+
+  // 4. Test that non-rail terrain is rejected by isRailCell
+  assert.strictEqual(isRailCell(terrain, 1, 1), false, 'Grass or non-rail terrain must not be classified as rail cell');
+
+  // 5. Test findRailwayPath between connected rail cells
+  const sampleTrackCells = Array.from(railCells);
+  if (sampleTrackCells.length >= 2) {
+    const [sx, sy] = sampleTrackCells[0].split(',').map(Number);
+    const [ex, ey] = sampleTrackCells[sampleTrackCells.length - 1].split(',').map(Number);
+    const path = findRailwayPath(terrain, sx, sy, ex, ey);
+    assert.ok(Array.isArray(path), 'findRailwayPath must return an array');
+    if (path.length > 0) {
+      for (const pt of path) {
+        assert.ok(isRailCell(terrain, pt.x, pt.y), 'Every rail unit waypoint must remain strictly on valid railway cells');
+      }
+    }
+  }
+
+  // 6. Test that off-track or disconnected destination returns empty path
+  const disconnectedPath = findRailwayPath(terrain, foundRailX, foundRailY, 1, 1);
+  assert.strictEqual(disconnectedPath.length, 0, 'Path to non-rail or disconnected cell must be empty');
+});
+
+
 
 

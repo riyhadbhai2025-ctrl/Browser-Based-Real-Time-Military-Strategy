@@ -260,6 +260,10 @@ export function generateWorld(config: WorldMapConfig = { width: 100, height: 75,
     }
   }
 
+
+
+
+
   // 7. Strategic Military Bases
   const now = Date.now();
   const bases: Base[] = [
