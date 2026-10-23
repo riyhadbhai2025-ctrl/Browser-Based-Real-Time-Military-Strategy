@@ -253,6 +253,13 @@ async function provisionNewPlayerAccount(username: string, rawPassword: string, 
     weeklyCaptureTimestamps: [],
     homeBaseDestroyedCount: 0,
     isInactiveRelocated: false,
+    playerType: 'human',
+    accountId: userId,
+    botAgentId: null,
+    controlSource: 'human',
+    verificationStatus: 'verified',
+    verifiedBy: 'Auth Registration Service',
+    verifiedAt: now,
   };
 
   const token = `token_${userId}_${crypto.randomBytes(16).toString('hex')}`;

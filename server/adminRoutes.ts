@@ -11,6 +11,7 @@ import {
   EconomyConfig,
   MapSectorConfig,
   ModerationRecord,
+  PlayerType,
   ROLE_PERMISSIONS,
   UnitCatalogOverride,
   UnitType,
@@ -185,6 +186,30 @@ export function createAdminRouter(
     );
 
     if (!entry) {
+      const consoleStaffAuth = gameStore.authenticateConsoleStaff(rawUsername, password, ip);
+      if (consoleStaffAuth) {
+        const { session, profile } = consoleStaffAuth;
+        gameStore.addAuditLog({
+          adminId: session.userId,
+          adminUsername: session.username,
+          adminRole: session.role,
+          action: 'admin.login.success',
+          targetType: 'auth',
+          targetId: session.userId,
+          reason: `Authenticated into Admin Command Center as console staff (${session.role})`,
+          status: 'success',
+          ipAddress: ip,
+        });
+        res.json({
+          token: session.token,
+          expiresAt: session.expiresAt,
+          role: session.role,
+          permissions: ROLE_PERMISSIONS[session.role],
+          profile,
+        });
+        return;
+      }
+
       gameStore.addAuditLog({
         adminId: 'unauthenticated',
         adminUsername: rawUsername,
@@ -300,6 +325,15 @@ export function createAdminRouter(
 
   router.get('/auth/me', authenticateAdmin, (req: AuthenticatedAdminRequest, res: Response) => {
     const session = req.adminSession!;
+    if (session.userId.startsWith('console_staff:')) {
+      res.json({
+        role: session.role,
+        expiresAt: session.expiresAt,
+        permissions: ROLE_PERMISSIONS[session.role],
+        profile: gameStore.getConsoleStaffProfile(session),
+      });
+      return;
+    }
     const data = gameStore.getData();
     const user = data.users[session.userId];
     if (!user) {
@@ -354,6 +388,9 @@ export function createAdminRouter(
         { concrete: 0, steel: 0, aluminum: 0, fuel: 0 }
       );
 
+      const onlineUserIdsSet = new Set(onlineSockets.values());
+      const playerTypeStats = gameStore.getPlayerTypeStats(onlineUserIdsSet, gameSimulation.aiDifficulty);
+
       const securityAlerts = data.auditLogs
         .filter((l) => l.status === 'denied' || l.status === 'failure' || l.action.includes('ban'))
         .slice(0, 10);
@@ -376,7 +413,14 @@ export function createAdminRouter(
             .length,
           aiControlledBases: data.bases.filter((b) => b.ownerId === 'enemy_insurgent').length,
           neutralBases: data.bases.filter((b) => b.ownerId === 'neutral').length,
+          totalHumanPlayers: playerTypeStats.totalHumanPlayers,
+          activeHumanPlayers: playerTypeStats.activeHumanPlayers,
+          totalBotPlayers: playerTypeStats.totalBotPlayers,
+          activeBotPlayers: playerTypeStats.activeBotPlayers,
+          totalSystemEntities: playerTypeStats.totalSystemEntities,
+          totalUnknownPlayers: playerTypeStats.totalUnknownPlayers,
         },
+        playerTypeStats,
         serverHealth: {
           status: data.systemSettings.maintenanceMode ? 'maintenance' : 'healthy',
           uptimeMs: gameStore.getUptimeMs(),
@@ -410,34 +454,53 @@ export function createAdminRouter(
     authenticateAdmin,
     requirePermission('players.view'),
     (req: AuthenticatedAdminRequest, res: Response) => {
-      const data = gameStore.getData();
       const search = sanitizeText(req.query.search, 100).toLowerCase();
       const statusFilter = sanitizeText(req.query.status, 32);
       const roleFilter = sanitizeText(req.query.role, 32);
+      const playerTypeFilter = sanitizeText(req.query.playerType, 32).toLowerCase();
+      const connectionFilter = sanitizeText(req.query.connectionStatus, 32).toLowerCase();
+      const matchFilter = sanitizeText(req.query.matchId || req.query.mapId, 64);
       const sortBy = sanitizeText(req.query.sortBy, 32) || 'score';
       const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
       const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize || '20'), 10) || 20));
 
       const onlineUserIds = new Set(onlineSockets.values());
+      const directory = gameStore.getAdminPlayerDirectory(onlineUserIds, gameSimulation.aiDifficulty);
+      const stats = gameStore.getPlayerTypeStats(onlineUserIds, gameSimulation.aiDifficulty);
 
-      let players = Object.values(data.users).map((u) => {
-        const p = gameStore.sanitizeProfile(u.profile);
-        const basesOwned = data.bases.filter((b) => b.ownerId === p.id).length;
-        const unitsOwned = data.units.filter((unit) => unit.ownerId === p.id).length;
-        return {
-          ...p,
-          isOnline: onlineUserIds.has(p.id),
-          basesOwned,
-          unitsOwned,
-        };
-      });
+      let players = directory.map((p) => ({
+        ...p,
+        basesOwned: p.basesControlled,
+        unitsOwned: p.activeUnits,
+      }));
 
       if (search) {
         players = players.filter(
           (p) =>
             p.username.toLowerCase().includes(search) ||
             p.id.toLowerCase().includes(search) ||
-            p.email.toLowerCase().includes(search)
+            p.email.toLowerCase().includes(search) ||
+            p.faction.toLowerCase().includes(search) ||
+            (p.botAgentId && p.botAgentId.toLowerCase().includes(search)) ||
+            (p.accountId && p.accountId.toLowerCase().includes(search))
+        );
+      }
+
+      if (playerTypeFilter && playerTypeFilter !== 'all') {
+        players = players.filter((p) => p.playerType === playerTypeFilter);
+      }
+
+      if (connectionFilter && connectionFilter !== 'all') {
+        players = players.filter((p) => p.connectionStatus === connectionFilter);
+      }
+
+      if (matchFilter && matchFilter !== 'all') {
+        players = players.filter(
+          (p) =>
+            p.currentMapId === matchFilter ||
+            p.activeMatchId === matchFilter ||
+            p.activeMapIds.includes(matchFilter) ||
+            p.activeMatchIds.includes(matchFilter)
         );
       }
 
@@ -453,8 +516,21 @@ export function createAdminRouter(
         }
       }
 
+      const typeOrder: Record<PlayerType, number> = {
+        human: 1,
+        bot: 2,
+        system: 3,
+        unknown: 4,
+      };
+
       players.sort((a, b) => {
         if (sortBy === 'username') return a.username.localeCompare(b.username);
+        if (sortBy === 'playerType') {
+          return typeOrder[a.playerType] - typeOrder[b.playerType] || b.score - a.score;
+        }
+        if (sortBy === 'connectionStatus') {
+          return Number(b.isOnline) - Number(a.isOnline) || b.score - a.score;
+        }
         if (sortBy === 'lastLoginAt') return b.lastLoginAt - a.lastLoginAt;
         if (sortBy === 'joinedAt') return b.joinedAt - a.joinedAt;
         if (sortBy === 'level') return b.level - a.level;
@@ -467,6 +543,7 @@ export function createAdminRouter(
 
       res.json({
         items,
+        stats,
         pagination: {
           page,
           pageSize,
@@ -482,26 +559,127 @@ export function createAdminRouter(
     authenticateAdmin,
     requirePermission('players.view'),
     (req: AuthenticatedAdminRequest, res: Response) => {
-      const data = gameStore.getData();
       const targetId = sanitizeText(req.params.id, 64);
-      const userRecord = data.users[targetId];
-      if (!userRecord) {
+      const onlineUserIds = new Set(onlineSockets.values());
+      const detail = gameStore.getAdminPlayerDetail(targetId, onlineUserIds, gameSimulation.aiDifficulty);
+      if (!detail) {
         res.status(404).json({ error: 'Player not found.' });
         return;
       }
 
-      const profile = gameStore.sanitizeProfile(userRecord.profile);
-      const playerBases = data.bases.filter((b) => b.ownerId === targetId);
-      const playerUnits = data.units.filter((u) => u.ownerId === targetId);
-      const playerAuditLogs = data.auditLogs.filter((l) => l.targetId === targetId).slice(0, 30);
+      res.json({
+        profile: {
+          ...detail.profile,
+          basesOwned: detail.profile.basesControlled,
+          unitsOwned: detail.profile.activeUnits,
+        },
+        isOnline: detail.isOnline,
+        alliance: detail.alliance,
+        bases: detail.bases,
+        units: detail.units,
+        auditTrail: detail.recentAudits,
+        botRecord: detail.botRecord,
+        systemRecord: detail.systemRecord,
+      });
+    }
+  );
+
+  router.post(
+    '/players/:id/verify-type',
+    authenticateAdmin,
+    requirePermission('players.suspend'),
+    (req: AuthenticatedAdminRequest, res: Response) => {
+      const session = req.adminSession!;
+      const targetId = sanitizeText(req.params.id, 64);
+      const playerType = sanitizeText(req.body?.playerType, 32).toLowerCase() as PlayerType;
+      const reason = sanitizeText(req.body?.reason, 300);
+
+      if (!reason || reason.length < 3) {
+        res.status(400).json({ error: 'A verification reason (minimum 3 characters) is required.' });
+        return;
+      }
+
+      const result = gameStore.verifyUnknownPlayerType(
+        targetId,
+        playerType,
+        session.userId,
+        session.username,
+        session.role,
+        reason,
+        getClientIp(req)
+      );
+
+      if (!result.success) {
+        res.status(result.status).json({ error: result.message });
+        return;
+      }
 
       res.json({
-        profile,
-        isOnline: Array.from(onlineSockets.values()).includes(targetId),
-        bases: playerBases,
-        units: playerUnits,
-        auditTrail: playerAuditLogs,
+        success: true,
+        message: result.message,
+        profile: result.record,
+        record: result.record,
       });
+    }
+  );
+
+  router.post(
+    '/players/delete-all',
+    authenticateAdmin,
+    requirePermission('players.ban'),
+    (req: AuthenticatedAdminRequest, res: Response) => {
+      const session = req.adminSession!;
+      const reason = sanitizeText(req.body?.reason, 300) || 'Administrative purge of all player accounts';
+
+      const result = gameStore.deleteAllPlayerAccounts(
+        session.userId,
+        session.username,
+        session.role,
+        reason,
+        getClientIp(req)
+      );
+
+      for (const uid of result.deletedUserIds) {
+        disconnectUserSockets(uid, `Your account was deleted by High Command: ${reason}`);
+      }
+
+      const data = gameStore.getData();
+      io.emit('world:sync', { units: data.units, bases: data.bases, timestamp: Date.now() });
+
+      res.json(result);
+    }
+  );
+
+  router.delete(
+    '/players/:id',
+    authenticateAdmin,
+    requirePermission('players.ban'),
+    (req: AuthenticatedAdminRequest, res: Response) => {
+      const session = req.adminSession!;
+      const targetId = sanitizeText(req.params.id, 64);
+      const reason =
+        sanitizeText(req.body?.reason || req.query.reason, 300) ||
+        'Administrative account deletion';
+
+      const result = gameStore.deletePlayerAccount(
+        targetId,
+        session.userId,
+        session.username,
+        session.role,
+        reason,
+        getClientIp(req)
+      );
+
+      if (!result.success) {
+        res.status(result.status).json({ error: result.message });
+        return;
+      }
+
+      disconnectUserSockets(targetId, `Your account has been deleted by High Command: ${reason}`);
+      const data = gameStore.getData();
+      io.emit('world:sync', { units: data.units, bases: data.bases, timestamp: Date.now() });
+
+      res.json(result);
     }
   );
 
@@ -510,7 +688,7 @@ export function createAdminRouter(
     authenticateAdmin,
     (req: AuthenticatedAdminRequest, res: Response, next: NextFunction) => {
       const action = sanitizeText(req.body?.action, 32);
-      if (action === 'ban' || action === 'unban') {
+      if (action === 'ban' || action === 'unban' || action === 'delete_account') {
         return requirePermission('players.ban')(req, res, next);
       }
       if (action === 'reset_progress') {
@@ -527,13 +705,38 @@ export function createAdminRouter(
         | 'ban'
         | 'unban'
         | 'reset_progress'
-        | 'rename';
+        | 'rename'
+        | 'delete_account';
       const reason = sanitizeText(req.body?.reason, 300);
       const durationMinutes = Number(req.body?.durationMinutes) || 60;
       const newUsername = sanitizeText(req.body?.newUsername, 32);
 
       if (!reason || reason.length < 3) {
         res.status(400).json({ error: 'A mandatory moderation reason (minimum 3 characters) is required.' });
+        return;
+      }
+
+      if (action === 'delete_account') {
+        const result = gameStore.deletePlayerAccount(
+          targetId,
+          session.userId,
+          session.username,
+          session.role,
+          reason,
+          getClientIp(req)
+        );
+        if (!result.success) {
+          res.status(result.status).json({ error: result.message });
+          return;
+        }
+        disconnectUserSockets(targetId, `Your account has been deleted by High Command: ${reason}`);
+        const currentData = gameStore.getData();
+        io.emit('world:sync', { units: currentData.units, bases: currentData.bases, timestamp: Date.now() });
+        res.json({
+          success: true,
+          message: result.message,
+          deletedUserId: targetId,
+        });
         return;
       }
 
@@ -717,22 +920,52 @@ export function createAdminRouter(
     requirePermission('matches.view'),
     (_req: AuthenticatedAdminRequest, res: Response) => {
       const data = gameStore.getData();
+      const onlineUserIds = new Set(onlineSockets.values());
       const activeSocketsList = Array.from(onlineSockets.entries()).map(([socketId, userId]) => {
-        const u = data.users[userId]?.profile;
+        const resolved = gameStore.resolvePlayerIdentity(userId, onlineUserIds, gameSimulation.aiDifficulty);
         return {
           socketId,
           userId,
-          username: u?.username || userId,
-          rank: u?.rank || 'Commander',
-          allianceId: u?.allianceId || null,
+          username: resolved.username,
+          rank: resolved.rank,
+          allianceId: resolved.allianceId || null,
+          playerType: resolved.playerType,
+          controlSource: resolved.controlSource,
         };
       });
 
       const activeMap = data.maps.find((m) => m.isActiveMap) || data.maps[0];
+      const activeMapId = activeMap?.id || 'map_riverfront_assault';
+      const liveParticipants = gameStore.getMatchParticipants(
+        activeMapId,
+        onlineUserIds,
+        ['player_default', 'enemy_insurgent'],
+        gameSimulation.aiDifficulty
+      );
+      const countByType = (list: typeof liveParticipants) => ({
+        human: list.filter((p) => p.playerType === 'human').length,
+        bot: list.filter((p) => p.playerType === 'bot').length,
+        system: list.filter((p) => p.playerType === 'system').length,
+        unknown: list.filter((p) => p.playerType === 'unknown').length,
+      });
+
+      const enrichedMatches = data.matches.map((m) => {
+        const participants = gameStore.getMatchParticipants(
+          m.mapId || 'map_riverfront_assault',
+          onlineUserIds,
+          m.participantIds || [],
+          m.aiDifficulty || gameSimulation.aiDifficulty
+        );
+        return {
+          ...m,
+          participants,
+          participantTypeCounts: countByType(participants),
+        };
+      });
 
       res.json({
         liveSector: {
-          mapId: activeMap?.id || 'map_riverfront_assault',
+          mapId: activeMapId,
           mapName: activeMap?.name || 'Sector 01: Riverfront Assault',
           seed: data.worldConfig.seed,
           width: data.worldConfig.width,
@@ -746,22 +979,34 @@ export function createAdminRouter(
           unitsCount: data.units.length,
           envObjectsCount: data.envObjects.length,
           connectedSessions: activeSocketsList,
-          bases: data.bases.map((b) => ({
-            id: b.id,
-            name: b.name,
-            type: b.type,
-            ownerId: b.ownerId,
-            ownerName: b.ownerName,
-            x: b.x,
-            y: b.y,
-            health: b.health,
-            maxHealth: b.maxHealth,
-            defenseShield: b.defenseShield,
-            buildingsCount: b.buildings.length,
-            resources: b.resources,
-          })),
+          participants: liveParticipants,
+          participantTypeCounts: countByType(liveParticipants),
+          bases: data.bases.map((b) => {
+            const ownerIdentity = gameStore.resolvePlayerIdentity(
+              b.ownerId,
+              onlineUserIds,
+              gameSimulation.aiDifficulty
+            );
+            return {
+              id: b.id,
+              mapId: b.mapId || 'map_riverfront_assault',
+              name: b.name,
+              type: b.type,
+              ownerId: b.ownerId,
+              ownerName: b.ownerName,
+              controllerPlayerType: ownerIdentity.playerType,
+              controllerSource: ownerIdentity.controlSource,
+              x: b.x,
+              y: b.y,
+              health: b.health,
+              maxHealth: b.maxHealth,
+              defenseShield: b.defenseShield,
+              buildingsCount: b.buildings.length,
+              resources: b.resources,
+            };
+          }),
         },
-        matches: data.matches,
+        matches: enrichedMatches,
       });
     }
   );

@@ -48,14 +48,186 @@ import {
   ConfigVersionEntry,
   EconomyConfig,
   MapSectorConfig,
+  MatchParticipantSummary,
   MatchRecord,
   PlayerProfile,
+  PlayerType,
+  PlayerTypeStatsSummary,
   ROLE_PERMISSIONS,
   SystemSettings,
   UnitDefinition,
   UnitType,
 } from '../../types/game';
 import { generateWorld } from '../../game/mapGenerator';
+
+export const PlayerTypeBadge: React.FC<{
+  playerType?: PlayerType | string;
+  size?: 'xs' | 'sm';
+}> = ({ playerType = 'unknown', size = 'xs' }) => {
+  const normalized = String(playerType || 'unknown').toLowerCase() as PlayerType;
+  const styles: Record<PlayerType, { label: string; classes: string; dot: string }> = {
+    human: {
+      label: 'HUMAN',
+      classes: 'bg-blue-950/90 text-blue-300 border-blue-500/60',
+      dot: 'bg-blue-400',
+    },
+    bot: {
+      label: 'BOT',
+      classes: 'bg-purple-950/90 text-purple-300 border-purple-500/60',
+      dot: 'bg-purple-400',
+    },
+    system: {
+      label: 'SYSTEM',
+      classes: 'bg-slate-800/90 text-slate-300 border-slate-500/60',
+      dot: 'bg-slate-400',
+    },
+    unknown: {
+      label: 'UNKNOWN',
+      classes: 'bg-amber-950/90 text-amber-300 border-amber-500/60',
+      dot: 'bg-amber-400',
+    },
+  };
+  const cfg = styles[normalized] || styles.unknown;
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded border font-mono font-bold tracking-wider uppercase whitespace-nowrap ${
+        size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-2 py-0.5 text-[10px]'
+      } ${cfg.classes}`}
+    >
+      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+      <span>{cfg.label}</span>
+    </span>
+  );
+};
+
+const PlayerTypeSummaryStrip: React.FC<{
+  stats?: PlayerTypeStatsSummary | null;
+  onQuickFilter?: (type: string) => void;
+}> = ({ stats, onQuickFilter }) => {
+  if (!stats) return null;
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div
+          onClick={() => onQuickFilter?.('human')}
+          className={`p-3 bg-slate-900 border border-blue-500/30 rounded ${
+            onQuickFilter ? 'cursor-pointer hover:border-blue-400 transition' : ''
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono uppercase text-slate-400">Total Human Players</span>
+            <PlayerTypeBadge playerType="human" />
+          </div>
+          <div className="mt-1.5 text-xl font-bold font-mono tabular-nums text-blue-300">
+            {stats.totalHumanPlayers}
+          </div>
+          <div className="mt-0.5 text-[10px] font-mono text-slate-400">
+            Verified authenticated accounts
+          </div>
+        </div>
+
+        <div
+          onClick={() => onQuickFilter?.('human')}
+          className={`p-3 bg-slate-900 border border-blue-500/30 rounded ${
+            onQuickFilter ? 'cursor-pointer hover:border-blue-400 transition' : ''
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono uppercase text-slate-400">Active Human Players</span>
+            <span className="text-[10px] font-mono text-emerald-400 uppercase font-bold">LIVE</span>
+          </div>
+          <div className="mt-1.5 text-xl font-bold font-mono tabular-nums text-cyan-300">
+            {stats.activeHumanPlayers}
+          </div>
+          <div className="mt-0.5 text-[10px] font-mono text-slate-400">
+            {stats.offlineHumanPlayers} offline accounts
+          </div>
+        </div>
+
+        <div
+          onClick={() => onQuickFilter?.('bot')}
+          className={`p-3 bg-slate-900 border border-purple-500/30 rounded ${
+            onQuickFilter ? 'cursor-pointer hover:border-purple-400 transition' : ''
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono uppercase text-slate-400">Total Bot Players</span>
+            <PlayerTypeBadge playerType="bot" />
+          </div>
+          <div className="mt-1.5 text-xl font-bold font-mono tabular-nums text-purple-300">
+            {stats.totalBotPlayers}
+          </div>
+          <div className="mt-0.5 text-[10px] font-mono text-slate-400">
+            Server-registered AI agents
+          </div>
+        </div>
+
+        <div
+          onClick={() => onQuickFilter?.('bot')}
+          className={`p-3 bg-slate-900 border border-purple-500/30 rounded ${
+            onQuickFilter ? 'cursor-pointer hover:border-purple-400 transition' : ''
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono uppercase text-slate-400">Active Bot Players</span>
+            <span className="text-[10px] font-mono text-purple-400 uppercase font-bold">AI LOOP</span>
+          </div>
+          <div className="mt-1.5 text-xl font-bold font-mono tabular-nums text-purple-300">
+            {stats.activeBotPlayers}
+          </div>
+          <div className="mt-0.5 text-[10px] font-mono text-slate-400">
+            Autonomous simulation active
+          </div>
+        </div>
+
+        <div
+          onClick={() => onQuickFilter?.('system')}
+          className={`p-3 bg-slate-900 border border-slate-700 rounded ${
+            onQuickFilter ? 'cursor-pointer hover:border-slate-500 transition' : ''
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono uppercase text-slate-400">System Entities</span>
+            <PlayerTypeBadge playerType="system" />
+          </div>
+          <div className="mt-1.5 text-xl font-bold font-mono tabular-nums text-slate-200">
+            {stats.totalSystemEntities}
+          </div>
+          <div className="mt-0.5 text-[10px] font-mono text-slate-400">
+            World / neutral garrisons
+          </div>
+        </div>
+
+        <div
+          onClick={() => onQuickFilter?.('unknown')}
+          className={`p-3 bg-slate-900 border border-amber-500/30 rounded ${
+            onQuickFilter ? 'cursor-pointer hover:border-amber-400 transition' : ''
+          }`}
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono uppercase text-slate-400">Unknown Players</span>
+            <PlayerTypeBadge playerType="unknown" />
+          </div>
+          <div className="mt-1.5 text-xl font-bold font-mono tabular-nums text-amber-300">
+            {stats.totalUnknownPlayers}
+          </div>
+          <div className="mt-0.5 text-[10px] font-mono text-slate-400">
+            Unverified legacy records
+          </div>
+        </div>
+      </div>
+
+      {stats.activeBotPlayers === 0 && (
+        <div className="px-3.5 py-2 bg-purple-950/30 border border-purple-700/50 rounded flex items-center justify-between text-xs font-mono text-purple-200">
+          <span>
+            AI Bot Status: 0 bot agents are currently active in the simulation loop (AI Aggression may be paused or all AI installations were neutralized).
+          </span>
+          <span className="text-[10px] uppercase text-purple-400">No Fake Bots Fabricated</span>
+        </div>
+      )}
+    </div>
+  );
+};
 
 type AdminSection =
   | 'overview'
@@ -98,27 +270,47 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
 
   // Data States
   const [overviewData, setOverviewData] = useState<any>(null);
-  const [playersData, setPlayersData] = useState<{ items: any[]; pagination: any }>({
+  const [playersData, setPlayersData] = useState<{
+    items: any[];
+    stats?: PlayerTypeStatsSummary;
+    pagination: any;
+  }>({
     items: [],
     pagination: { page: 1, pageSize: 15, total: 0, totalPages: 1 },
   });
   const [playerSearch, setPlayerSearch] = useState('');
+  const [playerTypeFilter, setPlayerTypeFilter] = useState('all');
+  const [playerConnectionFilter, setPlayerConnectionFilter] = useState('all');
+  const [playerMatchFilter, setPlayerMatchFilter] = useState('all');
   const [playerStatusFilter, setPlayerStatusFilter] = useState('all');
   const [playerRoleFilter, setPlayerRoleFilter] = useState('all');
+  const [playerSortBy, setPlayerSortBy] = useState('score');
   const [playerPage, setPlayerPage] = useState(1);
   const [selectedPlayerDetail, setSelectedPlayerDetail] = useState<any | null>(null);
+  const [verifyTypeTarget, setVerifyTypeTarget] = useState<PlayerType>('bot');
+  const [verifyTypeReason, setVerifyTypeReason] = useState('');
 
   // Moderation Modal State
   const [modModal, setModModal] = useState<{
     player: any;
-    action: 'suspend' | 'unsuspend' | 'ban' | 'unban' | 'reset_progress' | 'rename';
+    action: 'suspend' | 'unsuspend' | 'ban' | 'unban' | 'reset_progress' | 'rename' | 'delete_account';
   } | null>(null);
   const [modReason, setModReason] = useState('');
   const [modDurationMins, setModDurationMins] = useState(60);
   const [modNewUsername, setModNewUsername] = useState('');
+  const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
+  const [deleteAllReason, setDeleteAllReason] = useState('Administrative purge of all player accounts');
 
   // Matches State
-  const [matchesData, setMatchesData] = useState<{ liveSector: any; matches: MatchRecord[] } | null>(null);
+  const [matchesData, setMatchesData] = useState<{
+    liveSector: any;
+    matches: Array<
+      MatchRecord & {
+        participants?: MatchParticipantSummary[];
+        participantTypeCounts?: Record<PlayerType, number>;
+      }
+    >;
+  } | null>(null);
   const [matchActionReason, setMatchActionReason] = useState('Scheduled sector tactical reset');
   const [sandboxUnitType, setSandboxUnitType] = useState<UnitType>('titan_mbt');
   const [sandboxIsHostile, setSandboxIsHostile] = useState(false);
@@ -255,8 +447,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
       if (activeSection === 'players' && hasPerm('players.view')) {
         const q = new URLSearchParams({
           search: playerSearch,
+          playerType: playerTypeFilter,
+          connectionStatus: playerConnectionFilter,
+          matchId: playerMatchFilter,
           status: playerStatusFilter,
           role: playerRoleFilter,
+          sortBy: playerSortBy,
           page: String(playerPage),
           pageSize: '15',
         });
@@ -321,8 +517,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
     apiFetch,
     hasPerm,
     playerSearch,
+    playerTypeFilter,
+    playerConnectionFilter,
+    playerMatchFilter,
     playerStatusFilter,
     playerRoleFilter,
+    playerSortBy,
     playerPage,
     selectedMap,
     auditSearch,
@@ -445,6 +645,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
     try {
       const detail = await apiFetch(`/players/${playerId}`);
       setSelectedPlayerDetail(detail);
+      setVerifyTypeReason('');
+    } catch (err: any) {
+      showToast('error', err.message);
+    }
+  };
+
+  const handleVerifyUnknownPlayerType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedPlayerDetail?.profile?.id) return;
+    try {
+      const res = await apiFetch(`/players/${selectedPlayerDetail.profile.id}/verify-type`, {
+        method: 'POST',
+        body: JSON.stringify({
+          playerType: verifyTypeTarget,
+          reason: verifyTypeReason,
+        }),
+      });
+      showToast('success', res.message || 'Player classification verified.');
+      setVerifyTypeReason('');
+      await handleInspectPlayer(selectedPlayerDetail.profile.id);
+      refreshCurrentSection();
     } catch (err: any) {
       showToast('error', err.message);
     }
@@ -454,22 +675,47 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
     e.preventDefault();
     if (!modModal) return;
     try {
-      await apiFetch(`/players/${modModal.player.id}/moderate`, {
+      const targetId = modModal.player.id;
+      const action = modModal.action;
+      await apiFetch(`/players/${targetId}/moderate`, {
         method: 'POST',
         body: JSON.stringify({
-          action: modModal.action,
+          action,
           reason: modReason,
           durationMinutes: modDurationMins,
           newUsername: modNewUsername,
         }),
       });
-      showToast('success', `Moderation action '${modModal.action}' executed on ${modModal.player.username}.`);
+      showToast(
+        'success',
+        action === 'delete_account'
+          ? `Account '${modModal.player.username}' permanently deleted.`
+          : `Moderation action '${action}' executed on ${modModal.player.username}.`
+      );
       setModModal(null);
       setModReason('');
-      refreshCurrentSection();
-      if (selectedPlayerDetail?.profile?.id === modModal.player.id) {
-        handleInspectPlayer(modModal.player.id);
+      if (action === 'delete_account' && selectedPlayerDetail?.profile?.id === targetId) {
+        setSelectedPlayerDetail(null);
+      } else if (selectedPlayerDetail?.profile?.id === targetId) {
+        handleInspectPlayer(targetId);
       }
+      refreshCurrentSection();
+    } catch (err: any) {
+      showToast('error', err.message);
+    }
+  };
+
+  const handleDeleteAllAccounts = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await apiFetch('/players/delete-all', {
+        method: 'POST',
+        body: JSON.stringify({ reason: deleteAllReason || 'Administrative purge of all player accounts' }),
+      });
+      showToast('success', res.message || 'All player accounts deleted.');
+      setShowDeleteAllModal(false);
+      setSelectedPlayerDetail(null);
+      refreshCurrentSection();
     } catch (err: any) {
       showToast('error', err.message);
     }
@@ -956,6 +1202,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
              ================================================================ */}
           {activeSection === 'overview' && overviewData && (
             <div className="space-y-6">
+              {/* Authoritative Player Type Breakdown Strip */}
+              <PlayerTypeSummaryStrip
+                stats={overviewData.playerTypeStats}
+                onQuickFilter={(type) => {
+                  if (hasPerm('players.view')) {
+                    setPlayerTypeFilter(type);
+                    setPlayerPage(1);
+                    setActiveSection('players');
+                  }
+                }}
+              />
+
               {/* Top Metric Strip */}
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
                 <div className="p-3.5 bg-slate-900 border border-slate-800 rounded">
@@ -1166,23 +1424,120 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
              ================================================================ */}
           {activeSection === 'players' && (
             <div className="space-y-5">
-              {/* Filter Bar */}
-              <div className="p-4 bg-slate-900 border border-slate-800 rounded flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2 flex-1 min-w-[240px]">
-                  <Search className="w-4 h-4 text-slate-400" />
-                  <input
-                    type="text"
-                    value={playerSearch}
-                    onChange={(e) => {
-                      setPlayerSearch(e.target.value);
-                      setPlayerPage(1);
-                    }}
-                    placeholder="Search by username, user ID, or email..."
-                    className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
-                  />
+              {/* Player Type Statistics Summary */}
+              <PlayerTypeSummaryStrip
+                stats={playersData.stats}
+                onQuickFilter={(type) => {
+                  setPlayerTypeFilter((prev) => (prev === type ? 'all' : type));
+                  setPlayerPage(1);
+                }}
+              />
+
+              {/* Filter & Search Bar */}
+              <div className="p-4 bg-slate-900 border border-slate-800 rounded space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-1 min-w-[240px]">
+                    <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                    <input
+                      type="text"
+                      value={playerSearch}
+                      onChange={(e) => {
+                        setPlayerSearch(e.target.value);
+                        setPlayerPage(1);
+                      }}
+                      placeholder="Search by player name, player ID, email, faction, or botAgentId..."
+                      className="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-xs text-white font-mono focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+
+                  {/* Quick Player Type Filter Buttons */}
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs font-mono">
+                    {[
+                      { id: 'all', label: 'All Types' },
+                      { id: 'human', label: 'Human Only' },
+                      { id: 'bot', label: 'Bot Only' },
+                      { id: 'system', label: 'System Only' },
+                      { id: 'unknown', label: 'Unknown' },
+                    ].map((tab) => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => {
+                          setPlayerTypeFilter(tab.id);
+                          setPlayerPage(1);
+                        }}
+                        className={`px-2.5 py-1 rounded border transition ${
+                          playerTypeFilter === tab.id
+                            ? 'bg-blue-600/25 border-blue-500 text-white font-bold'
+                            : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                    {hasPerm('players.ban') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeleteAllReason('Administrative purge of all player accounts');
+                          setShowDeleteAllModal(true);
+                        }}
+                        className="px-2.5 py-1 rounded border border-red-700/80 bg-red-950/70 hover:bg-red-900/80 text-red-200 font-bold flex items-center gap-1.5 transition"
+                        title="Permanently delete all registered player accounts, sessions, alliances, and player bases/units"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                        <span>Delete All Accounts</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2 text-xs font-mono">
+                <div className="flex flex-wrap items-center gap-2 text-xs font-mono pt-1 border-t border-slate-800/70">
+                  <select
+                    value={playerTypeFilter}
+                    onChange={(e) => {
+                      setPlayerTypeFilter(e.target.value);
+                      setPlayerPage(1);
+                    }}
+                    className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200"
+                    aria-label="Filter by Player Type"
+                  >
+                    <option value="all">Player Type: All</option>
+                    <option value="human">HUMAN (Authenticated)</option>
+                    <option value="bot">BOT (AI Controlled)</option>
+                    <option value="system">SYSTEM (World Entity)</option>
+                    <option value="unknown">UNKNOWN (Unverified)</option>
+                  </select>
+
+                  <select
+                    value={playerMatchFilter}
+                    onChange={(e) => {
+                      setPlayerMatchFilter(e.target.value);
+                      setPlayerPage(1);
+                    }}
+                    className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200"
+                    aria-label="Filter by Active Match or Sector"
+                  >
+                    <option value="all">All Active Matches / Sectors</option>
+                    <option value="map_riverfront_assault">Sector 01: Riverfront Assault</option>
+                    <option value="map_iron_ridge_corridor">Sector 02: Iron Ridge Corridor</option>
+                    <option value="map_archipelago_bastion">Sector 03: Littoral Bastion Delta</option>
+                  </select>
+
+                  <select
+                    value={playerConnectionFilter}
+                    onChange={(e) => {
+                      setPlayerConnectionFilter(e.target.value);
+                      setPlayerPage(1);
+                    }}
+                    className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200"
+                    aria-label="Filter by Connection Status"
+                  >
+                    <option value="all">Connection: All</option>
+                    <option value="online">Online / Active AI</option>
+                    <option value="offline">Offline / Standby</option>
+                  </select>
+
                   <select
                     value={playerStatusFilter}
                     onChange={(e) => {
@@ -1190,8 +1545,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                       setPlayerPage(1);
                     }}
                     className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200"
+                    aria-label="Filter by Account Status"
                   >
-                    <option value="all">All Statuses</option>
+                    <option value="all">Account Status: All</option>
                     <option value="active">Active</option>
                     <option value="suspended">Suspended</option>
                     <option value="banned">Banned</option>
@@ -1204,13 +1560,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                       setPlayerPage(1);
                     }}
                     className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-slate-200"
+                    aria-label="Filter by Staff Role"
                   >
-                    <option value="all">All Roles</option>
+                    <option value="all">Role: All</option>
                     <option value="super_admin">Super Admin</option>
                     <option value="game_admin">Game Admin</option>
                     <option value="moderator">Moderator</option>
                     <option value="analyst">Analyst</option>
-                    <option value="player">Standard Player</option>
+                    <option value="player">Standard Player / Entity</option>
+                  </select>
+
+                  <select
+                    value={playerSortBy}
+                    onChange={(e) => {
+                      setPlayerSortBy(e.target.value);
+                      setPlayerPage(1);
+                    }}
+                    className="bg-slate-950 border border-slate-800 rounded px-2.5 py-1.5 text-cyan-300 ml-auto"
+                    aria-label="Sort Players By"
+                  >
+                    <option value="score">Sort: Score (High-Low)</option>
+                    <option value="playerType">Sort: Player Type</option>
+                    <option value="connectionStatus">Sort: Online / Active First</option>
+                    <option value="username">Sort: Name (A-Z)</option>
+                    <option value="lastLoginAt">Sort: Last Active</option>
+                    <option value="joinedAt">Sort: Created / Joined Time</option>
+                    <option value="level">Sort: Commander Level</option>
                   </select>
                 </div>
               </div>
@@ -1221,102 +1596,187 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
                       <tr className="border-b border-slate-800 text-[11px] font-mono text-slate-400 bg-slate-950/60">
-                        <th className="py-2.5 px-3">Commander</th>
-                        <th className="py-2.5 px-3">Role</th>
+                        <th className="py-2.5 px-3">Player Name</th>
+                        <th className="py-2.5 px-3">Player ID</th>
+                        <th className="py-2.5 px-3">Player Type</th>
                         <th className="py-2.5 px-3">Status</th>
-                        <th className="py-2.5 px-3 text-right">Score / Lvl</th>
-                        <th className="py-2.5 px-3 text-right">Bases / Units</th>
-                        <th className="py-2.5 px-3 text-right">Last Login</th>
+                        <th className="py-2.5 px-3">Current Match / Sector</th>
+                        <th className="py-2.5 px-3">Team / Faction</th>
+                        <th className="py-2.5 px-3">Account / Controller Source</th>
+                        <th className="py-2.5 px-3 text-right">Created / Joined</th>
                         <th className="py-2.5 px-3 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-mono">
-                      {playersData.items.map((p) => (
-                        <tr key={p.id} className="hover:bg-slate-800/40">
-                          <td className="py-2.5 px-3">
-                            <div className="font-semibold text-white flex items-center gap-1.5">
-                              <span>{p.username}</span>
-                              {p.isOnline && <span className="text-[10px] text-emerald-400">[ONLINE]</span>}
-                            </div>
-                            <div className="text-[10px] text-slate-400">{p.email}</div>
-                          </td>
-                          <td className="py-2.5 px-3 text-cyan-300">{p.adminRole || 'player'}</td>
-                          <td className="py-2.5 px-3">
-                            <span
-                              className={
-                                p.status === 'banned'
-                                  ? 'text-red-400 font-bold'
-                                  : p.status === 'suspended'
-                                  ? 'text-amber-400 font-bold'
-                                  : 'text-emerald-400'
-                              }
-                            >
-                              {(p.status || 'active').toUpperCase()}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3 text-right tabular-nums">
-                            <span className="text-slate-100">{p.score}</span>
-                            <span className="text-slate-500 ml-1">(L{p.level})</span>
-                          </td>
-                          <td className="py-2.5 px-3 text-right tabular-nums text-slate-300">
-                            {p.basesOwned}B / {p.unitsOwned}U
-                          </td>
-                          <td className="py-2.5 px-3 text-right tabular-nums text-slate-400">
-                            {new Date(p.lastLoginAt).toLocaleDateString()}
-                          </td>
-                          <td className="py-2.5 px-3 text-right space-x-1.5 whitespace-nowrap">
-                            <button
-                              onClick={() => handleInspectPlayer(p.id)}
-                              className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
-                              title="Inspect Profile & History"
-                            >
-                              <Eye className="w-3.5 h-3.5 inline" />
-                            </button>
-
-                            {hasPerm('players.suspend') && (
-                              <button
-                                onClick={() => {
-                                  setModModal({
-                                    player: p,
-                                    action: p.status === 'suspended' ? 'unsuspend' : 'suspend',
-                                  });
-                                  setModReason('');
-                                }}
-                                className="px-2 py-1 rounded bg-amber-950/60 hover:bg-amber-900/70 text-amber-300 border border-amber-800/60"
-                              >
-                                {p.status === 'suspended' ? 'Unsuspend' : 'Suspend'}
-                              </button>
-                            )}
-
-                            {hasPerm('players.ban') && (
-                              <button
-                                onClick={() => {
-                                  setModModal({
-                                    player: p,
-                                    action: p.status === 'banned' ? 'unban' : 'ban',
-                                  });
-                                  setModReason('');
-                                }}
-                                className="px-2 py-1 rounded bg-red-950/60 hover:bg-red-900/70 text-red-300 border border-red-800/60"
-                              >
-                                {p.status === 'banned' ? 'Unban' : 'Ban'}
-                              </button>
-                            )}
-
-                            {hasPerm('players.reset_progress') && (
-                              <button
-                                onClick={() => {
-                                  setModModal({ player: p, action: 'reset_progress' });
-                                  setModReason('');
-                                }}
-                                className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
-                              >
-                                Reset
-                              </button>
-                            )}
+                      {playersData.items.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} className="py-8 text-center text-slate-500">
+                            No players or entities match the selected filters.
                           </td>
                         </tr>
-                      ))}
+                      ) : (
+                        playersData.items.map((p) => {
+                          const isHuman = p.playerType === 'human';
+                          return (
+                            <tr key={p.id} className="hover:bg-slate-800/40">
+                              <td className="py-2.5 px-3">
+                                <div className="font-semibold text-white flex items-center gap-1.5">
+                                  <span>{p.username}</span>
+                                  {p.isOnline && (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950/80 border border-emerald-600/50 text-emerald-300">
+                                      ONLINE
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">
+                                  {p.rank} · Score {p.score} (L{p.level}) · {p.basesOwned}B/{p.unitsOwned}U
+                                </div>
+                              </td>
+
+                              <td className="py-2.5 px-3">
+                                <div className="text-slate-200 font-semibold">{p.id}</div>
+                                <div className="text-[10px] text-slate-500 truncate max-w-[160px]">{p.email}</div>
+                              </td>
+
+                              <td className="py-2.5 px-3">
+                                <PlayerTypeBadge playerType={p.playerType} />
+                                {p.adminRole && (
+                                  <div className="text-[10px] text-cyan-400 mt-1 uppercase">{p.adminRole}</div>
+                                )}
+                              </td>
+
+                              <td className="py-2.5 px-3">
+                                <div
+                                  className={
+                                    p.status === 'banned'
+                                      ? 'text-red-400 font-bold'
+                                      : p.status === 'suspended'
+                                      ? 'text-amber-400 font-bold'
+                                      : 'text-emerald-400 font-semibold'
+                                  }
+                                >
+                                  {(p.status || 'active').toUpperCase()}
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                  {p.connectionStatus === 'online' ? 'Connected / Active' : 'Offline / Idle'}
+                                </div>
+                              </td>
+
+                              <td className="py-2.5 px-3">
+                                <div className="text-slate-200 truncate max-w-[190px]">
+                                  {p.currentMapName || p.currentMapId || 'Sector 01'}
+                                </div>
+                                <div className="text-[10px] text-slate-400">
+                                  {p.activeMapIds?.length || 1} sector(s) ·{' '}
+                                  {p.activeMatchId ? `Match: ${p.activeMatchId}` : 'Standby'}
+                                </div>
+                              </td>
+
+                              <td className="py-2.5 px-3">
+                                <div className="text-slate-200 truncate max-w-[180px]">
+                                  {p.faction || 'Independent Commander'}
+                                </div>
+                                {p.botDifficulty && (
+                                  <div className="text-[10px] text-purple-300">
+                                    AI Difficulty: {String(p.botDifficulty).toUpperCase()}
+                                  </div>
+                                )}
+                              </td>
+
+                              <td className="py-2.5 px-3">
+                                <div className="text-slate-200">
+                                  {p.controlSource === 'human'
+                                    ? `Account: ${p.accountId || p.id}`
+                                    : p.controlSource === 'ai_controller'
+                                    ? `AI Agent: ${p.botAgentId || p.id}`
+                                    : p.controlSource === 'system'
+                                    ? 'Server Simulation Engine'
+                                    : 'Unverified Source'}
+                                </div>
+                                <div className="text-[10px] text-slate-400 truncate max-w-[200px]">
+                                  {p.controlStatus || p.verificationStatus}
+                                </div>
+                              </td>
+
+                              <td className="py-2.5 px-3 text-right tabular-nums">
+                                <div className="text-slate-300">
+                                  {new Date(p.joinedAt || Date.now()).toLocaleDateString()}
+                                </div>
+                                <div className="text-[10px] text-slate-500">
+                                  Last: {new Date(p.lastActiveAt || p.lastLoginAt || Date.now()).toLocaleTimeString()}
+                                </div>
+                              </td>
+
+                              <td className="py-2.5 px-3 text-right space-x-1.5 whitespace-nowrap">
+                                <button
+                                  onClick={() => handleInspectPlayer(p.id)}
+                                  className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700"
+                                  title="Inspect Dossier, Controller Provenance & Audit Trail"
+                                >
+                                  <Eye className="w-3.5 h-3.5 inline mr-1" />
+                                  <span>Details</span>
+                                </button>
+
+                                {isHuman && hasPerm('players.suspend') && (
+                                  <button
+                                    onClick={() => {
+                                      setModModal({
+                                        player: p,
+                                        action: p.status === 'suspended' ? 'unsuspend' : 'suspend',
+                                      });
+                                      setModReason('');
+                                    }}
+                                    className="px-2 py-1 rounded bg-amber-950/60 hover:bg-amber-900/70 text-amber-300 border border-amber-800/60"
+                                  >
+                                    {p.status === 'suspended' ? 'Unsuspend' : 'Suspend'}
+                                  </button>
+                                )}
+
+                                {isHuman && hasPerm('players.ban') && (
+                                  <button
+                                    onClick={() => {
+                                      setModModal({
+                                        player: p,
+                                        action: p.status === 'banned' ? 'unban' : 'ban',
+                                      });
+                                      setModReason('');
+                                    }}
+                                    className="px-2 py-1 rounded bg-red-950/60 hover:bg-red-900/70 text-red-300 border border-red-800/60"
+                                  >
+                                    {p.status === 'banned' ? 'Unban' : 'Ban'}
+                                  </button>
+                                )}
+
+                                {isHuman && hasPerm('players.reset_progress') && (
+                                  <button
+                                    onClick={() => {
+                                      setModModal({ player: p, action: 'reset_progress' });
+                                      setModReason('');
+                                    }}
+                                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+                                  >
+                                    Reset
+                                  </button>
+                                )}
+
+                                {(isHuman || p.playerType === 'unknown') && hasPerm('players.ban') && (
+                                  <button
+                                    onClick={() => {
+                                      setModModal({ player: p, action: 'delete_account' });
+                                      setModReason('Administrative account deletion');
+                                    }}
+                                    className="px-2 py-1 rounded bg-red-950/80 hover:bg-red-900 text-red-200 border border-red-700/70"
+                                    title="Permanently delete player account and remove bases/units"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 inline mr-1" />
+                                    <span>Delete</span>
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -1324,7 +1784,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                 {/* Pagination Footer */}
                 <div className="px-4 py-2.5 border-t border-slate-800 flex items-center justify-between text-xs font-mono text-slate-400">
                   <span className="tabular-nums">
-                    Showing {playersData.items.length} of {playersData.pagination.total} accounts
+                    Showing {playersData.items.length} of {playersData.pagination.total} total entities
                   </span>
                   <div className="flex items-center gap-2">
                     <button
@@ -1348,22 +1808,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                 </div>
               </div>
 
-              {/* Player Detail Inspector Panel */}
+              {/* Player Detail Inspector Panel / Drawer */}
               {selectedPlayerDetail && (
-                <div className="p-4 bg-slate-900 border border-slate-800 rounded space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                    <div>
-                      <h3 className="text-sm font-bold text-white font-mono">
-                        COMMANDER DOSSIER: {selectedPlayerDetail.profile.username} ({selectedPlayerDetail.profile.id})
-                      </h3>
-                      <p className="text-xs text-slate-400 font-mono">
-                        Rank: {selectedPlayerDetail.profile.rank} · Status:{' '}
-                        {(selectedPlayerDetail.profile.status || 'active').toUpperCase()} · Harvested:{' '}
-                        {selectedPlayerDetail.profile.totalResourcesHarvested}
-                      </p>
+                <div className="p-5 bg-slate-900 border border-slate-700 rounded space-y-5 shadow-xl">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3.5">
+                    <div className="flex items-center gap-3">
+                      <PlayerTypeBadge playerType={selectedPlayerDetail.profile.playerType} size="sm" />
+                      <div>
+                        <h3 className="text-sm font-bold text-white font-mono flex items-center gap-2">
+                          <span>{selectedPlayerDetail.profile.username}</span>
+                          <span className="text-slate-400 font-normal">({selectedPlayerDetail.profile.id})</span>
+                        </h3>
+                        <p className="text-xs text-slate-400 font-mono">
+                          {selectedPlayerDetail.profile.rank} · Faction:{' '}
+                          <span className="text-slate-200">{selectedPlayerDetail.profile.faction}</span> · Status:{' '}
+                          <span className="text-emerald-400">
+                            {(selectedPlayerDetail.profile.status || 'active').toUpperCase()}
+                          </span>
+                        </p>
+                      </div>
                     </div>
+
                     <div className="flex items-center gap-2">
-                      {hasPerm('players.suspend') && (
+                      {selectedPlayerDetail.profile.playerType === 'human' && hasPerm('players.suspend') && (
                         <button
                           onClick={() => {
                             setModModal({ player: selectedPlayerDetail.profile, action: 'rename' });
@@ -1375,23 +1842,173 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                           Rename Callsign
                         </button>
                       )}
+                      {(selectedPlayerDetail.profile.playerType === 'human' ||
+                        selectedPlayerDetail.profile.playerType === 'unknown') &&
+                        hasPerm('players.ban') && (
+                          <button
+                            onClick={() => {
+                              setModModal({ player: selectedPlayerDetail.profile, action: 'delete_account' });
+                              setModReason('Administrative account deletion');
+                            }}
+                            className="px-2.5 py-1 text-xs font-mono rounded bg-red-950/80 hover:bg-red-900 border border-red-700 text-red-200 flex items-center gap-1"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete Account</span>
+                          </button>
+                        )}
                       <button
                         onClick={() => setSelectedPlayerDetail(null)}
-                        className="px-2.5 py-1 text-xs font-mono rounded bg-slate-800 text-slate-300"
+                        className="px-2.5 py-1 text-xs font-mono rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
                       >
-                        Close
+                        Close Dossier
                       </button>
                     </div>
                   </div>
 
+                  {/* Authoritative Identity & Provenance Metadata Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs font-mono">
+                    <div className="p-3 bg-slate-950 border border-slate-800 rounded space-y-1">
+                      <div className="text-[10px] uppercase text-slate-400">Identity & Verification</div>
+                      <div className="text-slate-200 font-semibold">
+                        Type: {String(selectedPlayerDetail.profile.playerType || 'unknown').toUpperCase()}
+                      </div>
+                      <div className="text-slate-400">
+                        Verification: <span className="text-cyan-300">{selectedPlayerDetail.profile.verificationStatus}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        Verified By: {selectedPlayerDetail.profile.verifiedBy || 'Unverified'}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-slate-950 border border-slate-800 rounded space-y-1">
+                      <div className="text-[10px] uppercase text-slate-400">Controller & Provenance</div>
+                      <div className="text-slate-200 font-semibold">
+                        Source: {selectedPlayerDetail.profile.controlSource}
+                      </div>
+                      <div className="text-slate-400">
+                        {selectedPlayerDetail.profile.accountId
+                          ? `Account ID: ${selectedPlayerDetail.profile.accountId}`
+                          : selectedPlayerDetail.profile.botAgentId
+                          ? `Bot Agent ID: ${selectedPlayerDetail.profile.botAgentId}`
+                          : 'No Human Account Linked'}
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        Origin: {selectedPlayerDetail.profile.creationSource}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-slate-950 border border-slate-800 rounded space-y-1">
+                      <div className="text-[10px] uppercase text-slate-400">Current Match & Sector</div>
+                      <div className="text-slate-200 font-semibold">
+                        {selectedPlayerDetail.profile.currentMapName || selectedPlayerDetail.profile.currentMapId}
+                      </div>
+                      <div className="text-slate-400">
+                        Connection:{' '}
+                        <span className={selectedPlayerDetail.isOnline ? 'text-emerald-400' : 'text-slate-400'}>
+                          {selectedPlayerDetail.isOnline ? 'ONLINE / ACTIVE' : 'OFFLINE'}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-500">
+                        Matches: {(selectedPlayerDetail.profile.activeMatchIds || []).join(', ') || 'None'}
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-slate-950 border border-slate-800 rounded space-y-1">
+                      <div className="text-[10px] uppercase text-slate-400">
+                        {selectedPlayerDetail.profile.playerType === 'bot'
+                          ? 'AI Bot Agent Profile'
+                          : 'Activity & Timestamps'}
+                      </div>
+                      {selectedPlayerDetail.profile.playerType === 'bot' ? (
+                        <>
+                          <div className="text-purple-300 font-semibold">
+                            Difficulty: {String(selectedPlayerDetail.profile.botDifficulty || 'medium').toUpperCase()}
+                          </div>
+                          <div className="text-slate-300 truncate">
+                            {selectedPlayerDetail.profile.botAiProfile || 'Autonomous AI Controller'}
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            Last AI Tick: {new Date(selectedPlayerDetail.profile.lastActiveAt).toLocaleTimeString()}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-slate-200">
+                            Created: {new Date(selectedPlayerDetail.profile.joinedAt).toLocaleDateString()}
+                          </div>
+                          <div className="text-slate-400">
+                            Last Update: {new Date(selectedPlayerDetail.profile.lastActiveAt || selectedPlayerDetail.profile.lastLoginAt).toLocaleString()}
+                          </div>
+                          <div className="text-[10px] text-slate-500">
+                            Harvested: {selectedPlayerDetail.profile.totalResourcesHarvested}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Classification Verification / Anti-Spoofing Notice */}
+                  {selectedPlayerDetail.profile.playerType === 'unknown' && hasPerm('players.suspend') && (
+                    <form
+                      onSubmit={handleVerifyUnknownPlayerType}
+                      className="p-3.5 bg-amber-950/30 border border-amber-600/50 rounded flex flex-wrap items-center justify-between gap-3 text-xs font-mono"
+                    >
+                      <div>
+                        <div className="text-amber-300 font-bold uppercase">
+                          Unverified Legacy / Unknown Entity Classification
+                        </div>
+                        <div className="text-slate-300 text-[11px]">
+                          Assign an authoritative server classification for this unresolved record. Action will be recorded in the audit log.
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          value={verifyTypeTarget}
+                          onChange={(e) => setVerifyTypeTarget(e.target.value as PlayerType)}
+                          className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-white"
+                        >
+                          <option value="bot">Verify as BOT (AI Agent)</option>
+                          <option value="system">Verify as SYSTEM (World Entity)</option>
+                          <option value="human">Verify as HUMAN (Account Required)</option>
+                        </select>
+                        <input
+                          type="text"
+                          value={verifyTypeReason}
+                          onChange={(e) => setVerifyTypeReason(e.target.value)}
+                          placeholder="Verification audit reason..."
+                          className="bg-slate-950 border border-slate-700 rounded px-2.5 py-1.5 text-white min-w-[220px]"
+                          required
+                        />
+                        <button
+                          type="submit"
+                          className="px-3 py-1.5 rounded bg-amber-600 hover:bg-amber-500 text-slate-950 font-bold uppercase"
+                        >
+                          Verify Identity
+                        </button>
+                      </div>
+                    </form>
+                  )}
+
+                  {selectedPlayerDetail.profile.playerType === 'human' && (
+                    <div className="px-3.5 py-2 bg-blue-950/30 border border-blue-800/50 rounded flex items-center justify-between text-[11px] font-mono text-blue-200">
+                      <span>
+                        Verified Human Account Protection: Authenticated human accounts are cryptographically bound to user credentials and cannot be reclassified as bots.
+                      </span>
+                      <span className="text-blue-400 uppercase font-bold">Immutable Human Provenance</span>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
                     <div>
-                      <div className="text-slate-400 uppercase mb-1.5">Moderation History</div>
-                      {(selectedPlayerDetail.profile.moderationHistory || []).length === 0 ? (
-                        <div className="text-slate-500">Clean service record. No moderation actions.</div>
+                      <div className="text-slate-400 uppercase mb-1.5">
+                        Moderation & Audit History ({(selectedPlayerDetail.auditTrail || []).length})
+                      </div>
+                      {(selectedPlayerDetail.profile.moderationHistory || []).length === 0 &&
+                      (selectedPlayerDetail.auditTrail || []).length === 0 ? (
+                        <div className="text-slate-500">Clean service record. No moderation or audit actions.</div>
                       ) : (
-                        <div className="space-y-1.5 max-h-40 overflow-y-auto">
-                          {selectedPlayerDetail.profile.moderationHistory.map((m: any) => (
+                        <div className="space-y-1.5 max-h-44 overflow-y-auto">
+                          {(selectedPlayerDetail.profile.moderationHistory || []).map((m: any) => (
                             <div key={m.id} className="p-2 bg-slate-950 border border-slate-800 rounded">
                               <div className="flex justify-between text-amber-300">
                                 <span className="uppercase font-bold">{m.action}</span>
@@ -1409,17 +2026,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
 
                     <div>
                       <div className="text-slate-400 uppercase mb-1.5">
-                        Controlled Bases ({selectedPlayerDetail.bases.length}) & Units (
+                        Controlled Bases ({selectedPlayerDetail.bases.length}) & Active Units (
                         {selectedPlayerDetail.units.length})
                       </div>
-                      <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                      <div className="space-y-1.5 max-h-44 overflow-y-auto">
                         {selectedPlayerDetail.bases.map((b: any) => (
                           <div
                             key={b.id}
                             className="p-2 bg-slate-950 border border-slate-800 rounded flex justify-between"
                           >
                             <span>
-                              {b.name} ({b.type.toUpperCase()})
+                              {b.name} ({b.type.toUpperCase()}) · {b.mapId || 'Sector 01'}
                             </span>
                             <span className="tabular-nums text-emerald-400">
                               HP {b.health}/{b.maxHealth} · X:{b.x} Y:{b.y}
@@ -1447,10 +2064,31 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                     Seed: {matchesData.liveSector.seed} · Grid: {matchesData.liveSector.width}x
                     {matchesData.liveSector.height} · Props: {matchesData.liveSector.envObjectsCount}
                   </div>
+                  {matchesData.liveSector.participantTypeCounts && (
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <span className="text-[10px] text-blue-300 font-bold">
+                        HUMAN: {matchesData.liveSector.participantTypeCounts.human || 0}
+                      </span>
+                      <span className="text-[10px] text-purple-300 font-bold">
+                        BOT: {matchesData.liveSector.participantTypeCounts.bot || 0}
+                      </span>
+                      <span className="text-[10px] text-slate-300 font-bold">
+                        SYSTEM: {matchesData.liveSector.participantTypeCounts.system || 0}
+                      </span>
+                      {matchesData.liveSector.participantTypeCounts.unknown > 0 && (
+                        <span className="text-[10px] text-amber-300 font-bold">
+                          UNKNOWN: {matchesData.liveSector.participantTypeCounts.unknown}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-4 bg-slate-900 border border-slate-800 rounded space-y-2 font-mono text-xs">
-                  <div className="text-slate-400 uppercase">Kodiak PMC Autonomous AI</div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400 uppercase">Kodiak PMC Autonomous AI</span>
+                    <PlayerTypeBadge playerType="bot" />
+                  </div>
                   <div className="flex items-center gap-2">
                     {(['easy', 'medium', 'hard'] as AIDifficulty[]).map((diff) => (
                       <button
@@ -1459,7 +2097,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                         onClick={() => handleMatchAction('set_ai_difficulty', { difficulty: diff })}
                         className={`px-3 py-1 rounded uppercase border transition ${
                           matchesData.liveSector.aiDifficulty === diff
-                            ? 'bg-rose-600 text-white border-rose-500 font-bold'
+                            ? 'bg-purple-600 text-white border-purple-500 font-bold'
                             : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
                         }`}
                       >
@@ -1503,6 +2141,61 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                 </div>
               </div>
 
+              {/* Active Match Participant Roster (HUMAN / BOT / SYSTEM / UNKNOWN) */}
+              {Array.isArray(matchesData.liveSector.participants) && (
+                <div className="bg-slate-900 border border-slate-800 rounded overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-xs font-mono uppercase font-bold text-slate-200">
+                      Active Match Participant Roster ({matchesData.liveSector.participants.length})
+                    </h3>
+                    <div className="flex items-center gap-2 text-[11px] font-mono">
+                      <PlayerTypeBadge playerType="human" />
+                      <PlayerTypeBadge playerType="bot" />
+                      <PlayerTypeBadge playerType="system" />
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs font-mono">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-[11px] text-slate-400 bg-slate-950/60">
+                          <th className="py-2 px-3">Participant</th>
+                          <th className="py-2 px-3">Player ID</th>
+                          <th className="py-2 px-3">Player Type</th>
+                          <th className="py-2 px-3">Faction / Team</th>
+                          <th className="py-2 px-3">Controller Source</th>
+                          <th className="py-2 px-3 text-right">Sector Bases</th>
+                          <th className="py-2 px-3 text-right">Sector Units</th>
+                          <th className="py-2 px-3 text-right">State</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {matchesData.liveSector.participants.map((part: MatchParticipantSummary) => (
+                          <tr key={part.playerId} className="hover:bg-slate-800/40">
+                            <td className="py-2 px-3 font-semibold text-white">{part.username}</td>
+                            <td className="py-2 px-3 text-slate-400">{part.playerId}</td>
+                            <td className="py-2 px-3">
+                              <PlayerTypeBadge playerType={part.playerType} />
+                            </td>
+                            <td className="py-2 px-3 text-slate-300">{part.faction}</td>
+                            <td className="py-2 px-3 text-slate-400">
+                              {part.controlSource}
+                              {part.botDifficulty ? ` (${part.botDifficulty.toUpperCase()})` : ''}
+                            </td>
+                            <td className="py-2 px-3 text-right tabular-nums text-slate-200">{part.basesCount}</td>
+                            <td className="py-2 px-3 text-right tabular-nums text-slate-200">{part.unitsCount}</td>
+                            <td className="py-2 px-3 text-right">
+                              <span className={part.isOnline ? 'text-emerald-400 font-bold' : 'text-slate-500'}>
+                                {part.isOnline ? 'ACTIVE' : 'OFFLINE'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
               {/* Sandbox Spawner & Supply Injection Bar */}
               {hasPerm('matches.terminate') && (
                 <div className="p-4 bg-slate-900 border border-slate-800 rounded flex flex-wrap items-center justify-between gap-4 text-xs font-mono">
@@ -1538,7 +2231,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                         checked={sandboxIsHostile}
                         onChange={(e) => setSandboxIsHostile(e.target.checked)}
                       />
-                      <span>Spawn as Hostile (Kodiak PMC)</span>
+                      <span>Spawn as Hostile BOT (Kodiak PMC)</span>
                     </label>
 
                     <button
@@ -1580,7 +2273,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                       <tr className="border-b border-slate-800 text-[11px] text-slate-400 bg-slate-950/60">
                         <th className="py-2 px-3">Base Name</th>
                         <th className="py-2 px-3">Type</th>
-                        <th className="py-2 px-3">Controller</th>
+                        <th className="py-2 px-3">Controller & Player Type</th>
                         <th className="py-2 px-3 text-right">Coords</th>
                         <th className="py-2 px-3 text-right">Integrity / Shield</th>
                         <th className="py-2 px-3 text-right">Resources (C / S / A / F)</th>
@@ -1593,17 +2286,29 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                           <td className="py-2 px-3 font-semibold text-white">{b.name}</td>
                           <td className="py-2 px-3 uppercase text-slate-400">{b.type}</td>
                           <td className="py-2 px-3">
-                            <span
-                              className={
-                                b.ownerId === 'enemy_insurgent'
-                                  ? 'text-rose-400'
-                                  : b.ownerId === 'neutral'
-                                  ? 'text-slate-400'
-                                  : 'text-cyan-400'
-                              }
-                            >
-                              {b.ownerName}
-                            </span>
+                            <div className="flex items-center gap-2">
+                              <PlayerTypeBadge
+                                playerType={
+                                  b.controllerPlayerType ||
+                                  (b.ownerId === 'enemy_insurgent'
+                                    ? 'bot'
+                                    : b.ownerId === 'neutral'
+                                    ? 'system'
+                                    : 'human')
+                                }
+                              />
+                              <span
+                                className={
+                                  b.ownerId === 'enemy_insurgent'
+                                    ? 'text-purple-300'
+                                    : b.ownerId === 'neutral'
+                                    ? 'text-slate-400'
+                                    : 'text-blue-300'
+                                }
+                              >
+                                {b.ownerName}
+                              </span>
+                            </div>
                           </td>
                           <td className="py-2 px-3 text-right tabular-nums text-slate-400">
                             X:{b.x} Y:{b.y}
@@ -1661,6 +2366,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                     <tr className="border-b border-slate-800 text-[11px] text-slate-400 bg-slate-950/60">
                       <th className="py-2.5 px-3">Match ID</th>
                       <th className="py-2.5 px-3">Sector Map</th>
+                      <th className="py-2.5 px-3">Participants & Player Types</th>
                       <th className="py-2.5 px-3">Status</th>
                       <th className="py-2.5 px-3">AI Diff</th>
                       <th className="py-2.5 px-3 text-right">Units / Captures</th>
@@ -1674,6 +2380,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                         <td className="py-2.5 px-3 text-cyan-300">{m.id}</td>
                         <td className="py-2.5 px-3 text-white">
                           {m.mapName} <span className="text-slate-500">(Seed {m.seed})</span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {(m.participants || []).map((part) => (
+                              <span
+                                key={part.playerId}
+                                className="inline-flex items-center gap-1 bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5"
+                              >
+                                <PlayerTypeBadge playerType={part.playerType} />
+                                <span className="text-slate-200 text-[11px]">{part.username}</span>
+                              </span>
+                            ))}
+                          </div>
                         </td>
                         <td className="py-2.5 px-3">
                           <span
@@ -3147,6 +3866,66 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                 className="px-4 py-1.5 rounded bg-red-600 hover:bg-red-500 text-white font-bold uppercase"
               >
                 Confirm & Execute
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ====================================================================
+          CONFIRMATION MODAL FOR DELETE ALL ACCOUNTS
+         ==================================================================== */}
+      {showDeleteAllModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+          <form
+            onSubmit={handleDeleteAllAccounts}
+            className="w-full max-w-md bg-slate-900 border border-red-700/80 rounded p-5 space-y-4 font-mono text-xs shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-bold uppercase text-red-400 flex items-center gap-2">
+                <Trash2 className="w-4 h-4" />
+                <span>Confirm Purge: Delete All Accounts</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowDeleteAllModal(false)}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-3 rounded bg-red-950/40 border border-red-800/60 text-red-200 leading-relaxed">
+              This will permanently delete all registered human/unknown player accounts, revoke all player sessions,
+              disband all player alliances, remove all player-owned combat units, and neutralize/remove all player
+              bases across all sectors. AI Bot agents (Kodiak PMC) and System world entities will be preserved.
+            </div>
+
+            <div>
+              <label className="block text-slate-400 mb-1">Mandatory Audit Reason</label>
+              <textarea
+                rows={2}
+                value={deleteAllReason}
+                onChange={(e) => setDeleteAllReason(e.target.value)}
+                placeholder="Reason for purging all player accounts..."
+                className="w-full px-3 py-1.5 rounded bg-slate-950 border border-slate-800 text-white"
+                required
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteAllModal(false)}
+                className="px-3 py-1.5 rounded bg-slate-800 text-slate-300"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-1.5 rounded bg-red-600 hover:bg-red-500 text-white font-bold uppercase"
+              >
+                Delete All Accounts
               </button>
             </div>
           </form>

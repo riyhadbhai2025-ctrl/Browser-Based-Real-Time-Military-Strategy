@@ -101,6 +101,7 @@ export class GameSimulation {
         m.aiDifficulty = diff;
       }
     }
+    gameStore.recordBotActivity('enemy_insurgent', diff);
   }
 
   public updateCellTerrain(x: number, y: number, type: TerrainType, mapId = 'map_riverfront_assault') {
@@ -1550,6 +1551,7 @@ export class GameSimulation {
   private updateAICommander(_now: number): boolean {
     const data = gameStore.getData();
     const aiOwnerId = 'enemy_insurgent';
+    gameStore.recordBotActivity(aiOwnerId, this.aiDifficulty, _now);
     const aiBases = data.bases.filter((b) => b.ownerId === aiOwnerId);
     if (aiBases.length === 0) return false;
 

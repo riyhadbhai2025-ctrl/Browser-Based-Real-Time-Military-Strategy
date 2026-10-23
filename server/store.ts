@@ -3,7 +3,9 @@ import path from 'path';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import {
+  AIDifficulty,
   AchievementProgress,
+  AdminPlayerRecord,
   AdminRole,
   AdminSessionInfo,
   Alliance,
@@ -13,24 +15,31 @@ import {
   AuditLogEntry,
   Base,
   BattleReport,
+  BotAgentRecord,
   BuildingDefinition,
   BuildingType,
   CatalogConfigState,
   ChatMessage,
   ConfigVersionEntry,
+  ControlSource,
   EconomyConfig,
   EnvironmentObject,
   GameNotification,
   HighwayExit,
   MapSectorConfig,
+  MatchParticipantSummary,
   MatchRecord,
   MissionProgress,
   PlayerProfile,
+  PlayerType,
+  PlayerTypeStatsSummary,
   SupportTicket,
+  SystemEntityRecord,
   SystemSettings,
   Unit,
   UnitDefinition,
   UnitType,
+  VerificationStatus,
 } from '../src/types/game';
 import { BASE_RESOURCE_CAP, BUILDING_CATALOG, STARTER_RESOURCES, UNIT_CATALOG } from '../src/game/catalog';
 import { generateWorld } from '../src/game/mapGenerator';
@@ -93,6 +102,9 @@ export interface PersistentData {
   auditLogs: AuditLogEntry[];
   matches: MatchRecord[];
   systemSettings: SystemSettings;
+  botRegistry?: Record<string, BotAgentRecord>;
+  systemEntities?: Record<string, SystemEntityRecord>;
+  accountsPurged?: boolean;
 }
 
 export function createDefaultEconomyConfig(): EconomyConfig {
@@ -381,14 +393,22 @@ export class GameStore {
     if (!isPostgresConfigured()) return;
     try {
       const existing = await loadStateFromPostgres();
-      if (existing && Object.keys(existing.users).length > 0 && existing.bases.length > 0) {
-        // Merge PostgreSQL durable state with any local schema upgrades
-        this.data.users = { ...this.data.users, ...existing.users };
-        this.data.tokens = { ...this.data.tokens, ...existing.tokens };
-        this.data.adminSessions = { ...this.data.adminSessions, ...existing.adminSessions };
+      if (existing && (existing.bases.length > 0 || existing.maps.length > 0)) {
+        const pgPurged = Boolean(existing.kv.accountsPurged || this.data.accountsPurged);
+        if (pgPurged) {
+          this.data.accountsPurged = true;
+          this.data.users = existing.users;
+          this.data.tokens = existing.tokens;
+          this.data.adminSessions = { ...this.data.adminSessions, ...existing.adminSessions };
+        } else {
+          // Merge PostgreSQL durable state with any local schema upgrades
+          this.data.users = { ...this.data.users, ...existing.users };
+          this.data.tokens = { ...this.data.tokens, ...existing.tokens };
+          this.data.adminSessions = { ...this.data.adminSessions, ...existing.adminSessions };
+        }
         if (existing.bases.length > 0) this.data.bases = existing.bases;
         if (existing.units.length > 0) this.data.units = existing.units;
-        if (existing.alliances.length > 0) this.data.alliances = existing.alliances;
+        this.data.alliances = existing.alliances;
         if (existing.maps.length > 0) this.data.maps = existing.maps;
         if (Object.keys(existing.envObjectsByMap).length > 0) {
           this.data.envObjectsByMap = existing.envObjectsByMap;
@@ -404,6 +424,8 @@ export class GameStore {
         if (existing.kv.matches) this.data.matches = existing.kv.matches;
         if (existing.kv.supportTickets) this.data.supportTickets = existing.kv.supportTickets;
         if (existing.kv.exploredByUserMap) this.data.exploredByUserMap = existing.kv.exploredByUserMap;
+        if (existing.kv.botRegistry) this.data.botRegistry = existing.kv.botRegistry;
+        if (existing.kv.systemEntities) this.data.systemEntities = existing.kv.systemEntities;
 
         this.data = this.migrateData(this.data);
       }
@@ -440,6 +462,9 @@ export class GameStore {
           matches: this.data.matches,
           supportTickets: this.data.supportTickets || [],
           exploredByUserMap: this.data.exploredByUserMap || {},
+          botRegistry: this.data.botRegistry || {},
+          systemEntities: this.data.systemEntities || {},
+          accountsPurged: Boolean(this.data.accountsPurged),
         },
       });
       if (ok) {
@@ -504,6 +529,9 @@ export class GameStore {
   }
 
   private ensureAdminBootstrapUsers(data: PersistentData) {
+    if (data.accountsPurged) {
+      return;
+    }
     const now = Date.now();
     const bootstrapUsername = process.env.ADMIN_BOOTSTRAP_USERNAME || 'Commander';
     const bootstrapPassword = this.resolveBootstrapSecret('ADMIN_BOOTSTRAP_PASSWORD', 'admin123');
@@ -517,6 +545,11 @@ export class GameStore {
       p.currentMapId = p.currentMapId || 'map_riverfront_assault';
       p.claimedRewardIds = p.claimedRewardIds || [];
       p.highwayTransfersCompleted = p.highwayTransfersCompleted || 0;
+      p.playerType = 'human';
+      p.accountId = 'player_default';
+      p.botAgentId = null;
+      p.controlSource = 'human';
+      p.verificationStatus = 'verified';
     }
 
     const staffAccounts: Array<{
@@ -632,6 +665,11 @@ export class GameStore {
             suspendedUntil: null,
             banReason: null,
             moderationHistory: [],
+            playerType: 'human',
+            accountId: acc.id,
+            botAgentId: null,
+            controlSource: 'human',
+            verificationStatus: 'verified',
           },
         };
       } else {
@@ -645,6 +683,11 @@ export class GameStore {
           prof.adminRole = acc.role;
           prof.isAdmin = true;
         }
+        prof.playerType = 'human';
+        prof.accountId = acc.id;
+        prof.botAgentId = null;
+        prof.controlSource = 'human';
+        prof.verificationStatus = prof.verificationStatus === 'admin_verified' ? 'admin_verified' : 'verified';
       }
     }
   }
@@ -1040,6 +1083,96 @@ export class GameStore {
     }
 
     this.ensureMultiMapEntities(parsed);
+
+    // Authoritative Player Type & Identity Migration
+    for (const [uid, uRec] of Object.entries(parsed.users || {})) {
+      const rec = uRec as { passwordHash?: string; profile?: PlayerProfile };
+      if (!rec?.profile) continue;
+      const prof = rec.profile;
+      const hasValidAuth = typeof rec.passwordHash === 'string' && rec.passwordHash.trim().length > 0;
+      if (prof.playerType === 'unknown' && prof.verificationStatus !== 'admin_verified') {
+        prof.playerType = 'unknown';
+        prof.accountId = prof.accountId ?? null;
+        prof.botAgentId = null;
+        prof.controlSource = 'unverified';
+        prof.verificationStatus = 'legacy_unverified';
+      } else if (hasValidAuth) {
+        prof.playerType = 'human';
+        prof.accountId = uid;
+        prof.botAgentId = null;
+        prof.controlSource = 'human';
+        prof.verificationStatus = prof.verificationStatus === 'admin_verified' ? 'admin_verified' : 'verified';
+      } else {
+        // Legacy record without verified authentication credentials -> classify as UNKNOWN instead of assuming human or bot
+        prof.playerType = 'unknown';
+        prof.accountId = null;
+        prof.botAgentId = null;
+        prof.controlSource = 'unverified';
+        prof.verificationStatus = 'legacy_unverified';
+      }
+    }
+
+    if (!parsed.botRegistry) {
+      parsed.botRegistry = {};
+    }
+    const botMaps = Array.from(
+      new Set<string>([
+        ...(parsed.bases || [])
+          .filter((b: Base) => b.ownerId === 'enemy_insurgent')
+          .map((b: Base) => b.mapId || 'map_riverfront_assault'),
+        ...(parsed.units || [])
+          .filter((u: Unit) => u.ownerId === 'enemy_insurgent')
+          .map((u: Unit) => u.mapId || 'map_riverfront_assault'),
+      ])
+    );
+    const botMatchIds = (parsed.matches || [])
+      .filter((m: MatchRecord) => m.status === 'active' && (m.participantIds || []).includes('enemy_insurgent'))
+      .map((m: MatchRecord) => m.id);
+    const existingKodiak = parsed.botRegistry['enemy_insurgent'];
+    const aiAggressionOn = parsed.systemSettings?.aiAggressionEnabled !== false;
+    parsed.botRegistry['enemy_insurgent'] = {
+      botId: existingKodiak?.botId || 'bot_kodiak_pmc',
+      playerId: 'enemy_insurgent',
+      playerType: 'bot',
+      displayName: existingKodiak?.displayName || 'Kodiak PMC',
+      faction: existingKodiak?.faction || 'Kodiak Autonomous Command',
+      difficulty: existingKodiak?.difficulty || 'medium',
+      aiProfile: existingKodiak?.aiProfile || 'Combined Arms Siege & Recon AI',
+      activeMapIds: botMaps.length > 0 ? botMaps : ['map_riverfront_assault'],
+      matchIds: botMatchIds,
+      controlSource: 'ai_controller',
+      controlStatus: aiAggressionOn ? 'autonomous_active' : 'paused',
+      creationSource: existingKodiak?.creationSource || 'server_simulation_engine',
+      state: aiAggressionOn ? 'active' : 'paused',
+      createdAt: existingKodiak?.createdAt || now - 86400000 * 14,
+      lastDecisionAt: existingKodiak?.lastDecisionAt || now,
+    };
+
+    if (!parsed.systemEntities) {
+      parsed.systemEntities = {};
+    }
+    const neutralMaps = Array.from(
+      new Set<string>(
+        (parsed.bases || [])
+          .filter((b: Base) => b.ownerId === 'neutral')
+          .map((b: Base) => b.mapId || 'map_riverfront_assault')
+      )
+    );
+    const existingNeutral = parsed.systemEntities['neutral'];
+    parsed.systemEntities['neutral'] = {
+      entityId: existingNeutral?.entityId || 'sys_neutral_sector',
+      playerId: 'neutral',
+      playerType: 'system',
+      displayName: existingNeutral?.displayName || 'Neutral Territory',
+      faction: existingNeutral?.faction || 'Unclaimed Sector Installations',
+      activeMapIds: neutralMaps.length > 0 ? neutralMaps : ['map_riverfront_assault'],
+      controlSource: 'system',
+      creationSource: existingNeutral?.creationSource || 'world_generator',
+      state: 'active',
+      createdAt: existingNeutral?.createdAt || now - 86400000 * 14,
+      lastUpdatedAt: now,
+    };
+
     return parsed as PersistentData;
   }
 
@@ -1974,6 +2107,7 @@ export class GameStore {
     const now = Date.now();
     const sevenDaysAgo = now - 7 * 86400000;
     const weeklyCaptures = (profile.weeklyCaptureTimestamps || []).filter((t) => t > sevenDaysAgo);
+    const pType: PlayerType = profile.playerType || 'human';
     return {
       ...profile,
       homeMapId: profile.homeMapId || profile.currentMapId || 'map_riverfront_assault',
@@ -1989,6 +2123,970 @@ export class GameStore {
       adminRole: profile.adminRole || null,
       isAdmin: Boolean(profile.adminRole || profile.isAdmin),
       moderationHistory: profile.moderationHistory || [],
+      playerType: pType,
+      accountId: profile.accountId !== undefined ? profile.accountId : pType === 'human' ? profile.id : null,
+      botAgentId: profile.botAgentId ?? null,
+      controlSource: profile.controlSource || (pType === 'unknown' ? 'unverified' : 'human'),
+      verificationStatus:
+        profile.verificationStatus || (pType === 'unknown' ? 'legacy_unverified' : 'verified'),
+      verifiedBy: profile.verifiedBy ?? null,
+      verifiedAt: profile.verifiedAt ?? null,
+    };
+  }
+
+  // ==========================================================================
+  // AUTHORITATIVE PLAYER TYPE, BOT REGISTRY & ADMIN PLAYER DIRECTORY
+  // ==========================================================================
+
+  public recordBotActivity(playerId: string, difficulty: AIDifficulty, now = Date.now()): void {
+    if (!this.data.botRegistry) {
+      this.data.botRegistry = {};
+    }
+    const existing = this.data.botRegistry[playerId];
+    const botMaps = Array.from(
+      new Set<string>([
+        ...this.data.bases
+          .filter((b) => b.ownerId === playerId)
+          .map((b) => b.mapId || 'map_riverfront_assault'),
+        ...this.data.units
+          .filter((u) => u.ownerId === playerId)
+          .map((u) => u.mapId || 'map_riverfront_assault'),
+      ])
+    );
+    const botMatchIds = (this.data.matches || [])
+      .filter((m) => m.status === 'active' && (m.participantIds || []).includes(playerId))
+      .map((m) => m.id);
+    const aiEnabled = this.data.systemSettings?.aiAggressionEnabled !== false;
+
+    this.data.botRegistry[playerId] = {
+      botId: existing?.botId || `bot_${playerId}`,
+      playerId,
+      playerType: 'bot',
+      displayName: existing?.displayName || (playerId === 'enemy_insurgent' ? 'Kodiak PMC' : playerId),
+      faction: existing?.faction || 'Kodiak Autonomous Command',
+      difficulty: difficulty || existing?.difficulty || 'medium',
+      aiProfile: existing?.aiProfile || 'Combined Arms Siege & Recon AI',
+      activeMapIds: botMaps.length > 0 ? botMaps : existing?.activeMapIds || ['map_riverfront_assault'],
+      matchIds: botMatchIds,
+      controlSource: 'ai_controller',
+      controlStatus: aiEnabled ? 'autonomous_active' : 'paused',
+      creationSource: existing?.creationSource || 'server_simulation_engine',
+      state: aiEnabled ? 'active' : 'paused',
+      createdAt: existing?.createdAt || now,
+      lastDecisionAt: now,
+    };
+  }
+
+  public registerBotAgent(
+    config: Partial<BotAgentRecord> & { playerId: string; displayName: string }
+  ): BotAgentRecord {
+    const now = Date.now();
+    if (!this.data.botRegistry) {
+      this.data.botRegistry = {};
+    }
+    const existing = this.data.botRegistry[config.playerId];
+    const record: BotAgentRecord = {
+      botId: config.botId || existing?.botId || `bot_${config.playerId}`,
+      playerId: config.playerId,
+      playerType: 'bot',
+      displayName: config.displayName,
+      faction: config.faction || existing?.faction || 'Kodiak Autonomous Command',
+      difficulty: config.difficulty || existing?.difficulty || 'medium',
+      aiProfile: config.aiProfile || existing?.aiProfile || 'Combined Arms Siege & Recon AI',
+      activeMapIds: config.activeMapIds || existing?.activeMapIds || ['map_riverfront_assault'],
+      matchIds: config.matchIds || existing?.matchIds || ['match_sector_01_live'],
+      controlSource: 'ai_controller',
+      controlStatus: config.controlStatus || existing?.controlStatus || 'autonomous_active',
+      creationSource: config.creationSource || existing?.creationSource || 'server_simulation_engine',
+      state: config.state || existing?.state || 'active',
+      createdAt: config.createdAt || existing?.createdAt || now,
+      lastDecisionAt: config.lastDecisionAt || existing?.lastDecisionAt || now,
+    };
+    this.data.botRegistry[config.playerId] = record;
+    return record;
+  }
+
+  public resolvePlayerIdentity(
+    playerId: string,
+    onlineUserIds: Set<string> = new Set(),
+    aiDifficulty: AIDifficulty = 'medium'
+  ): AdminPlayerRecord {
+    const now = Date.now();
+    const ownedBases = this.data.bases.filter((b) => b.ownerId === playerId);
+    const ownedUnits = this.data.units.filter((u) => u.ownerId === playerId);
+    const totalKills = ownedUnits.reduce((acc, u) => acc + (u.kills || 0), 0);
+
+    const activeMapIds = Array.from(
+      new Set<string>([
+        ...ownedBases.map((b) => b.mapId || 'map_riverfront_assault'),
+        ...ownedUnits.map((u) => u.mapId || 'map_riverfront_assault'),
+      ])
+    );
+    const activeMatches = (this.data.matches || []).filter(
+      (m) =>
+        m.status === 'active' &&
+        ((m.participantIds || []).includes(playerId) || activeMapIds.includes(m.mapId))
+    );
+    const activeMatchIds = activeMatches.map((m) => m.id);
+
+    // 1. Check authoritative Bot Registry first (prevents bots from ever being confused with users)
+    const botRec = this.data.botRegistry?.[playerId];
+    if (botRec || playerId === 'enemy_insurgent') {
+      const effectiveDifficulty = aiDifficulty || botRec?.difficulty || 'medium';
+      const aiEnabled = this.data.systemSettings?.aiAggressionEnabled !== false;
+      const isBotActive = aiEnabled && (ownedBases.length > 0 || ownedUnits.length > 0);
+      const primaryMapId =
+        activeMapIds[0] || botRec?.activeMapIds?.[0] || 'map_riverfront_assault';
+      const primaryMap = this.getMapConfig(primaryMapId);
+      const botScore = ownedBases.length * 650 + ownedUnits.length * 120 + totalKills * 45;
+      const { level } = calculateRankFromScore(botScore);
+
+      return {
+        id: playerId,
+        username: botRec?.displayName || 'Kodiak PMC',
+        email: 'ai-agent@simulation.internal',
+        rank: `AI Tactical Agent (${effectiveDifficulty.toUpperCase()})`,
+        score: botScore,
+        level,
+        avatar: 'bot',
+        playerType: 'bot',
+        accountId: null,
+        botAgentId: botRec?.botId || 'bot_kodiak_pmc',
+        controlSource: 'ai_controller',
+        controlStatus: isBotActive
+          ? `Autonomous AI Active (${effectiveDifficulty.toUpperCase()})`
+          : aiEnabled
+          ? 'Standby (No Active Units/Bases)'
+          : 'AI Aggression Paused',
+        creationSource: botRec?.creationSource || 'server_simulation_engine',
+        verificationStatus: 'system_registered',
+        verifiedBy: 'Server Simulation Authority',
+        verifiedAt: botRec?.createdAt || now,
+        botDifficulty: effectiveDifficulty,
+        botAiProfile: botRec?.aiProfile || 'Combined Arms Siege & Recon AI',
+        faction: botRec?.faction || 'Kodiak Autonomous Command',
+        allianceId: null,
+        allianceName: null,
+        allianceTag: 'AI',
+        allianceRole: null,
+        homeBaseId: ownedBases[0]?.id || '',
+        currentMapId: primaryMapId,
+        currentMapName: primaryMap?.name || primaryMapId,
+        activeMatchId: activeMatchIds[0] || null,
+        activeMatchIds,
+        activeMapIds: activeMapIds.length > 0 ? activeMapIds : botRec?.activeMapIds || [primaryMapId],
+        status: aiEnabled ? 'active' : 'suspended',
+        connectionStatus: isBotActive ? 'online' : 'offline',
+        isOnline: isBotActive,
+        isAdmin: false,
+        adminRole: null,
+        basesControlled: ownedBases.length,
+        activeUnits: ownedUnits.length,
+        totalBasesCaptured: ownedBases.length,
+        totalUnitsProduced: ownedUnits.length,
+        totalUnitsDestroyed: totalKills,
+        totalResourcesHarvested: ownedBases.reduce(
+          (sum, b) =>
+            sum +
+            Math.round(
+              (b.resources?.concrete || 0) +
+                (b.resources?.steel || 0) +
+                (b.resources?.aluminum || 0) +
+                (b.resources?.fuel || 0)
+            ),
+          0
+        ),
+        joinedAt: botRec?.createdAt || now - 86400000 * 14,
+        lastLoginAt: botRec?.lastDecisionAt || now,
+        lastActiveAt: botRec?.lastDecisionAt || now,
+        suspendedUntil: null,
+        banReason: null,
+        moderationHistory: [],
+      };
+    }
+
+    // 2. Check authoritative System Entity Registry (e.g. neutral world garrisons)
+    const sysRec = this.data.systemEntities?.[playerId];
+    if (sysRec || playerId === 'neutral') {
+      const primaryMapId =
+        activeMapIds[0] || sysRec?.activeMapIds?.[0] || 'map_riverfront_assault';
+      const primaryMap = this.getMapConfig(primaryMapId);
+      const isSysOnline = ownedBases.length > 0 || ownedUnits.length > 0;
+
+      return {
+        id: playerId,
+        username: sysRec?.displayName || 'Neutral Territory',
+        email: 'system@simulation.internal',
+        rank: 'System World Entity',
+        score: 0,
+        level: 1,
+        avatar: 'system',
+        playerType: 'system',
+        accountId: null,
+        botAgentId: null,
+        controlSource: 'system',
+        controlStatus: 'Server World Simulation Entity',
+        creationSource: sysRec?.creationSource || 'world_generator',
+        verificationStatus: 'system_registered',
+        verifiedBy: 'Server World Generator',
+        verifiedAt: sysRec?.createdAt || now,
+        botDifficulty: null,
+        botAiProfile: null,
+        faction: sysRec?.faction || 'Unclaimed Sector Installations',
+        allianceId: null,
+        allianceName: null,
+        allianceTag: 'SYS',
+        allianceRole: null,
+        homeBaseId: ownedBases[0]?.id || '',
+        currentMapId: primaryMapId,
+        currentMapName: primaryMap?.name || primaryMapId,
+        activeMatchId: activeMatchIds[0] || null,
+        activeMatchIds,
+        activeMapIds: activeMapIds.length > 0 ? activeMapIds : sysRec?.activeMapIds || [primaryMapId],
+        status: 'active',
+        connectionStatus: isSysOnline ? 'online' : 'offline',
+        isOnline: isSysOnline,
+        isAdmin: false,
+        adminRole: null,
+        basesControlled: ownedBases.length,
+        activeUnits: ownedUnits.length,
+        totalBasesCaptured: 0,
+        totalUnitsProduced: ownedUnits.length,
+        totalUnitsDestroyed: totalKills,
+        totalResourcesHarvested: 0,
+        joinedAt: sysRec?.createdAt || now - 86400000 * 14,
+        lastLoginAt: sysRec?.lastUpdatedAt || now,
+        lastActiveAt: sysRec?.lastUpdatedAt || now,
+        suspendedUntil: null,
+        banReason: null,
+        moderationHistory: [],
+      };
+    }
+
+    // 3. Check registered user account in data.users
+    const userRecord = this.data.users[playerId];
+    if (userRecord && userRecord.profile) {
+      const p = this.sanitizeProfile(userRecord.profile);
+      const hasValidAuth =
+        typeof userRecord.passwordHash === 'string' && userRecord.passwordHash.trim().length > 0;
+      const isVerifiedHuman =
+        (p.playerType === 'human' && hasValidAuth) ||
+        (p.playerType === 'human' && p.verificationStatus === 'admin_verified');
+
+      const resolvedType: PlayerType = isVerifiedHuman
+        ? 'human'
+        : p.playerType === 'bot' || p.playerType === 'system'
+        ? p.playerType
+        : 'unknown';
+      const alliance = this.data.alliances.find((a) => a.id === p.allianceId);
+      const primaryMapId = p.currentMapId || activeMapIds[0] || 'map_riverfront_assault';
+      const primaryMap = this.getMapConfig(primaryMapId);
+      const isOnline = onlineUserIds.has(playerId);
+      const userMapIds = Array.from(new Set<string>([primaryMapId, ...activeMapIds]));
+
+      return {
+        id: p.id,
+        username: p.username,
+        email: p.email,
+        rank: p.rank,
+        score: p.score,
+        level: p.level,
+        avatar: p.avatar,
+        playerType: resolvedType,
+        accountId: resolvedType === 'human' ? p.accountId || p.id : null,
+        botAgentId: null,
+        controlSource: resolvedType === 'human' ? 'human' : 'unverified',
+        controlStatus:
+          resolvedType === 'human'
+            ? isOnline
+              ? 'Authenticated Live Session'
+              : 'Registered Account (Offline)'
+            : 'Unverified Legacy Record',
+        creationSource:
+          resolvedType === 'human' ? 'authenticated_account' : 'legacy_unverified_record',
+        verificationStatus:
+          p.verificationStatus ||
+          (resolvedType === 'human' ? 'verified' : 'legacy_unverified'),
+        verifiedBy: p.verifiedBy || (resolvedType === 'human' ? 'Auth Service' : null),
+        verifiedAt: p.verifiedAt || (resolvedType === 'human' ? p.joinedAt : null),
+        botDifficulty: null,
+        botAiProfile: null,
+        faction: alliance ? `[${alliance.tag}] ${alliance.name}` : 'Independent Commander',
+        allianceId: p.allianceId,
+        allianceName: alliance?.name || null,
+        allianceTag: alliance?.tag || null,
+        allianceRole: p.allianceRole || null,
+        homeBaseId: p.homeBaseId,
+        currentMapId: primaryMapId,
+        currentMapName: primaryMap?.name || primaryMapId,
+        activeMatchId: activeMatchIds[0] || null,
+        activeMatchIds,
+        activeMapIds: userMapIds,
+        status: p.status || 'active',
+        connectionStatus: isOnline ? 'online' : 'offline',
+        isOnline,
+        isAdmin: p.isAdmin,
+        adminRole: p.adminRole,
+        basesControlled: ownedBases.length,
+        activeUnits: ownedUnits.length,
+        totalBasesCaptured: p.totalBasesCaptured,
+        totalUnitsProduced: p.totalUnitsProduced,
+        totalUnitsDestroyed: p.totalUnitsDestroyed,
+        totalResourcesHarvested: p.totalResourcesHarvested,
+        joinedAt: p.joinedAt,
+        lastLoginAt: p.lastLoginAt,
+        lastActiveAt: p.lastActiveAt || p.lastLoginAt || p.joinedAt,
+        suspendedUntil: p.suspendedUntil,
+        banReason: p.banReason,
+        moderationHistory: p.moderationHistory || [],
+      };
+    }
+
+    // 4. Unresolved / Orphaned Identity referenced in bases, units, or matches -> UNKNOWN
+    const fallbackName =
+      ownedBases[0]?.ownerName ||
+      ownedUnits[0]?.ownerName ||
+      `Unresolved Entity (${playerId})`;
+    const primaryMapId = activeMapIds[0] || 'map_riverfront_assault';
+    const primaryMap = this.getMapConfig(primaryMapId);
+    const isOnline = onlineUserIds.has(playerId);
+
+    return {
+      id: playerId,
+      username: fallbackName,
+      email: 'unverified@unknown.local',
+      rank: 'Unverified Identity',
+      score: 0,
+      level: 1,
+      avatar: 'unknown',
+      playerType: 'unknown',
+      accountId: null,
+      botAgentId: null,
+      controlSource: 'unverified',
+      controlStatus: 'Unresolved / Legacy Entity Reference',
+      creationSource: 'unverified_entity_reference',
+      verificationStatus: 'legacy_unverified',
+      verifiedBy: null,
+      verifiedAt: null,
+      botDifficulty: null,
+      botAiProfile: null,
+      faction: 'Unverified Faction',
+      allianceId: null,
+      allianceName: null,
+      allianceTag: null,
+      allianceRole: null,
+      homeBaseId: ownedBases[0]?.id || '',
+      currentMapId: primaryMapId,
+      currentMapName: primaryMap?.name || primaryMapId,
+      activeMatchId: activeMatchIds[0] || null,
+      activeMatchIds,
+      activeMapIds: activeMapIds.length > 0 ? activeMapIds : [primaryMapId],
+      status: 'active',
+      connectionStatus: isOnline ? 'online' : 'offline',
+      isOnline,
+      isAdmin: false,
+      adminRole: null,
+      basesControlled: ownedBases.length,
+      activeUnits: ownedUnits.length,
+      totalBasesCaptured: 0,
+      totalUnitsProduced: ownedUnits.length,
+      totalUnitsDestroyed: totalKills,
+      totalResourcesHarvested: 0,
+      joinedAt: now,
+      lastLoginAt: now,
+      lastActiveAt: now,
+      suspendedUntil: null,
+      banReason: null,
+      moderationHistory: [],
+    };
+  }
+
+  public getAdminPlayerDirectory(
+    onlineUserIds: Set<string> = new Set(),
+    aiDifficulty: AIDifficulty = 'medium'
+  ): AdminPlayerRecord[] {
+    const allIds = new Set<string>();
+    for (const uid of Object.keys(this.data.users || {})) {
+      if (uid) allIds.add(uid);
+    }
+    for (const botId of Object.keys(this.data.botRegistry || {})) {
+      if (botId) allIds.add(botId);
+    }
+    for (const sysId of Object.keys(this.data.systemEntities || {})) {
+      if (sysId) allIds.add(sysId);
+    }
+    for (const b of this.data.bases || []) {
+      if (b.ownerId) allIds.add(b.ownerId);
+    }
+    for (const u of this.data.units || []) {
+      if (u.ownerId) allIds.add(u.ownerId);
+    }
+    for (const m of this.data.matches || []) {
+      for (const pid of m.participantIds || []) {
+        if (pid) allIds.add(pid);
+      }
+    }
+
+    const records: AdminPlayerRecord[] = [];
+    for (const id of allIds) {
+      records.push(this.resolvePlayerIdentity(id, onlineUserIds, aiDifficulty));
+    }
+    return records;
+  }
+
+  public getPlayerTypeStats(
+    onlineUserIds: Set<string> = new Set(),
+    aiDifficulty: AIDifficulty = 'medium'
+  ): PlayerTypeStatsSummary {
+    const directory = this.getAdminPlayerDirectory(onlineUserIds, aiDifficulty);
+    let totalHumanPlayers = 0;
+    let activeHumanPlayers = 0;
+    let offlineHumanPlayers = 0;
+    let totalBotPlayers = 0;
+    let activeBotPlayers = 0;
+    let totalSystemEntities = 0;
+    let totalUnknownPlayers = 0;
+
+    for (const rec of directory) {
+      if (rec.playerType === 'human') {
+        totalHumanPlayers++;
+        if (rec.isOnline) activeHumanPlayers++;
+        else offlineHumanPlayers++;
+      } else if (rec.playerType === 'bot') {
+        totalBotPlayers++;
+        if (rec.isOnline) activeBotPlayers++;
+      } else if (rec.playerType === 'system') {
+        totalSystemEntities++;
+      } else {
+        totalUnknownPlayers++;
+      }
+    }
+
+    return {
+      totalPlayers: directory.length,
+      totalHumanPlayers,
+      activeHumanPlayers,
+      offlineHumanPlayers,
+      totalBotPlayers,
+      activeBotPlayers,
+      totalSystemEntities,
+      totalUnknownPlayers,
+    };
+  }
+
+  public getMatchParticipants(
+    mapId: string,
+    onlineUserIds: Set<string> = new Set(),
+    explicitParticipantIds: string[] = [],
+    aiDifficulty: AIDifficulty = 'medium'
+  ): MatchParticipantSummary[] {
+    const participantIds = new Set<string>(explicitParticipantIds.filter(Boolean));
+    for (const b of this.data.bases) {
+      if ((b.mapId || 'map_riverfront_assault') === mapId && b.ownerId) {
+        participantIds.add(b.ownerId);
+      }
+    }
+    for (const u of this.data.units) {
+      if ((u.mapId || 'map_riverfront_assault') === mapId && u.ownerId) {
+        participantIds.add(u.ownerId);
+      }
+    }
+
+    const participants: MatchParticipantSummary[] = [];
+    for (const pid of participantIds) {
+      const resolved = this.resolvePlayerIdentity(pid, onlineUserIds, aiDifficulty);
+      const mapBasesCount = this.data.bases.filter(
+        (b) => (b.mapId || 'map_riverfront_assault') === mapId && b.ownerId === pid
+      ).length;
+      const mapUnitsCount = this.data.units.filter(
+        (u) => (u.mapId || 'map_riverfront_assault') === mapId && u.ownerId === pid
+      ).length;
+
+      participants.push({
+        playerId: resolved.id,
+        username: resolved.username,
+        playerType: resolved.playerType,
+        faction: resolved.faction,
+        allianceTag: resolved.allianceTag,
+        controlSource: resolved.controlSource,
+        isOnline: resolved.isOnline,
+        basesCount: mapBasesCount,
+        unitsCount: mapUnitsCount,
+        botDifficulty: resolved.botDifficulty,
+      });
+    }
+
+    const typePriority: Record<PlayerType, number> = {
+      human: 1,
+      bot: 2,
+      system: 3,
+      unknown: 4,
+    };
+    return participants.sort(
+      (a, b) =>
+        typePriority[a.playerType] - typePriority[b.playerType] ||
+        b.basesCount - a.basesCount ||
+        a.username.localeCompare(b.username)
+    );
+  }
+
+  public getAdminPlayerDetail(
+    targetId: string,
+    onlineUserIds: Set<string> = new Set(),
+    aiDifficulty: AIDifficulty = 'medium'
+  ) {
+    const existsInUsers = Boolean(this.data.users[targetId]);
+    const existsInBots = Boolean(this.data.botRegistry?.[targetId]) || targetId === 'enemy_insurgent';
+    const existsInSystem = Boolean(this.data.systemEntities?.[targetId]) || targetId === 'neutral';
+    const existsInWorld =
+      this.data.bases.some((b) => b.ownerId === targetId) ||
+      this.data.units.some((u) => u.ownerId === targetId) ||
+      (this.data.matches || []).some((m) => (m.participantIds || []).includes(targetId));
+
+    if (!existsInUsers && !existsInBots && !existsInSystem && !existsInWorld) {
+      return null;
+    }
+
+    const profile = this.resolvePlayerIdentity(targetId, onlineUserIds, aiDifficulty);
+    const ownedBases = this.data.bases.filter((b) => b.ownerId === targetId);
+    const ownedUnits = this.data.units.filter((u) => u.ownerId === targetId);
+    const alliance = this.data.alliances.find((a) => a.id === profile.allianceId) || null;
+    const recentAudits = this.data.auditLogs
+      .filter((a) => a.targetId === targetId || a.adminId === targetId)
+      .slice(0, 30);
+
+    return {
+      profile,
+      isOnline: profile.isOnline,
+      alliance,
+      bases: ownedBases,
+      units: ownedUnits,
+      recentAudits,
+      botRecord: this.data.botRegistry?.[targetId] || null,
+      systemRecord: this.data.systemEntities?.[targetId] || null,
+    };
+  }
+
+  public verifyUnknownPlayerType(
+    targetId: string,
+    newType: PlayerType,
+    adminId: string,
+    adminUsername: string,
+    adminRole: AdminRole,
+    reason: string,
+    ipAddress = '127.0.0.1'
+  ): {
+    success: boolean;
+    status: number;
+    message: string;
+    record?: AdminPlayerRecord;
+  } {
+    if (!['human', 'bot', 'system', 'unknown'].includes(newType)) {
+      return {
+        success: false,
+        status: 400,
+        message: 'Invalid playerType. Must be human, bot, system, or unknown.',
+      };
+    }
+
+    const current = this.resolvePlayerIdentity(targetId);
+    const userRecord = this.data.users[targetId];
+    const hasVerifiedHumanCredentials =
+      current.playerType === 'human' &&
+      Boolean(userRecord?.passwordHash && userRecord.passwordHash.trim().length > 0);
+
+    if (hasVerifiedHumanCredentials && newType !== 'human') {
+      return {
+        success: false,
+        status: 400,
+        message:
+          'Security Policy Violation: Verified human accounts cannot be converted into bots or system entities.',
+      };
+    }
+
+    if (current.playerType === 'bot' && targetId === 'enemy_insurgent' && newType !== 'bot') {
+      return {
+        success: false,
+        status: 400,
+        message: 'Core AI agent (enemy_insurgent) is registered to the server AI controller and must remain BOT.',
+      };
+    }
+
+    if (current.playerType === 'system' && targetId === 'neutral' && newType !== 'system') {
+      return {
+        success: false,
+        status: 400,
+        message: 'Core world entity (neutral) is controlled by the world generator and must remain SYSTEM.',
+      };
+    }
+
+    const now = Date.now();
+    const beforeSnapshot = {
+      playerType: current.playerType,
+      controlSource: current.controlSource,
+      verificationStatus: current.verificationStatus,
+    };
+
+    if (newType === 'bot') {
+      if (this.data.users[targetId]) {
+        delete this.data.users[targetId];
+      }
+      this.registerBotAgent({
+        playerId: targetId,
+        displayName: current.username,
+        faction: 'Autonomous AI Attachment',
+        difficulty: 'medium',
+        aiProfile: 'Verified Tactical Bot Agent',
+        activeMapIds: current.activeMapIds,
+        matchIds: current.activeMatchIds,
+      });
+    } else if (newType === 'system') {
+      if (this.data.users[targetId]) {
+        delete this.data.users[targetId];
+      }
+      if (!this.data.systemEntities) this.data.systemEntities = {};
+      this.data.systemEntities[targetId] = {
+        entityId: `sys_${targetId}`,
+        playerId: targetId,
+        playerType: 'system',
+        displayName: current.username,
+        faction: 'System Controlled Entity',
+        activeMapIds: current.activeMapIds,
+        controlSource: 'system',
+        creationSource: 'admin_verified_system_entity',
+        state: 'active',
+        createdAt: current.joinedAt || now,
+        lastUpdatedAt: now,
+      };
+    } else if (newType === 'human') {
+      if (this.data.botRegistry?.[targetId]) {
+        delete this.data.botRegistry[targetId];
+      }
+      if (this.data.systemEntities?.[targetId]) {
+        delete this.data.systemEntities[targetId];
+      }
+      if (this.data.users[targetId]?.profile) {
+        const prof = this.data.users[targetId].profile;
+        prof.playerType = 'human';
+        prof.accountId = targetId;
+        prof.botAgentId = null;
+        prof.controlSource = 'human';
+        prof.verificationStatus = 'admin_verified';
+        prof.verifiedBy = adminUsername;
+        prof.verifiedAt = now;
+        prof.moderationHistory = prof.moderationHistory || [];
+        prof.moderationHistory.unshift({
+          id: `mod_${now}`,
+          action: 'verify_type',
+          reason,
+          adminId,
+          adminUsername,
+          timestamp: now,
+        });
+        this.persistUser(targetId);
+      } else {
+        return {
+          success: false,
+          status: 400,
+          message: 'Cannot classify entity as HUMAN without an underlying user account record.',
+        };
+      }
+    } else {
+      if (this.data.users[targetId]?.profile) {
+        const prof = this.data.users[targetId].profile;
+        prof.playerType = 'unknown';
+        prof.accountId = null;
+        prof.botAgentId = null;
+        prof.controlSource = 'unverified';
+        prof.verificationStatus = 'legacy_unverified';
+        prof.verifiedBy = adminUsername;
+        prof.verifiedAt = now;
+      }
+    }
+
+    const updated = this.resolvePlayerIdentity(targetId);
+    this.addAuditLog({
+      adminId,
+      adminUsername,
+      adminRole,
+      action: 'player.verify_type',
+      targetType: 'player',
+      targetId,
+      reason,
+      status: 'success',
+      ipAddress,
+      metadata: {
+        before: beforeSnapshot,
+        after: {
+          playerType: updated.playerType,
+          controlSource: updated.controlSource,
+          verificationStatus: updated.verificationStatus,
+        },
+      },
+    });
+    this.saveData();
+
+    return {
+      success: true,
+      status: 200,
+      message: `Player ${updated.username} (${targetId}) classification verified as ${updated.playerType.toUpperCase()}.`,
+      record: updated,
+    };
+  }
+
+  public deletePlayerAccount(
+    targetId: string,
+    adminId: string,
+    adminUsername: string,
+    adminRole: AdminRole,
+    reason: string,
+    ipAddress = '127.0.0.1'
+  ): {
+    success: boolean;
+    status: number;
+    message: string;
+    deletedUserId?: string;
+    deletedUsername?: string;
+  } {
+    if (targetId === 'enemy_insurgent' || this.data.botRegistry?.[targetId]) {
+      return {
+        success: false,
+        status: 400,
+        message: 'Cannot delete server-registered AI BOT entities via player account deletion.',
+      };
+    }
+    if (targetId === 'neutral' || this.data.systemEntities?.[targetId]) {
+      return {
+        success: false,
+        status: 400,
+        message: 'Cannot delete core SYSTEM world entities.',
+      };
+    }
+
+    const existingUser = this.data.users[targetId];
+    const hasWorldFootprint =
+      this.data.bases.some((b) => b.ownerId === targetId) ||
+      this.data.units.some((u) => u.ownerId === targetId);
+
+    if (!existingUser && !hasWorldFootprint) {
+      return {
+        success: false,
+        status: 404,
+        message: `Account '${targetId}' not found.`,
+      };
+    }
+
+    if (existingUser?.profile.adminRole === 'super_admin' && adminRole !== 'super_admin') {
+      return {
+        success: false,
+        status: 403,
+        message: 'Only a Super Admin can delete a Super Admin account.',
+      };
+    }
+
+    const deletedUsername =
+      existingUser?.profile.username ||
+      this.data.bases.find((b) => b.ownerId === targetId)?.ownerName ||
+      targetId;
+
+    // 1. If in an alliance, remove or disband cleanly
+    if (existingUser?.profile.allianceId) {
+      this.leaveAlliance(targetId);
+    }
+    for (const al of this.data.alliances) {
+      al.memberIds = (al.memberIds || []).filter((id) => id !== targetId);
+      if (al.memberRoles) delete al.memberRoles[targetId];
+      al.joinRequests = (al.joinRequests || []).filter((r) => r.userId !== targetId);
+      al.invites = (al.invites || []).filter((i) => i.userId !== targetId);
+    }
+    this.data.alliances = this.data.alliances.filter((al) => al.memberIds.length > 0);
+
+    // 2. Revoke tokens and convert caller session to console_staff if deleting own user account
+    for (const [tok, uid] of Object.entries(this.data.tokens)) {
+      if (uid === targetId) {
+        delete this.data.tokens[tok];
+      }
+    }
+    for (const [tok, sess] of Object.entries(this.data.adminSessions)) {
+      if (sess.userId === targetId) {
+        if (targetId === adminId) {
+          sess.userId = `console_staff:${sess.username.toLowerCase()}`;
+        } else {
+          delete this.data.adminSessions[tok];
+        }
+      }
+    }
+
+    // 3. Remove user account record
+    delete this.data.users[targetId];
+
+    // 4. Remove all units owned by targetId
+    this.data.units = this.data.units.filter((u) => u.ownerId !== targetId);
+
+    // 5. Remove dynamically spawned player home bases and neutralize any captured sector bases
+    this.data.bases = this.data.bases.filter((b) => {
+      if (b.ownerId !== targetId) return true;
+      const isDynamicSpawnBase =
+        b.id.startsWith('base_home_user_') ||
+        b.id.startsWith(`base_home_${targetId}`);
+      return !isDynamicSpawnBase;
+    });
+
+    for (const b of this.data.bases) {
+      if (b.ownerId === targetId) {
+        b.ownerId = 'neutral';
+        b.ownerName = 'Neutral Territory';
+        b.allianceId = null;
+        b.isHomeBase = false;
+        b.isProtected = false;
+        b.rebuildProtectionUntil = null;
+        b.lifecycleState = 'ownerless';
+        b.captureProgress = 0;
+        b.productionQueue = [];
+        b.constructionQueue = [];
+      }
+    }
+
+    // 6. Clean match participant lists, notifications, support tickets, and fog of war
+    for (const m of this.data.matches || []) {
+      if (Array.isArray(m.participantIds)) {
+        m.participantIds = m.participantIds.filter((pid) => pid !== targetId);
+      }
+    }
+    this.data.notifications = (this.data.notifications || []).filter((n) => n.userId !== targetId);
+    this.data.supportTickets = (this.data.supportTickets || []).filter((t) => t.userId !== targetId);
+    if (this.data.exploredByUserMap?.[targetId]) {
+      delete this.data.exploredByUserMap[targetId];
+    }
+
+    if (Object.keys(this.data.users).length === 0) {
+      this.data.accountsPurged = true;
+    }
+
+    this.addAuditLog({
+      adminId,
+      adminUsername,
+      adminRole,
+      action: 'player.delete_account',
+      targetType: 'player',
+      targetId,
+      reason,
+      status: 'success',
+      ipAddress,
+      metadata: {
+        deletedUsername,
+        remainingAccounts: Object.keys(this.data.users).length,
+      },
+    });
+    this.saveData();
+
+    return {
+      success: true,
+      status: 200,
+      message: `Account '${deletedUsername}' (${targetId}) and all associated units/bases have been permanently deleted.`,
+      deletedUserId: targetId,
+      deletedUsername,
+    };
+  }
+
+  public deleteAllPlayerAccounts(
+    adminId: string,
+    adminUsername: string,
+    adminRole: AdminRole,
+    reason: string,
+    ipAddress = '127.0.0.1'
+  ): {
+    success: boolean;
+    status: number;
+    message: string;
+    deletedCount: number;
+    deletedUserIds: string[];
+  } {
+    const deletedUserIds = Object.keys(this.data.users);
+    const deletedCount = deletedUserIds.length;
+
+    // 1. Wipe all user accounts, player tokens, and alliances
+    this.data.users = {};
+    this.data.tokens = {};
+    this.data.alliances = [];
+    this.data.accountsPurged = true;
+
+    // Preserve active admin console sessions as console_staff sessions so operator stays authenticated
+    for (const [, sess] of Object.entries(this.data.adminSessions)) {
+      if (!sess.userId.startsWith('console_staff:')) {
+        sess.userId = `console_staff:${sess.username.toLowerCase()}`;
+      }
+    }
+
+    // 2. Remove all non-bot / non-system units
+    this.data.units = this.data.units.filter(
+      (u) => u.ownerId === 'enemy_insurgent' || u.ownerId === 'neutral' || Boolean(this.data.botRegistry?.[u.ownerId])
+    );
+
+    // 3. Remove all dynamically spawned player home bases and neutralize any remaining player-owned sector bases
+    this.data.bases = this.data.bases.filter((b) => {
+      if (b.ownerId === 'enemy_insurgent' || b.ownerId === 'neutral' || Boolean(this.data.botRegistry?.[b.ownerId])) {
+        return true;
+      }
+      const isDynamicSpawnBase =
+        b.id.startsWith('base_home_user_') ||
+        (b.id.startsWith('base_home_') && b.id !== 'base_home_player');
+      return !isDynamicSpawnBase;
+    });
+
+    for (const b of this.data.bases) {
+      if (b.ownerId !== 'enemy_insurgent' && b.ownerId !== 'neutral' && !this.data.botRegistry?.[b.ownerId]) {
+        b.ownerId = 'neutral';
+        b.ownerName = 'Neutral Territory';
+        b.allianceId = null;
+        b.isHomeBase = false;
+        b.isProtected = false;
+        b.rebuildProtectionUntil = null;
+        b.lifecycleState = 'ownerless';
+        b.captureProgress = 0;
+        b.productionQueue = [];
+        b.constructionQueue = [];
+      }
+    }
+
+    // 4. Clean match participants, notifications, support tickets, explored map state, and player chat
+    for (const m of this.data.matches || []) {
+      m.participantIds = (m.participantIds || []).filter(
+        (pid) => pid === 'enemy_insurgent' || pid === 'neutral' || Boolean(this.data.botRegistry?.[pid])
+      );
+      if (m.participantIds.length === 0) {
+        m.participantIds = ['enemy_insurgent'];
+      }
+    }
+    this.data.notifications = [];
+    this.data.supportTickets = [];
+    this.data.exploredByUserMap = {};
+    this.data.chat = (this.data.chat || []).filter(
+      (c) => c.senderId === 'system' || c.channel === 'system'
+    );
+
+    this.addAuditLog({
+      adminId,
+      adminUsername,
+      adminRole,
+      action: 'player.delete_all_accounts',
+      targetType: 'system',
+      targetId: 'all_accounts',
+      reason,
+      status: 'success',
+      ipAddress,
+      metadata: {
+        deletedCount,
+      },
+    });
+    this.saveData();
+
+    return {
+      success: true,
+      status: 200,
+      message: `All ${deletedCount} player account(s), sessions, alliances, and player-owned battlefield assets have been permanently deleted.`,
+      deletedCount,
+      deletedUserIds,
     };
   }
 
@@ -2802,6 +3900,122 @@ export class GameStore {
     return fullEntry;
   }
 
+  public authenticateConsoleStaff(
+    rawUsername: string,
+    password: string,
+    ipAddress: string
+  ): { session: AdminSessionRecord; profile: PlayerProfile } | null {
+    const cleanUsername = String(rawUsername || '').trim().toLowerCase();
+    const bootstrapUsername = process.env.ADMIN_BOOTSTRAP_USERNAME || 'Commander';
+    const staffDirectory: Array<{
+      id: string;
+      username: string;
+      email: string;
+      rank: string;
+      role: AdminRole;
+      pass: string;
+    }> = [
+      {
+        id: 'console_staff:commander',
+        username: bootstrapUsername,
+        email: 'commander@frontline.mil',
+        rank: 'Supreme Commander',
+        role: 'super_admin',
+        pass: this.resolveBootstrapSecret('ADMIN_BOOTSTRAP_PASSWORD', 'admin123'),
+      },
+      {
+        id: 'console_staff:superadmin_prime',
+        username: 'SuperAdmin_Prime',
+        email: 'superprime@frontline.mil',
+        rank: 'Supreme Theater Marshal',
+        role: 'super_admin',
+        pass: 'adminpassword123',
+      },
+      {
+        id: 'console_staff:valkyrie_ops',
+        username: 'Valkyrie_Ops',
+        email: 'valkyrie@frontline.mil',
+        rank: 'Theater Operations Director',
+        role: 'game_admin',
+        pass: this.resolveBootstrapSecret('GAME_ADMIN_BOOTSTRAP_PASSWORD', 'gameadmin123'),
+      },
+      {
+        id: 'console_staff:sentinel_mod',
+        username: 'Sentinel_Mod',
+        email: 'sentinel@frontline.mil',
+        rank: 'Provost Marshal',
+        role: 'moderator',
+        pass: this.resolveBootstrapSecret('MODERATOR_BOOTSTRAP_PASSWORD', 'moderator123'),
+      },
+      {
+        id: 'console_staff:telemetry_analyst',
+        username: 'Telemetry_Analyst',
+        email: 'analyst@frontline.mil',
+        rank: 'Intelligence Analyst',
+        role: 'analyst',
+        pass: this.resolveBootstrapSecret('ANALYST_BOOTSTRAP_PASSWORD', 'analyst123'),
+      },
+    ];
+
+    const matched = staffDirectory.find((s) => s.username.toLowerCase() === cleanUsername);
+    if (!matched || matched.pass !== password) {
+      return null;
+    }
+
+    const now = Date.now();
+    const ttl = this.data.systemSettings?.sessionTtlMs || 28800000;
+    const token = `adm_${now}_${Math.random().toString(36).substring(2, 12)}_${Math.random().toString(36).substring(2, 12)}`;
+
+    const session: AdminSessionRecord = {
+      token,
+      userId: matched.id,
+      username: matched.username,
+      role: matched.role,
+      createdAt: now,
+      expiresAt: now + ttl,
+      lastActiveAt: now,
+      ipAddress,
+    };
+
+    this.data.adminSessions[token] = session;
+    this.saveData();
+
+    return {
+      session,
+      profile: this.getConsoleStaffProfile(session),
+    };
+  }
+
+  public getConsoleStaffProfile(session: AdminSessionRecord): PlayerProfile {
+    const now = Date.now();
+    return {
+      id: session.userId,
+      username: session.username,
+      email: `${session.username.toLowerCase()}@frontline.mil`,
+      rank: 'High Command Console Operator',
+      score: 0,
+      level: 1,
+      avatar: 'shield',
+      homeBaseId: '',
+      currentMapId: 'map_riverfront_assault',
+      totalBasesCaptured: 0,
+      totalUnitsProduced: 0,
+      totalUnitsDestroyed: 0,
+      totalResourcesHarvested: 0,
+      joinedAt: session.createdAt || now,
+      lastLoginAt: session.lastActiveAt || now,
+      beginnerProtectionUntil: 0,
+      isAdmin: true,
+      adminRole: session.role,
+      status: 'active',
+      playerType: 'system',
+      accountId: null,
+      botAgentId: null,
+      controlSource: 'system',
+      verificationStatus: 'system_registered',
+    };
+  }
+
   public createAdminSession(userId: string, ipAddress: string): AdminSessionRecord | null {
     const user = this.data.users[userId];
     if (!user) return null;
@@ -2838,6 +4052,10 @@ export class GameStore {
         delete this.data.adminSessions[token];
         this.saveData();
         return null;
+      }
+      if (session.userId.startsWith('console_staff:')) {
+        session.lastActiveAt = Date.now();
+        return session;
       }
       const access = this.checkPlayerAccess(session.userId);
       const user = this.data.users[session.userId];

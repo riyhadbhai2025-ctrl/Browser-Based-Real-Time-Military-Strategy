@@ -1309,3 +1309,261 @@ test('21. Combat Siege: Admin migration preview and overlap resolution endpoints
     assert.ok(result.success, 'Migration execution must report success');
   });
 });
+
+test('22. Player Type Detection & Admin Player Management: Authoritative HUMAN, BOT, SYSTEM & UNKNOWN Classification, Anti-Spoofing, Filtering, Match Rosters & Verification', async () => {
+  resetRateLimiterForTests();
+  await withTestServer(async (baseUrl) => {
+    const storeData = (gameStore as any).data;
+
+    // 1. Login as Super Admin
+    const loginRes = await fetch(`${baseUrl}/api/admin/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'Commander',
+        password: process.env.ADMIN_BOOTSTRAP_PASSWORD || 'admin123',
+      }),
+    });
+    assert.strictEqual(loginRes.status, 200, 'Super Admin login must succeed');
+    const { token: adminToken } = await loginRes.json();
+    const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${adminToken}` };
+
+    // 2. Test Client Spoofing Prevention: Client attempts to register as 'bot' with custom botAgentId & controlSource
+    const spoofUsername = `SpoofAttempt_${Date.now()}`;
+    const spoofRegRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: spoofUsername,
+        email: `${spoofUsername.toLowerCase()}@command.mil`,
+        password: 'password123',
+        playerType: 'bot',
+        botAgentId: 'spoofed_bot_agent',
+        controlSource: 'ai_controller',
+      }),
+    });
+    assert.strictEqual(spoofRegRes.status, 200, 'Registration must succeed with 200');
+    const spoofRegBody = await spoofRegRes.json();
+    const spoofProfile = spoofRegBody.profile || spoofRegBody.user;
+    assert.strictEqual(
+      spoofProfile.playerType,
+      'human',
+      'Server must ignore client-supplied playerType and classify authenticated registrant as human'
+    );
+    assert.strictEqual(spoofProfile.controlSource, 'human', 'Server must enforce human controlSource');
+    assert.strictEqual(spoofProfile.botAgentId, null, 'Server must clear spoofed botAgentId on human registration');
+    assert.strictEqual(spoofProfile.accountId, spoofProfile.id, 'Human account must have accountId linked to user id');
+
+    // 3. Test Authoritative Bot Registration via Server Bot Registry
+    const customBot = gameStore.registerBotAgent({
+      botId: 'bot_tactical_vanguard',
+      playerId: 'bot_vanguard_ai',
+      displayName: 'Vanguard Tactical AI',
+      difficulty: 'hard',
+      aiProfile: 'Aggressive Flanker & Sector Denial',
+      activeMapIds: ['map_riverfront_assault'],
+    });
+    assert.strictEqual(customBot.botId, 'bot_tactical_vanguard');
+
+    // 4. Create an unverified legacy record (missing passwordHash and verificationStatus='legacy_unverified') to test UNKNOWN classification
+    storeData.users['legacy_unverified_01'] = {
+      passwordHash: '',
+      profile: {
+        id: 'legacy_unverified_01',
+        username: 'Legacy_Ghost_Commander',
+        email: 'legacy@unknown.local',
+        rank: 'Commander',
+        score: 250,
+        level: 2,
+        avatar: 'commander_1',
+        homeBaseId: '',
+        totalBasesCaptured: 0,
+        totalUnitsProduced: 0,
+        totalUnitsDestroyed: 0,
+        totalResourcesHarvested: 0,
+        joinedAt: Date.now() - 86400000 * 30,
+        lastLoginAt: Date.now() - 86400000 * 10,
+        beginnerProtectionUntil: 0,
+        status: 'active',
+        // Intentionally omit passwordHash and verified status to simulate legacy unverified record
+      },
+    };
+
+    // 5. Query Admin Overview and verify playerTypeStats
+    const overviewRes = await fetch(`${baseUrl}/api/admin/overview`, { headers: authHeaders });
+    assert.strictEqual(overviewRes.status, 200);
+    const overviewData = await overviewRes.json();
+    assert.ok(overviewData.playerTypeStats, 'Overview must include playerTypeStats');
+    assert.ok(overviewData.playerTypeStats.totalHumanPlayers >= 3, 'Must count verified human players');
+    assert.ok(
+      overviewData.playerTypeStats.totalBotPlayers >= 2,
+      'Must count server-registered bot agents (enemy_insurgent + customBot)'
+    );
+    assert.ok(overviewData.playerTypeStats.totalSystemEntities >= 1, 'Must count system entities (neutral)');
+    assert.ok(
+      overviewData.playerTypeStats.totalUnknownPlayers >= 1,
+      'Must count unverified legacy records as unknown'
+    );
+
+    // 6. Query Admin Players Directory without filters and verify all 4 types exist & no sensitive fields leak
+    const allPlayersRes = await fetch(`${baseUrl}/api/admin/players?pageSize=100`, { headers: authHeaders });
+    assert.strictEqual(allPlayersRes.status, 200);
+    const allPlayersData = await allPlayersRes.json();
+    assert.ok(Array.isArray(allPlayersData.items));
+    assert.ok(allPlayersData.stats, 'Players endpoint must return stats summary');
+
+    for (const item of allPlayersData.items) {
+      assert.strictEqual(item.passwordHash, undefined, 'passwordHash must never be exposed in Admin Players list');
+    }
+
+    const humanEntry = allPlayersData.items.find((p: { id: string }) => p.id === 'player_default');
+    const botEntry = allPlayersData.items.find((p: { id: string }) => p.id === 'enemy_insurgent');
+    const customBotEntry = allPlayersData.items.find((p: { id: string }) => p.id === 'bot_vanguard_ai');
+    const systemEntry = allPlayersData.items.find((p: { id: string }) => p.id === 'neutral');
+    const unknownEntry = allPlayersData.items.find((p: { id: string }) => p.id === 'legacy_unverified_01');
+
+    assert.ok(humanEntry && humanEntry.playerType === 'human', 'player_default must be classified as human');
+    assert.ok(
+      botEntry && botEntry.playerType === 'bot' && botEntry.botAgentId === 'bot_kodiak_pmc',
+      'enemy_insurgent must be classified as bot with botAgentId'
+    );
+    assert.ok(
+      customBotEntry && customBotEntry.playerType === 'bot' && customBotEntry.botAgentId === 'bot_tactical_vanguard',
+      'custom registered bot must be classified as bot'
+    );
+    assert.ok(systemEntry && systemEntry.playerType === 'system', 'neutral must be classified as system');
+    assert.ok(
+      unknownEntry && unknownEntry.playerType === 'unknown',
+      'legacy record without passwordHash must be classified as unknown, never assumed bot'
+    );
+
+    // 7. Test Admin Players Filtering by playerType (human, bot, system, unknown), search, and sorting
+    const filterBotsRes = await fetch(`${baseUrl}/api/admin/players?playerType=bot`, { headers: authHeaders });
+    const filterBotsData = await filterBotsRes.json();
+    assert.ok(filterBotsData.items.length >= 2);
+    assert.ok(
+      filterBotsData.items.every((p: { playerType: string }) => p.playerType === 'bot'),
+      'Filter playerType=bot must only return bot records'
+    );
+
+    const filterSystemRes = await fetch(`${baseUrl}/api/admin/players?playerType=system`, { headers: authHeaders });
+    const filterSystemData = await filterSystemRes.json();
+    assert.ok(filterSystemData.items.length >= 1);
+    assert.ok(
+      filterSystemData.items.every((p: { playerType: string }) => p.playerType === 'system'),
+      'Filter playerType=system must only return system records'
+    );
+
+    const filterUnknownRes = await fetch(`${baseUrl}/api/admin/players?playerType=unknown`, { headers: authHeaders });
+    const filterUnknownData = await filterUnknownRes.json();
+    assert.ok(
+      filterUnknownData.items.some((p: { id: string }) => p.id === 'legacy_unverified_01'),
+      'Filter playerType=unknown must return legacy_unverified_01'
+    );
+
+    const searchBotRes = await fetch(`${baseUrl}/api/admin/players?search=bot_kodiak_pmc`, { headers: authHeaders });
+    const searchBotData = await searchBotRes.json();
+    assert.strictEqual(searchBotData.items.length, 1);
+    assert.strictEqual(searchBotData.items[0].id, 'enemy_insurgent', 'Search by botAgentId must locate the bot');
+
+    // 8. Test Admin Player Detail Inspection (/api/admin/players/:id) for BOT, HUMAN, and UNKNOWN
+    const botDetailRes = await fetch(`${baseUrl}/api/admin/players/enemy_insurgent`, { headers: authHeaders });
+    assert.strictEqual(botDetailRes.status, 200);
+    const botDetail = await botDetailRes.json();
+    assert.strictEqual(botDetail.profile.playerType, 'bot');
+    assert.strictEqual(botDetail.profile.botAgentId, 'bot_kodiak_pmc');
+    assert.strictEqual(botDetail.profile.controlSource, 'ai_controller');
+    assert.ok(botDetail.botRecord, 'Bot detail response must include botRecord metadata');
+
+    const humanDetailRes = await fetch(`${baseUrl}/api/admin/players/player_default`, { headers: authHeaders });
+    assert.strictEqual(humanDetailRes.status, 200);
+    const humanDetail = await humanDetailRes.json();
+    assert.strictEqual(humanDetail.profile.playerType, 'human');
+    assert.strictEqual(humanDetail.profile.passwordHash, undefined, 'Detail endpoint must strip passwordHash');
+
+    // 9. Test Active Match Participant Rosters (/api/admin/matches)
+    const matchesRes = await fetch(`${baseUrl}/api/admin/matches`, { headers: authHeaders });
+    assert.strictEqual(matchesRes.status, 200);
+    const matchesData = await matchesRes.json();
+    assert.ok(matchesData.liveSector, 'Matches response must include liveSector');
+    assert.ok(Array.isArray(matchesData.liveSector.participants), 'liveSector must include verified participants roster');
+    assert.ok(matchesData.liveSector.participantTypeCounts, 'liveSector must include participantTypeCounts');
+    assert.ok(
+      matchesData.liveSector.participants.some((p: { playerType: string }) => p.playerType === 'bot'),
+      'Active sector participants must include bot controller'
+    );
+    assert.ok(
+      matchesData.liveSector.participants.some((p: { playerType: string }) => p.playerType === 'human'),
+      'Active sector participants must include human commander'
+    );
+    assert.ok(Array.isArray(matchesData.matches), 'Matches response must include match history list');
+
+    // 10. Test Admin Verification of UNKNOWN Entity & Protection of Verified HUMAN Accounts
+    // 10a. Analyst role must be forbidden (403) from verifying player types
+    const analystLogin = await fetch(`${baseUrl}/api/admin/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'Telemetry_Analyst', password: 'analyst123' }),
+    }).then((r) => r.json());
+
+    const forbiddenVerifyRes = await fetch(`${baseUrl}/api/admin/players/legacy_unverified_01/verify-type`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${analystLogin.token}` },
+      body: JSON.stringify({ playerType: 'human', reason: 'Analyst attempting classification' }),
+    });
+    assert.strictEqual(
+      forbiddenVerifyRes.status,
+      403,
+      'Analyst role must receive 403 when attempting to verify player types'
+    );
+
+    // 10b. Attempting to reclassify a verified HUMAN account into a BOT must be rejected (400)
+    const convertHumanToBotRes = await fetch(`${baseUrl}/api/admin/players/player_striker/verify-type`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ playerType: 'bot', reason: 'Invalid attempt to convert verified human to bot' }),
+    });
+    assert.strictEqual(
+      convertHumanToBotRes.status,
+      400,
+      'Server must prevent converting a verified human account into a bot'
+    );
+
+    // 10c. Super Admin verifies UNKNOWN legacy entity as HUMAN and verifies audit log creation
+    const verifyLegacyRes = await fetch(`${baseUrl}/api/admin/players/legacy_unverified_01/verify-type`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ playerType: 'human', reason: 'Confirmed legacy beta account provenance' }),
+    });
+    assert.strictEqual(verifyLegacyRes.status, 200, 'Super Admin must be able to resolve unknown entity classification');
+    const verifyLegacyBody = await verifyLegacyRes.json();
+    assert.strictEqual(verifyLegacyBody.record.playerType, 'human');
+    assert.strictEqual(verifyLegacyBody.record.verificationStatus, 'admin_verified');
+
+    const auditLogs: Array<{ action: string; targetId: string }> = storeData.auditLogs || [];
+    assert.ok(
+      auditLogs.some((log) => log.action === 'player.verify_type' && log.targetId === 'legacy_unverified_01'),
+      'Resolving an unknown entity must record a player.verify_type audit log entry'
+    );
+
+    // 11. Test Individual Account Deletion (DELETE /api/admin/players/:id) and Bot/System Protection
+    const delBotRes = await fetch(`${baseUrl}/api/admin/players/enemy_insurgent`, {
+      method: 'DELETE',
+      headers: authHeaders,
+      body: JSON.stringify({ reason: 'Attempt to delete bot' }),
+    });
+    assert.strictEqual(delBotRes.status, 400, 'Deleting a BOT entity via player account deletion must be rejected');
+
+    const delPlayerRes = await fetch(`${baseUrl}/api/admin/players/${spoofProfile.id}`, {
+      method: 'DELETE',
+      headers: authHeaders,
+      body: JSON.stringify({ reason: 'Remove test registrant account' }),
+    });
+    assert.strictEqual(delPlayerRes.status, 200, 'Deleting a player account must return 200');
+    assert.strictEqual(storeData.users[spoofProfile.id], undefined, 'Deleted player must be removed from store.users');
+
+    // Clean up test records
+    delete storeData.users['legacy_unverified_01'];
+    delete storeData.botRegistry['bot_vanguard_ai'];
+  });
+});

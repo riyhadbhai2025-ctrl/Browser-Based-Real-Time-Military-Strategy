@@ -66,7 +66,14 @@ export async function syncStateToPostgres(state: {
 
   try {
     await db.transaction(async (tx) => {
-      // 1. Upsert Users
+      // 1. Sync Users (upsert active users and prune deleted accounts)
+      const existingUserRows = await tx.select({ uid: users.uid }).from(users);
+      const activeUserIds = new Set(Object.keys(state.users));
+      const staleUserIds = existingUserRows.map((r) => r.uid).filter((uid) => !activeUserIds.has(uid));
+      if (staleUserIds.length > 0) {
+        await tx.delete(users).where(inArray(users.uid, staleUserIds));
+      }
+
       for (const [uid, record] of Object.entries(state.users)) {
         await tx
           .insert(users)
@@ -90,7 +97,17 @@ export async function syncStateToPostgres(state: {
           });
       }
 
-      // 2. Upsert Sessions
+      // 2. Sync Sessions (upsert active tokens/adminSessions and prune revoked ones)
+      const existingSessionRows = await tx.select({ token: sessions.token }).from(sessions);
+      const activeSessionTokens = new Set([
+        ...Object.keys(state.tokens || {}),
+        ...Object.keys(state.adminSessions || {}),
+      ]);
+      const staleTokens = existingSessionRows.map((r) => r.token).filter((t) => !activeSessionTokens.has(t));
+      if (staleTokens.length > 0) {
+        await tx.delete(sessions).where(inArray(sessions.token, staleTokens));
+      }
+
       for (const [token, userId] of Object.entries(state.tokens)) {
         const adm = state.adminSessions?.[token];
         await tx
@@ -110,6 +127,29 @@ export async function syncStateToPostgres(state: {
               role: adm?.role || 'player',
               sessionJson: adm || { token, userId },
               expiresAt: adm?.expiresAt || now + 86400000 * 7,
+            },
+          });
+      }
+
+      for (const [token, adm] of Object.entries(state.adminSessions || {})) {
+        if (state.tokens[token]) continue;
+        await tx
+          .insert(sessions)
+          .values({
+            token,
+            userId: adm.userId,
+            role: adm.role || 'super_admin',
+            sessionJson: adm,
+            expiresAt: adm.expiresAt || now + 86400000,
+            createdAt: adm.createdAt || now,
+          })
+          .onConflictDoUpdate({
+            target: sessions.token,
+            set: {
+              userId: adm.userId,
+              role: adm.role || 'super_admin',
+              sessionJson: adm,
+              expiresAt: adm.expiresAt || now + 86400000,
             },
           });
       }
@@ -147,7 +187,14 @@ export async function syncStateToPostgres(state: {
           });
       }
 
-      // 4. Upsert Bases
+      // 4. Sync Bases (upsert active bases and prune deleted player home bases)
+      const existingBaseRows = await tx.select({ id: bases.id }).from(bases);
+      const activeBaseIds = new Set(state.bases.map((b) => b.id));
+      const staleBaseIds = existingBaseRows.map((r) => r.id).filter((id) => !activeBaseIds.has(id));
+      if (staleBaseIds.length > 0) {
+        await tx.delete(bases).where(inArray(bases.id, staleBaseIds));
+      }
+
       for (const b of state.bases) {
         await tx
           .insert(bases)
@@ -309,14 +356,14 @@ export async function loadStateFromPostgres() {
   if (!isPostgresConfigured()) return null;
 
   try {
-    const userRows = await db.select().from(users);
-    if (userRows.length === 0) {
+    const mapRows = await db.select().from(maps);
+    const baseRows = await db.select().from(bases);
+    if (mapRows.length === 0 && baseRows.length === 0) {
       return null;
     }
 
+    const userRows = await db.select().from(users);
     const sessionRows = await db.select().from(sessions);
-    const mapRows = await db.select().from(maps);
-    const baseRows = await db.select().from(bases);
     const unitRows = await db.select().from(units);
     const allianceRows = await db.select().from(alliances);
     const chatRows = await db.select().from(chatMessages);

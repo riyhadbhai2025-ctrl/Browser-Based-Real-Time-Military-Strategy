@@ -385,9 +385,141 @@ export const ROLE_PERMISSIONS: Record<AdminRole, AdminPermission[]> = {
 
 export type PlayerStatus = 'active' | 'suspended' | 'banned';
 
+export type PlayerType = 'human' | 'bot' | 'system' | 'unknown';
+
+export type ControlSource = 'human' | 'ai_controller' | 'system' | 'unverified';
+
+export type VerificationStatus = 'verified' | 'admin_verified' | 'system_registered' | 'legacy_unverified';
+
+export interface BotAgentRecord {
+  botId: string;
+  playerId: string;
+  playerType: 'bot';
+  displayName: string;
+  faction: string;
+  difficulty: AIDifficulty;
+  aiProfile: string;
+  activeMapIds: string[];
+  matchIds: string[];
+  controlSource: 'ai_controller';
+  controlStatus: 'autonomous_active' | 'paused' | 'standby';
+  creationSource: string;
+  state: 'active' | 'paused' | 'idle' | 'terminated';
+  createdAt: number;
+  lastDecisionAt: number;
+}
+
+export interface SystemEntityRecord {
+  entityId: string;
+  playerId: string;
+  playerType: 'system';
+  displayName: string;
+  faction: string;
+  activeMapIds?: string[];
+  controlSource: 'system';
+  creationSource: string;
+  state: 'active' | 'idle';
+  createdAt: number;
+  lastUpdatedAt: number;
+}
+
+export interface PlayerTypeStatsSummary {
+  totalPlayers: number;
+  totalHumanPlayers: number;
+  activeHumanPlayers: number;
+  offlineHumanPlayers: number;
+  totalBotPlayers: number;
+  activeBotPlayers: number;
+  totalSystemEntities: number;
+  totalUnknownPlayers: number;
+}
+
+export interface MatchParticipantSummary {
+  playerId: string;
+  username: string;
+  displayName?: string;
+  playerType: PlayerType;
+  faction: string;
+  allianceTag?: string | null;
+  controlSource: ControlSource;
+  verificationStatus?: VerificationStatus;
+  isOnline: boolean;
+  connectionStatus?: 'online' | 'offline' | 'active' | 'idle';
+  basesCount: number;
+  unitsCount: number;
+  botDifficulty?: AIDifficulty | null;
+  difficulty?: AIDifficulty | null;
+  aiProfile?: string | null;
+}
+
+export interface AdminPlayerRecord {
+  id: string;
+  playerId?: string;
+  username: string;
+  displayName?: string;
+  email: string;
+  rank: string;
+  score: number;
+  level: number;
+  avatar: string;
+  playerType: PlayerType;
+  accountId: string | null;
+  botAgentId: string | null;
+  controlSource: ControlSource;
+  controlStatus: string;
+  creationSource: string;
+  verificationStatus: VerificationStatus;
+  verifiedBy: string | null;
+  verifiedAt: number | null;
+  botDifficulty: AIDifficulty | null;
+  botAiProfile: string | null;
+  faction: string;
+  allianceId?: string | null;
+  allianceName: string | null;
+  allianceTag: string | null;
+  allianceRole: AllianceRole | null;
+  homeBaseId: string;
+  homeMapId?: string;
+  currentMapId: string;
+  currentMapName: string;
+  currentSectorName?: string;
+  activeMatchId: string | null;
+  activeMatchIds: string[];
+  activeMapIds: string[];
+  status: PlayerStatus | 'active' | 'idle' | 'terminated';
+  connectionStatus: 'online' | 'offline' | 'active' | 'idle';
+  isOnline: boolean;
+  isAdmin?: boolean;
+  adminRole?: AdminRole | null;
+  basesControlled: number;
+  activeUnits: number;
+  basesOwned?: number;
+  unitsOwned?: number;
+  totalBasesCaptured: number;
+  totalUnitsProduced: number;
+  totalUnitsDestroyed: number;
+  totalResourcesHarvested: number;
+  joinedAt: number;
+  createdAt?: number;
+  lastLoginAt: number;
+  lastActiveAt: number;
+  lastStateUpdateAt?: number;
+  suspendedUntil?: number | null;
+  banReason?: string | null;
+  botProfile?: {
+    botId: string;
+    difficulty: AIDifficulty;
+    aiProfile: string;
+    controlStatus: 'autonomous_active' | 'paused' | 'standby';
+    creationSource: string;
+    lastDecisionAt: number;
+  } | null;
+  moderationHistory: ModerationRecord[];
+}
+
 export interface ModerationRecord {
   id: string;
-  action: 'suspend' | 'unsuspend' | 'ban' | 'unban' | 'reset_progress' | 'rename' | 'role_change';
+  action: 'suspend' | 'unsuspend' | 'ban' | 'unban' | 'reset_progress' | 'rename' | 'role_change' | 'verify_type' | 'delete_account';
   adminId: string;
   adminUsername: string;
   reason: string;
@@ -414,6 +546,13 @@ export interface PlayerProfile {
   id: string;
   username: string;
   email: string;
+  playerType?: PlayerType;
+  accountId?: string | null;
+  botAgentId?: string | null;
+  controlSource?: ControlSource;
+  verificationStatus?: VerificationStatus;
+  verifiedBy?: string | null;
+  verifiedAt?: number | null;
   rank: string;
   score: number;
   level: number;
