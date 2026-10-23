@@ -580,7 +580,61 @@ export function createAdminRouter(
         auditTrail: detail.recentAudits,
         botRecord: detail.botRecord,
         systemRecord: detail.systemRecord,
+        homeBaseDiagnostics: detail.homeBaseDiagnostics,
       });
+    }
+  );
+
+  router.get(
+    '/players/:id/home-base',
+    authenticateAdmin,
+    requirePermission('players.view'),
+    (req: AuthenticatedAdminRequest, res: Response) => {
+      const targetId = sanitizeText(req.params.id, 64);
+      const data = gameStore.getData();
+      if (!data.users[targetId] && !data.bases.some((b) => b.ownerId === targetId)) {
+        res.status(404).json({ error: 'Player not found.' });
+        return;
+      }
+      res.json({
+        success: true,
+        diagnostics: gameStore.getAdminPlayerHomeBaseDiagnostics(targetId),
+      });
+    }
+  );
+
+  router.post(
+    '/players/:id/home-base/action',
+    authenticateAdmin,
+    requirePermission('players.suspend'),
+    (req: AuthenticatedAdminRequest, res: Response) => {
+      const session = req.adminSession!;
+      const targetId = sanitizeText(req.params.id, 64);
+      const action = sanitizeText(req.body?.action, 32) as 'recover' | 'relocate' | 'repair' | 'reset_cooldowns';
+      const targetMapId = req.body?.targetMapId ? sanitizeText(req.body.targetMapId, 64) : undefined;
+      const reason = sanitizeText(req.body?.reason, 300) || `Administrative Home Base ${action}`;
+
+      if (!['recover', 'relocate', 'repair', 'reset_cooldowns'].includes(action)) {
+        res.status(400).json({ error: 'Invalid Home Base action. Must be recover, relocate, repair, or reset_cooldowns.' });
+        return;
+      }
+
+      const result = gameStore.adminManagePlayerHomeBase(targetId, action, {
+        targetMapId,
+        reason,
+        adminId: session.userId,
+        adminUsername: session.username,
+        adminRole: session.role,
+        ipAddress: getClientIp(req),
+      });
+
+      if (!result.success) {
+        res.status(result.status).json({ error: result.message });
+        return;
+      }
+
+      gameSimulation.broadcastWorldSync();
+      res.json(result);
     }
   );
 

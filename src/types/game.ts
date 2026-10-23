@@ -154,6 +154,40 @@ export type BaseLifecycleState =
 
 export type SpawnMapFallbackPolicy = 'next_eligible_map' | 'reject_when_full';
 
+export interface HomeBaseDestructionRecord {
+  id: string;
+  baseId: string;
+  attackerId: string;
+  attackerName: string;
+  previousMapId: string;
+  previousCoords: { x: number; y: number };
+  newMapId: string;
+  newCoords: { x: number; y: number };
+  persistentBuildingsPreserved: string[];
+  resetBuildingsCount: number;
+  shieldExpiresAt: number;
+  timestamp: number;
+}
+
+export interface PlacementFailureRecord {
+  id: string;
+  mapId: string;
+  attemptedCoords?: { x: number; y: number };
+  reason: string;
+  timestamp: number;
+}
+
+export interface ArchivedHomeBaseSnapshot {
+  baseId: string;
+  name: string;
+  mapId: string;
+  lastValidCoords: { x: number; y: number };
+  resources: Resources;
+  buildings: BuildingInstance[];
+  destructionHistory?: HomeBaseDestructionRecord[];
+  archivedAt: number;
+}
+
 export interface Base {
   id: string;
   mapId?: string; // Sector map ID (e.g. 'map_riverfront_assault')
@@ -169,10 +203,13 @@ export interface Base {
   radius: number; // visual & interaction radius in cells
   health: number;
   maxHealth: number;
+  hqLevel?: number;
+  armorMultiplier?: number;
   buildings: BuildingInstance[];
   resources: Resources;
   storageCap: Resources;
   productionRates: Resources; // per second
+  consumptionRates?: Resources; // per second
   lastResourceUpdate: number; // epoch ms
   constructionQueue: ConstructionOrder[];
   productionQueue: UnitProductionOrder[];
@@ -193,6 +230,11 @@ export interface Base {
   totalTurretsCount?: number;
   powerUsed?: number;
   powerCapacity?: number;
+  destructionHistory?: HomeBaseDestructionRecord[];
+  lastReconstructionAt?: number | null;
+  lastMeaningfulActivityAt?: number;
+  lastKnownValidCoords?: { x: number; y: number } | null;
+  placementFailures?: PlacementFailureRecord[];
 }
 
 export type UnitCommandType = 'idle' | 'move' | 'attack' | 'attack_move' | 'hold' | 'patrol' | 'retreat' | 'stop';
@@ -519,7 +561,20 @@ export interface AdminPlayerRecord {
 
 export interface ModerationRecord {
   id: string;
-  action: 'suspend' | 'unsuspend' | 'ban' | 'unban' | 'reset_progress' | 'rename' | 'role_change' | 'verify_type' | 'delete_account';
+  action:
+    | 'suspend'
+    | 'unsuspend'
+    | 'ban'
+    | 'unban'
+    | 'reset_progress'
+    | 'rename'
+    | 'role_change'
+    | 'verify_type'
+    | 'delete_account'
+    | 'home_base_recover'
+    | 'home_base_relocate'
+    | 'home_base_repair'
+    | 'home_base_reset_cooldowns';
   adminId: string;
   adminUsername: string;
   reason: string;
@@ -557,15 +612,23 @@ export interface PlayerProfile {
   score: number;
   level: number;
   avatar: string;
+  faction?: string;
   allianceId?: string | null;
   allianceRole?: AllianceRole | null;
   homeBaseId: string;
   homeMapId?: string;
+  homeBaseCoords?: { x: number; y: number };
+  homeMapChangeCooldownUntil?: number | null;
   currentMapId?: string;
   totalBasesCaptured: number;
   weeklyCaptureTimestamps?: number[];
   weeklyCapturesCount?: number;
   homeBaseDestroyedCount?: number;
+  homeBaseDestructionHistory?: HomeBaseDestructionRecord[];
+  placementFailures?: PlacementFailureRecord[];
+  archivedHomeBase?: ArchivedHomeBaseSnapshot | null;
+  lastMapActivityAt?: number;
+  lastHomeMapChangeAt?: number;
   totalUnitsProduced: number;
   totalUnitsDestroyed: number;
   totalResourcesHarvested: number;

@@ -140,6 +140,38 @@ export class GameSimulation {
   // PHASE 3: SERVER-ENFORCED FOG OF WAR & MULTI-MAP STATE FILTERING
   // ==========================================================================
 
+  public isAuthoritativeHomeBase(base: Base): boolean {
+    if (!base.isHomeBase) return false;
+    if (!base.ownerId || base.ownerId === 'neutral' || base.ownerId === 'enemy_insurgent') {
+      return Boolean(base.isHomeBase);
+    }
+    const data = gameStore.getData();
+    const ownerProfile = data.users[base.ownerId]?.profile;
+    if (ownerProfile && ownerProfile.homeBaseId && ownerProfile.homeBaseId !== base.id) {
+      return false;
+    }
+    return true;
+  }
+
+  public computeBaseConsumptionRates(base: Base): Resources {
+    const data = gameStore.getData();
+    let fuelBurn = 0;
+    for (const u of data.units) {
+      if (u.ownerId === base.ownerId && u.homeBaseId === base.id) {
+        const uDef = gameStore.getEffectiveUnitDef(u.type as UnitType);
+        const burn = uDef?.fuelBurnPerSec || 0.1;
+        const isActive = u.command !== 'idle' && u.command !== 'hold' && u.command !== 'stop';
+        fuelBurn += isActive ? burn : burn * 0.2;
+      }
+    }
+    return {
+      concrete: 0,
+      steel: 0,
+      aluminum: 0,
+      fuel: Math.round(fuelBurn * 100) / 100,
+    };
+  }
+
   public isBaseProtectedNow(base: Base, now = Date.now()): boolean {
     if (base.rebuildProtectionUntil && base.rebuildProtectionUntil > now) {
       return true;
@@ -181,6 +213,7 @@ export class GameSimulation {
   ): FullWorldState {
     const data = gameStore.getData();
     const settings = gameStore.getSystemSettings();
+    const econ = gameStore.getEconomyConfig();
     const now = Date.now();
     const userProfile = userId ? data.users[userId]?.profile : null;
     const mapId = requestedMapId || userProfile?.currentMapId || 'map_riverfront_assault';
@@ -196,8 +229,14 @@ export class GameSimulation {
         mapId,
         bases: mapBases.map((b) => {
           const power = this.computeBasePower(b);
+          const isAuthHome = this.isAuthoritativeHomeBase(b);
+          const ccLevel = (b.buildings || []).find((bld) => bld.type === 'command_center')?.level || 1;
           return {
             ...b,
+            isHomeBase: isAuthHome,
+            hqLevel: ccLevel,
+            armorMultiplier: isAuthHome ? econ.homeBaseArmorMultiplier || 3.0 : 1.0,
+            consumptionRates: this.computeBaseConsumptionRates(b),
             isProtected: this.isBaseProtectedNow(b, now),
             powerUsed: power.powerUsed,
             powerCapacity: power.powerCapacity,
@@ -276,8 +315,14 @@ export class GameSimulation {
     const sanitizedBases = mapBases.map((b) => {
       const friendly = isFriendly(b.ownerId, b.allianceId);
       const power = this.computeBasePower(b);
+      const isAuthHome = this.isAuthoritativeHomeBase(b);
+      const ccLevel = (b.buildings || []).find((bld) => bld.type === 'command_center')?.level || 1;
       return {
         ...b,
+        isHomeBase: isAuthHome,
+        hqLevel: ccLevel,
+        armorMultiplier: isAuthHome ? econ.homeBaseArmorMultiplier || 3.0 : 1.0,
+        consumptionRates: friendly ? this.computeBaseConsumptionRates(b) : undefined,
         isProtected: this.isBaseProtectedNow(b, now),
         powerUsed: power.powerUsed,
         powerCapacity: power.powerCapacity,
@@ -450,7 +495,7 @@ export class GameSimulation {
         if (!targetUnit) unit.targetUnitId = null;
       }
 
-      if (!targetUnit && unit.command !== 'retreat') {
+      if (!targetUnit && !unit.targetBaseId && unit.command !== 'retreat') {
         let closestDist = def.attackRange;
         for (const other of data.units) {
           if (
@@ -551,8 +596,9 @@ export class GameSimulation {
 
             const econ = gameStore.getEconomyConfig();
             let baseDamage = def.attackDamage * (unit.type === 'goliath_howitzer' ? 2.0 : 0.8);
-            if (base.isHomeBase || base.type === 'home') {
-              const armorMult = econ.homeBaseArmorMultiplier || 1.5;
+            const isAuthHome = this.isAuthoritativeHomeBase(base);
+            if (isAuthHome) {
+              const armorMult = econ.homeBaseArmorMultiplier || 3.0;
               baseDamage = baseDamage / armorMult;
             }
             const damage = Math.max(1, Math.round(baseDamage));
@@ -570,7 +616,7 @@ export class GameSimulation {
                 // Structural HP damage once shield and turrets are down
                 base.health = Math.max(0, base.health - damage);
                 if (base.health <= 0) {
-                  if (base.isHomeBase || base.type === 'home') {
+                  if (isAuthHome) {
                     this.destroyAndRelocateHomeBase(base, unit, now);
                   } else if (base.ownerId !== 'neutral') {
                     this.neutralizeOrdinaryBase(base, unit, now);
@@ -688,6 +734,17 @@ export class GameSimulation {
       base.defensesIntact = defensesIntact;
 
       // 1. Home bases and protected bases cannot be captured
+      if (this.isAuthoritativeHomeBase(base)) {
+        if (base.captureProgress > 0) {
+          base.captureProgress = 0;
+          base.capturingPlayerId = null;
+          base.captureContested = false;
+          hasStateChange = true;
+        }
+        base.captureBlockedReason = 'Home Bases are permanent command centers and cannot be conquered';
+        continue;
+      }
+
       if (base.isProtected) {
         if (base.captureProgress > 0) {
           base.captureProgress = 0;
@@ -696,17 +753,6 @@ export class GameSimulation {
           hasStateChange = true;
         }
         base.captureBlockedReason = 'Base is shielded by active command protection';
-        continue;
-      }
-
-      if (base.isHomeBase || base.type === 'home') {
-        if (base.captureProgress > 0) {
-          base.captureProgress = 0;
-          base.capturingPlayerId = null;
-          base.captureContested = false;
-          hasStateChange = true;
-        }
-        base.captureBlockedReason = 'Home Bases are permanent command centers and cannot be conquered';
         continue;
       }
 
@@ -860,11 +906,20 @@ export class GameSimulation {
           aluminum: Math.round(alumRate * 10) / 10,
           fuel: Math.round(fuelRate * 10) / 10,
         };
+        base.consumptionRates = this.computeBaseConsumptionRates(base);
+        const ccLevel = (base.buildings || []).find((b) => b.type === 'command_center')?.level || 1;
+        base.hqLevel = ccLevel;
+        base.armorMultiplier = this.isAuthoritativeHomeBase(base) ? econ.homeBaseArmorMultiplier || 3.0 : 1.0;
 
+        if (base.lifecycleState === 'rebuilding' && (!base.rebuildProtectionUntil || base.rebuildProtectionUntil <= now)) {
+          base.lifecycleState = base.isProtected ? 'protected' : 'active';
+        }
+
+        const netFuelRate = Math.max(0, fuelRate - (base.consumptionRates.fuel || 0));
         base.resources.concrete = Math.min(base.storageCap.concrete, base.resources.concrete + concRate * elapsedSec);
         base.resources.steel = Math.min(base.storageCap.steel, base.resources.steel + steelRate * elapsedSec);
         base.resources.aluminum = Math.min(base.storageCap.aluminum, base.resources.aluminum + alumRate * elapsedSec);
-        base.resources.fuel = Math.min(base.storageCap.fuel, base.resources.fuel + fuelRate * elapsedSec);
+        base.resources.fuel = Math.min(base.storageCap.fuel, base.resources.fuel + netFuelRate * elapsedSec);
         base.lastResourceUpdate = now;
 
         const ownerProfile = data.users[base.ownerId]?.profile;
@@ -912,6 +967,10 @@ export class GameSimulation {
                 offsetX: order.offsetX,
                 offsetY: order.offsetY,
               });
+            }
+
+            if (order.buildingType === 'command_center') {
+              base.hqLevel = order.targetLevel;
             }
 
             const bDef = gameStore.getEffectiveBuildingDef(order.buildingType as BuildingType);
@@ -1030,14 +1089,25 @@ export class GameSimulation {
     const lockRes = gameStore.withLock(`home_destroy_${base.id}`, () => {
       const data = gameStore.getData();
       const econ = gameStore.getEconomyConfig();
-      const mapId = base.mapId || 'map_riverfront_assault';
-      const mapCfg = gameStore.getMapConfig(mapId);
+      const previousMapId = base.mapId || 'map_riverfront_assault';
+      const previousCoords = { x: base.x, y: base.y };
+      const mapCfg = gameStore.getMapConfig(previousMapId);
       const ownerId = base.ownerId;
       const ownerProfile = data.users[ownerId]?.profile;
 
+      // Transition through destroyed state first
+      base.lifecycleState = 'destroyed';
+
+      // Ensure no duplicate Home Base exists for this player
+      data.bases = data.bases.filter((b) => !(b.ownerId === ownerId && b.isHomeBase && b.id !== base.id));
+
       // 1. Atomically reserve new safe spawn location on player's assigned home map
-      const targetMapId = ownerProfile?.homeMapId || mapId;
-      const spawnRes = gameStore.findAndReserveBaseSpawnLocation(targetMapId, ownerProfile?.allianceId, base.radius || 4);
+      const targetMapId = ownerProfile?.homeMapId || previousMapId;
+      const spawnRes = gameStore.findAndReserveBaseSpawnLocation(targetMapId, ownerProfile?.allianceId, base.radius || 4, {
+        preferredCoords: base.lastKnownValidCoords || previousCoords,
+        ownerId,
+        excludeBaseId: base.id,
+      });
 
       let finalMapId = targetMapId;
       let finalX = base.x;
@@ -1061,10 +1131,62 @@ export class GameSimulation {
         }
       }
 
-      // 2. Relocate Home Base and rebuild starter buildings
+      // 2. Relocate Home Base and preserve persistent HQ structures while resetting resettable facilities
+      const persistentTypes: BuildingType[] = [
+        'command_center',
+        'command_bunker',
+        'operations_center',
+        'comms_tower',
+        'radar_station',
+        'storage_depot',
+        'military_gate',
+      ];
+      const preservedStructures: BuildingInstance[] = [];
+      const preservedNames: string[] = [];
+      let resetBuildingsCount = 0;
+
+      for (const existingBld of base.buildings || []) {
+        if (persistentTypes.includes(existingBld.type)) {
+          preservedStructures.push({
+            ...existingBld,
+            health: existingBld.maxHealth || 1000,
+            isConstructing: false,
+          });
+          preservedNames.push(`${existingBld.type}:L${existingBld.level}`);
+        } else if (existingBld.level > 1) {
+          resetBuildingsCount += 1;
+        }
+      }
+
+      if (!preservedStructures.some((b) => b.type === 'command_center')) {
+        preservedStructures.unshift({
+          id: `b_cc_${ownerId}`,
+          type: 'command_center',
+          level: base.hqLevel || 1,
+          health: 1000,
+          maxHealth: 1000,
+        });
+        preservedNames.push(`command_center:L${base.hqLevel || 1}`);
+      }
+
+      const resettableStarterFacilities: BuildingInstance[] = [
+        { id: `b_cw_${ownerId}`, type: 'concrete_works', level: 1, health: 500, maxHealth: 500 },
+        { id: `b_sf_${ownerId}`, type: 'steel_foundry', level: 1, health: 500, maxHealth: 500 },
+        { id: `b_as_${ownerId}`, type: 'aluminum_smelter', level: 1, health: 400, maxHealth: 400 },
+        { id: `b_fr_${ownerId}`, type: 'fuel_refinery', level: 1, health: 450, maxHealth: 450 },
+        { id: `b_br_${ownerId}`, type: 'barracks', level: 1, health: 500, maxHealth: 500 },
+        { id: `b_vf_${ownerId}`, type: 'vehicle_factory', level: 1, health: 700, maxHealth: 700 },
+        { id: `b_vt_${ownerId}`, type: 'vulcan_turret', level: 1, health: 400, maxHealth: 400 },
+      ];
+
+      base.buildings = [...preservedStructures, ...resettableStarterFacilities];
+      base.hqLevel = preservedStructures.find((b) => b.type === 'command_center')?.level || 1;
+      base.armorMultiplier = econ.homeBaseArmorMultiplier || 3.0;
       base.mapId = finalMapId;
       base.x = finalX;
       base.y = finalY;
+      base.lastKnownValidCoords = { x: finalX, y: finalY };
+      base.lastReconstructionAt = now;
       base.health = base.maxHealth;
       base.defenseShield = base.maxShield;
       base.captureProgress = 0;
@@ -1073,21 +1195,10 @@ export class GameSimulation {
       base.captureBlockedReason = undefined;
       base.lifecycleState = 'rebuilding';
 
-      const rebuildMinutes = econ.rebuildProtectionDurationMinutes || 60;
-      base.rebuildProtectionUntil = now + rebuildMinutes * 60000;
+      const rebuildMinutes = econ.rebuildProtectionDurationMinutes || 30;
+      const shieldExpiresAt = now + rebuildMinutes * 60000;
+      base.rebuildProtectionUntil = shieldExpiresAt;
       base.isProtected = true;
-
-      // Starter building restoration
-      base.buildings = [
-        { id: `b_cc_${ownerId}`, type: 'command_center' as const, level: 1, health: 1000, maxHealth: 1000 },
-        { id: `b_cw_${ownerId}`, type: 'concrete_works' as const, level: 1, health: 500, maxHealth: 500 },
-        { id: `b_sf_${ownerId}`, type: 'steel_foundry' as const, level: 1, health: 500, maxHealth: 500 },
-        { id: `b_as_${ownerId}`, type: 'aluminum_smelter' as const, level: 1, health: 400, maxHealth: 400 },
-        { id: `b_fr_${ownerId}`, type: 'fuel_refinery' as const, level: 1, health: 450, maxHealth: 450 },
-        { id: `b_br_${ownerId}`, type: 'barracks' as const, level: 1, health: 500, maxHealth: 500 },
-        { id: `b_vf_${ownerId}`, type: 'vehicle_factory' as const, level: 1, health: 700, maxHealth: 700 },
-        { id: `b_vt_${ownerId}`, type: 'vulcan_turret' as const, level: 1, health: 400, maxHealth: 400 },
-      ];
       base.constructionQueue = [];
       base.productionQueue = [];
 
@@ -1099,11 +1210,32 @@ export class GameSimulation {
         fuel: Math.max(econ.startingResources.fuel * 0.5, Math.round(base.resources.fuel * 0.3)),
       };
 
+      const destructionRecord = {
+        id: `hbd_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        baseId: base.id,
+        attackerId: attackerUnit.ownerId,
+        attackerName: attackerUnit.ownerName,
+        previousMapId,
+        previousCoords,
+        newMapId: finalMapId,
+        newCoords: { x: finalX, y: finalY },
+        persistentBuildingsPreserved: preservedNames,
+        resetBuildingsCount,
+        shieldExpiresAt,
+        timestamp: now,
+      };
+      base.destructionHistory = [destructionRecord, ...(base.destructionHistory || [])].slice(0, 20);
+
       if (ownerProfile) {
         ownerProfile.homeBaseDestroyedCount = (ownerProfile.homeBaseDestroyedCount || 0) + 1;
+        ownerProfile.homeBaseDestructionHistory = [
+          destructionRecord,
+          ...(ownerProfile.homeBaseDestructionHistory || []),
+        ].slice(0, 20);
         ownerProfile.homeBaseId = base.id;
         ownerProfile.homeMapId = finalMapId;
         ownerProfile.currentMapId = finalMapId;
+        gameStore.persistUser(ownerId);
       }
 
       // Attacker rewards
@@ -1116,7 +1248,7 @@ export class GameSimulation {
 
       // Record Battle Report
       const report = gameStore.recordBattleReport({
-        mapId,
+        mapId: previousMapId,
         mapName: mapCfg.name,
         type: 'home_base_destroyed',
         attackerId: attackerUnit.ownerId,
@@ -1125,8 +1257,10 @@ export class GameSimulation {
         defenderName: base.ownerName,
         baseId: base.id,
         baseName: base.name,
+        replacementBaseId: base.id,
+        replacementCoords: { x: finalX, y: finalY },
         coords: { x: finalX, y: finalY },
-        summary: `ATTACK ALERT: ${attackerUnit.ownerName} destroyed ${base.ownerName}'s Home Base in ${mapCfg.name}! High Command executed tactical relocation to sector ${finalMapId} with a ${rebuildMinutes}-min Reconstruction Shield.`,
+        summary: `ATTACK ALERT: ${attackerUnit.ownerName} destroyed ${base.ownerName}'s Home Base in ${mapCfg.name}! High Command executed tactical relocation to sector ${finalMapId} at (${finalX}, ${finalY}) with a ${rebuildMinutes}-min Reconstruction Shield.`,
       });
 
       this.io?.to('authenticated_commanders').emit('battle:report', report);
@@ -1135,8 +1269,8 @@ export class GameSimulation {
         userId: ownerId,
         mapId: finalMapId,
         type: 'attack',
-        title: 'Home Base Relocated!',
-        message: `Your Home Base was destroyed by ${attackerUnit.ownerName} and has relocated under emergency protection!`,
+        title: 'Home Base Relocated & Rebuilding!',
+        message: `Your Home Base was destroyed by ${attackerUnit.ownerName} and has reconstructed at (${finalX}, ${finalY}) under emergency shield protection!`,
         coords: { x: finalX, y: finalY },
         timestamp: now,
         read: false,
@@ -1144,6 +1278,7 @@ export class GameSimulation {
 
       gameStore.persistBaseAndUnits(base, []);
       gameStore.saveData();
+      this.broadcastWorldSync(now);
       return true;
     });
     return lockRes.result;
@@ -1741,6 +1876,8 @@ export class GameSimulation {
     const authorizedUnits = data.units.filter((u) => cappedIds.includes(u.id) && u.ownerId === userId);
     if (authorizedUnits.length === 0) return;
 
+    gameStore.recordMeaningfulPlayerActivity(userId);
+
     // If issuing an offensive attack against another player's assets, forfeit beginner protection
     if (command === 'attack' && (targetUnitId || targetBaseId)) {
       const attackerProfile = data.users[userId]?.profile;
@@ -1830,11 +1967,72 @@ export class GameSimulation {
       const bDef = gameStore.getEffectiveBuildingDef(buildingType);
       if (!bDef) return { success: false, message: 'Invalid building type' };
       if (bDef.enabled === false) return { success: false, message: 'This facility is currently disabled by Command' };
+      if (!bDef.baseTypesAllowed.includes(base.type)) {
+        return {
+          success: false,
+          message: `${bDef.name} cannot be constructed at a ${base.type.toUpperCase()} installation`,
+        };
+      }
+
+      if (base.constructionQueue.some((o) => o.buildingType === buildingType)) {
+        return { success: false, message: `${bDef.name} is already queued in the construction bay` };
+      }
 
       const existing = base.buildings.find((b: BuildingInstance) => b.type === buildingType);
       const maxBuildings = econ.maxBuildingsPerBase || 16;
       if (!existing && base.buildings.length + base.constructionQueue.length >= maxBuildings) {
         return { success: false, message: `Base facility slot limit reached (${maxBuildings} buildings max)` };
+      }
+
+      if (offsetX !== undefined && offsetY !== undefined) {
+        const maxPerimeterRadius = (base.radius || 5) + 0.5;
+        if (Math.hypot(offsetX, offsetY) > maxPerimeterRadius) {
+          const reason = `Placement coordinates (${offsetX}, ${offsetY}) exceed base perimeter radius (${maxPerimeterRadius})`;
+          const userProf = data.users[userId]?.profile;
+          if (userProf) {
+            userProf.placementFailures = userProf.placementFailures || [];
+            userProf.placementFailures.unshift({
+              id: `pf_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              mapId: base.mapId || 'map_riverfront_assault',
+              attemptedCoords: { x: Math.round(base.x + offsetX), y: Math.round(base.y + offsetY) },
+              reason,
+              timestamp: Date.now(),
+            });
+            userProf.placementFailures = userProf.placementFailures.slice(0, 20);
+          }
+          return { success: false, message: reason };
+        }
+
+        const hasOverlap =
+          base.buildings.some(
+            (b) =>
+              b.type !== buildingType &&
+              b.offsetX !== undefined &&
+              b.offsetY !== undefined &&
+              Math.hypot(b.offsetX - offsetX, b.offsetY - offsetY) < 1.1
+          ) ||
+          base.constructionQueue.some(
+            (o) =>
+              o.offsetX !== undefined &&
+              o.offsetY !== undefined &&
+              Math.hypot(o.offsetX - offsetX, o.offsetY - offsetY) < 1.1
+          );
+        if (hasOverlap) {
+          const reason = 'Placement conflicts with an existing or queued compound structure';
+          const userProf = data.users[userId]?.profile;
+          if (userProf) {
+            userProf.placementFailures = userProf.placementFailures || [];
+            userProf.placementFailures.unshift({
+              id: `pf_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              mapId: base.mapId || 'map_riverfront_assault',
+              attemptedCoords: { x: Math.round(base.x + offsetX), y: Math.round(base.y + offsetY) },
+              reason,
+              timestamp: Date.now(),
+            });
+            userProf.placementFailures = userProf.placementFailures.slice(0, 20);
+          }
+          return { success: false, message: reason };
+        }
       }
 
       const targetLevel = existing ? existing.level + 1 : 1;
@@ -1864,9 +2062,10 @@ export class GameSimulation {
       const speedMult = Math.max(0.2, econ.buildingBuildSpeedMultiplier || 1.0);
       const durationSec = Math.max(1, Math.round((bDef.buildTimeSec * levelMult) / speedMult));
       const now = Date.now();
+      const orderId = `order_${now}_${Math.random().toString(36).substring(2, 6)}`;
 
       base.constructionQueue.push({
-        id: `order_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        id: orderId,
         baseId,
         buildingType,
         targetLevel,
@@ -1882,13 +2081,51 @@ export class GameSimulation {
         offsetY,
       });
 
+      gameStore.recordMeaningfulPlayerActivity(userId, now);
       gameStore.persistBaseAndUnits(base, []);
       this.broadcastWorldSync(now);
-      return { success: true };
+      return { success: true, orderId };
     });
 
     if (!lockRes.locked) {
       return { success: false, message: 'Another construction or production operation is currently processing' };
+    }
+    return lockRes.result!;
+  }
+
+  public cancelConstruction(userId: string, baseId: string, orderId: string) {
+    const lockRes = gameStore.withLock(`base_econ_${baseId}`, () => {
+      const data = gameStore.getData();
+      const base = data.bases.find((b) => b.id === baseId && b.ownerId === userId);
+      if (!base) return { success: false, message: 'Base not found or unauthorized' };
+
+      const idx = base.constructionQueue.findIndex((o) => o.id === orderId);
+      if (idx === -1) {
+        return { success: false, message: 'Construction order not found or already completed' };
+      }
+
+      const [removed] = base.constructionQueue.splice(idx, 1);
+      const refunded: Resources = {
+        concrete: removed.cost?.concrete || 0,
+        steel: removed.cost?.steel || 0,
+        aluminum: removed.cost?.aluminum || 0,
+        fuel: removed.cost?.fuel || 0,
+      };
+
+      base.resources.concrete = Math.min(base.storageCap.concrete, base.resources.concrete + refunded.concrete);
+      base.resources.steel = Math.min(base.storageCap.steel, base.resources.steel + refunded.steel);
+      base.resources.aluminum = Math.min(base.storageCap.aluminum, base.resources.aluminum + refunded.aluminum);
+      base.resources.fuel = Math.min(base.storageCap.fuel, base.resources.fuel + refunded.fuel);
+
+      const now = Date.now();
+      gameStore.recordMeaningfulPlayerActivity(userId, now);
+      gameStore.persistBaseAndUnits(base, []);
+      this.broadcastWorldSync(now);
+      return { success: true, refunded, message: 'Construction cancelled and resources refunded' };
+    });
+
+    if (!lockRes.locked) {
+      return { success: false, message: 'Concurrent base operation in progress' };
     }
     return lockRes.result!;
   }
@@ -1907,6 +2144,14 @@ export class GameSimulation {
       const uDef = gameStore.getEffectiveUnitDef(unitType);
       if (!uDef) return { success: false, message: 'Invalid unit type' };
       if (uDef.enabled === false) return { success: false, message: 'This unit type is currently disabled by Command' };
+
+      // Home Base ground-vehicle & infantry production specialization rule
+      if ((this.isAuthoritativeHomeBase(base) || base.type === 'home') && uDef.category !== 'ground') {
+        return {
+          success: false,
+          message: `Home Base Motor Pool is restricted to ground infantry and armored vehicles. Capture a specialized ${uDef.category.toUpperCase()} base to deploy ${uDef.name}.`,
+        };
+      }
 
       // Global, per-map, and per-player population cap checks
       if (data.units.length >= (econ.maxGlobalUnits || 450)) {
@@ -1965,8 +2210,9 @@ export class GameSimulation {
       const speedMult = Math.max(0.2, econ.unitProductionSpeedMultiplier || 1.0);
       const trainDurationSec = Math.max(1, Math.round(uDef.trainTimeSec / speedMult));
       const now = Date.now();
+      const orderId = `prod_${now}_${Math.random().toString(36).substring(2, 6)}`;
       base.productionQueue.push({
-        id: `prod_${now}_${Math.random().toString(36).substring(2, 6)}`,
+        id: orderId,
         baseId,
         unitType,
         startTime: now,
@@ -1979,13 +2225,111 @@ export class GameSimulation {
         },
       });
 
+      gameStore.recordMeaningfulPlayerActivity(userId, now);
       gameStore.persistBaseAndUnits(base, []);
       this.broadcastWorldSync(now);
-      return { success: true };
+      return { success: true, orderId };
     });
 
     if (!lockRes.locked) {
       return { success: false, message: 'Concurrent production request in progress' };
+    }
+    return lockRes.result!;
+  }
+
+  public cancelUnitProduction(userId: string, baseId: string, orderId: string) {
+    const lockRes = gameStore.withLock(`base_econ_${baseId}`, () => {
+      const data = gameStore.getData();
+      const base = data.bases.find((b) => b.id === baseId && b.ownerId === userId);
+      if (!base) return { success: false, message: 'Base not found or unauthorized' };
+
+      const idx = base.productionQueue.findIndex((p) => p.id === orderId);
+      if (idx === -1) {
+        return { success: false, message: 'Production order not found or already deployed' };
+      }
+
+      const [removed] = base.productionQueue.splice(idx, 1);
+      const refunded: Resources = {
+        concrete: removed.cost?.concrete || 0,
+        steel: removed.cost?.steel || 0,
+        aluminum: removed.cost?.aluminum || 0,
+        fuel: removed.cost?.fuel || 0,
+      };
+
+      base.resources.concrete = Math.min(base.storageCap.concrete, base.resources.concrete + refunded.concrete);
+      base.resources.steel = Math.min(base.storageCap.steel, base.resources.steel + refunded.steel);
+      base.resources.aluminum = Math.min(base.storageCap.aluminum, base.resources.aluminum + refunded.aluminum);
+      base.resources.fuel = Math.min(base.storageCap.fuel, base.resources.fuel + refunded.fuel);
+
+      const now = Date.now();
+      gameStore.recordMeaningfulPlayerActivity(userId, now);
+      gameStore.persistBaseAndUnits(base, []);
+      this.broadcastWorldSync(now);
+      return { success: true, refunded, message: 'Unit production order cancelled and resources refunded' };
+    });
+
+    if (!lockRes.locked) {
+      return { success: false, message: 'Concurrent base operation in progress' };
+    }
+    return lockRes.result!;
+  }
+
+  public repairBuilding(userId: string, baseId: string, buildingId?: string) {
+    const lockRes = gameStore.withLock(`base_econ_${baseId}`, () => {
+      const data = gameStore.getData();
+      const base = data.bases.find((b) => b.id === baseId && b.ownerId === userId);
+      if (!base) return { success: false, message: 'Base not found or unauthorized' };
+
+      const targets =
+        buildingId && buildingId !== 'all'
+          ? base.buildings.filter((b) => b.id === buildingId && b.health < b.maxHealth)
+          : base.buildings.filter((b) => b.health < b.maxHealth);
+
+      const baseHullDamaged = (!buildingId || buildingId === 'all') && base.health < base.maxHealth;
+
+      if (targets.length === 0 && !baseHullDamaged) {
+        return { success: false, message: 'Selected structure is already at 100% structural integrity' };
+      }
+
+      let missingHp = targets.reduce((sum, b) => sum + (b.maxHealth - b.health), 0);
+      if (baseHullDamaged) {
+        missingHp += base.maxHealth - base.health;
+      }
+
+      const concreteCost = Math.max(15, Math.round(missingHp * 0.12));
+      const steelCost = Math.max(10, Math.round(missingHp * 0.1));
+
+      if (base.resources.concrete < concreteCost || base.resources.steel < steelCost) {
+        return {
+          success: false,
+          message: `Insufficient repair materials (${concreteCost} Concrete, ${steelCost} Steel required)`,
+        };
+      }
+
+      base.resources.concrete -= concreteCost;
+      base.resources.steel -= steelCost;
+
+      for (const bld of targets) {
+        bld.health = bld.maxHealth;
+      }
+      if (baseHullDamaged) {
+        base.health = base.maxHealth;
+      }
+
+      const now = Date.now();
+      gameStore.recordMeaningfulPlayerActivity(userId, now);
+      gameStore.persistBaseAndUnits(base, []);
+      this.broadcastWorldSync(now);
+      return {
+        success: true,
+        repairedCount: targets.length + (baseHullDamaged ? 1 : 0),
+        cost: { concrete: concreteCost, steel: steelCost },
+        message: 'Engineering teams completed structural repairs',
+      };
+    });
+
+    if (!lockRes.locked) {
+      return { success: false, message: 'Concurrent base operation in progress' };
     }
     return lockRes.result!;
   }

@@ -1282,7 +1282,8 @@ export class TacticalRenderer {
         : base.ownerId === 'enemy_insurgent' || (!isPlayer && !isAllied && base.ownerId !== 'neutral');
       const teamHex = isPlayer ? 0x3b82f6 : isAllied ? 0x10b981 : isEnemy ? 0xef4444 : 0xf59e0b;
 
-      const sig = `${base.ownerId}_${base.buildings
+      const isHome = Boolean(base.isHomeBase || base.type === 'home');
+      const sig = `${base.ownerId}_${isHome ? 'HQ' : base.type}_${base.lifecycleState || 'active'}_${base.buildings
         .map((b) => `${b.id}:${b.type}:${b.level}:${b.isConstructing ? 1 : 0}:${b.offsetX ?? ''}:${b.offsetY ?? ''}`)
         .join('|')}_${base.constructionQueue.map((q) => q.buildingType).join(',')}`;
 
@@ -1298,43 +1299,124 @@ export class TacticalRenderer {
         group.position.set(base.x, gy, base.y);
 
         // Compound paved military tarmac foundation + road apron
-        const padGeom = new THREE.CylinderGeometry(base.radius, base.radius + 0.25, 0.07, 28);
+        const padRadius = isHome ? base.radius + 0.35 : base.radius;
+        const padGeom = new THREE.CylinderGeometry(padRadius, padRadius + 0.28, 0.08, 32);
         const padMat = new THREE.MeshStandardMaterial({
-          color: 0x262d38,
-          roughness: 0.84,
-          metalness: 0.14,
+          color: isHome ? 0x1e293b : 0x262d38,
+          roughness: 0.8,
+          metalness: 0.18,
         });
         const padMesh = new THREE.Mesh(padGeom, padMat);
         padMesh.position.y = 0.025;
         padMesh.receiveShadow = true;
         group.add(padMesh);
 
-        // 3D Perimeter Fortification Wall & Corner Watchtowers
-        const wallSegments = 16;
-        const wallMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.78 });
-        const accentMat = new THREE.MeshStandardMaterial({ color: teamHex, roughness: 0.42 });
+        if (isHome) {
+          // Internal paved cross-roads & logistics apron for Home Base Headquarters
+          const roadMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
+          const roadStripeMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+          const ewRoad = new THREE.Mesh(new THREE.BoxGeometry(padRadius * 1.88, 0.02, 0.72), roadMat);
+          ewRoad.position.set(0.15, 0.068, 0);
+          ewRoad.receiveShadow = true;
+          const nsRoad = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.02, padRadius * 1.82), roadMat);
+          nsRoad.position.set(0, 0.068, 0);
+          nsRoad.receiveShadow = true;
+          const stripeEW = new THREE.Mesh(new THREE.BoxGeometry(padRadius * 1.65, 0.024, 0.06), roadStripeMat);
+          stripeEW.position.set(0.15, 0.072, 0);
+          group.add(ewRoad, nsRoad, stripeEW);
+
+          // Original Frontline Dominion HQ Insignia & Command Helipad Ring
+          const insigniaRingGeom = new THREE.RingGeometry(0.95, 1.18, 32);
+          insigniaRingGeom.rotateX(-Math.PI / 2);
+          const insigniaRing = new THREE.Mesh(
+            insigniaRingGeom,
+            new THREE.MeshBasicMaterial({ color: teamHex, side: THREE.DoubleSide })
+          );
+          insigniaRing.position.set(0, 0.078, 0);
+          group.add(insigniaRing);
+
+          // Elevated 3D Rotating HQ Beacon Ring above Command Center
+          const beaconGroup = new THREE.Group();
+          beaconGroup.name = 'hq_beacon';
+          beaconGroup.position.set(0, 2.25, 0);
+          const outerBeacon = new THREE.Mesh(
+            new THREE.RingGeometry(0.38, 0.48, 6),
+            new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide })
+          );
+          outerBeacon.rotation.x = Math.PI / 2;
+          const innerDiamond = new THREE.Mesh(
+            new THREE.OctahedronGeometry(0.22, 0),
+            new THREE.MeshBasicMaterial({ color: teamHex, wireframe: true })
+          );
+          beaconGroup.add(outerBeacon, innerDiamond);
+          group.add(beaconGroup);
+
+          // Dedicated warm perimeter command floodlight
+          if (this.graphicsQuality !== 'low') {
+            const hqLight = new THREE.PointLight(teamHex, 0.75, base.radius * 2.4);
+            hqLight.position.set(0, 2.6, 0);
+            group.add(hqLight);
+          }
+        }
+
+        // 3D Perimeter Fortification Wall, Gatehouse Checkpoint & Corner Watchtowers
+        const wallSegments = isHome ? 24 : 16;
+        const wallMat = new THREE.MeshStandardMaterial({
+          color: isHome ? 0x334155 : 0x475569,
+          roughness: 0.72,
+          metalness: 0.22,
+        });
+        const accentMat = new THREE.MeshStandardMaterial({ color: teamHex, roughness: 0.38 });
+        const beaconMat = new THREE.MeshBasicMaterial({ color: isPlayer ? 0x38bdf8 : teamHex });
+
         for (let i = 0; i < wallSegments; i++) {
           const angle = (i / wallSegments) * Math.PI * 2;
           // Leave East/South-East gate open for vehicle access
           if (angle > -0.25 && angle < 0.75) continue;
 
-          const wx = Math.cos(angle) * base.radius;
-          const wz = Math.sin(angle) * base.radius;
+          const wx = Math.cos(angle) * padRadius;
+          const wz = Math.sin(angle) * padRadius;
 
-          const wall = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.38, 1.18), wallMat);
-          wall.position.set(wx, 0.19, wz);
+          const wallHeight = isHome ? 0.48 : 0.38;
+          const wall = new THREE.Mesh(new THREE.BoxGeometry(0.26, wallHeight, 1.15), wallMat);
+          wall.position.set(wx, wallHeight / 2, wz);
           wall.rotation.y = -angle;
           wall.castShadow = true;
           wall.receiveShadow = true;
           group.add(wall);
 
-          if (i % 4 === 0) {
-            const tower = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.76, 0.46), wallMat);
-            tower.position.set(wx, 0.38, wz);
+          const towerStep = isHome ? 3 : 4;
+          if (i % towerStep === 0) {
+            const tH = isHome ? 0.96 : 0.76;
+            const tower = new THREE.Mesh(new THREE.BoxGeometry(0.5, tH, 0.5), wallMat);
+            tower.position.set(wx, tH / 2, wz);
             tower.castShadow = true;
-            const roof = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.09, 0.52), accentMat);
-            roof.position.set(wx, 0.78, wz);
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.1, 0.58), accentMat);
+            roof.position.set(wx, tH + 0.04, wz);
             group.add(tower, roof);
+
+            if (isHome) {
+              const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), beaconMat);
+              lantern.position.set(wx, tH + 0.14, wz);
+              group.add(lantern);
+            }
+          }
+        }
+
+        // Dedicated Home Base Fortified Entrance Gate & Twin Guard Towers
+        if (isHome) {
+          const gateAngles = [-0.28, 0.78];
+          for (const gAngle of gateAngles) {
+            const gx = Math.cos(gAngle) * padRadius;
+            const gz = Math.sin(gAngle) * padRadius;
+            const gTower = new THREE.Mesh(new THREE.BoxGeometry(0.62, 1.18, 0.62), wallMat);
+            gTower.position.set(gx, 0.59, gz);
+            gTower.castShadow = true;
+            const gCap = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.14, 0.7), accentMat);
+            gCap.position.set(gx, 1.22, gz);
+            const gBeacon = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.12, 0.18), beaconMat);
+            gBeacon.position.set(gx, 1.34, gz);
+            group.add(gTower, gCap, gBeacon);
           }
         }
 
@@ -1342,6 +1424,9 @@ export class TacticalRenderer {
         const hq = base.buildings.find((b) => b.type === 'command_center');
         if (hq) {
           const hqMesh = this.modelsRegistry.createBuildingMesh('command_center', teamHex, hq.isConstructing);
+          if (isHome) {
+            hqMesh.scale.setScalar(1.18);
+          }
           group.add(hqMesh);
         }
 
@@ -1366,18 +1451,18 @@ export class TacticalRenderer {
         });
 
         // 3D Energy Defense Shield Dome
-        const shieldGeom = new THREE.SphereGeometry(base.radius * 1.04, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
+        const shieldGeom = new THREE.SphereGeometry(padRadius * 1.04, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
         const shieldMat = new THREE.MeshBasicMaterial({
           color: 0x38bdf8,
           transparent: true,
-          opacity: 0.1,
+          opacity: 0.12,
           wireframe: true,
         });
         const shieldMesh = new THREE.Mesh(shieldGeom, shieldMat);
         group.add(shieldMesh);
 
         // Selection Ring
-        const selGeom = new THREE.RingGeometry(base.radius + 0.15, base.radius + 0.36, 36);
+        const selGeom = new THREE.RingGeometry(padRadius + 0.15, padRadius + 0.38, 36);
         selGeom.rotateX(-Math.PI / 2);
         const selRing = new THREE.Mesh(
           selGeom,
@@ -1394,10 +1479,15 @@ export class TacticalRenderer {
       st.group.traverse((obj) => {
         if (obj.name === 'radar') {
           obj.rotation.y = elapsed * 1.1;
+        } else if (obj.name === 'hq_beacon') {
+          obj.rotation.y = elapsed * 0.9;
+          obj.position.y = 2.25 + Math.sin(elapsed * 2.4) * 0.08;
         }
       });
 
-      st.shieldMesh.visible = !this.isPreviewMode && base.defenseShield > 0 && this.selectedBaseId === base.id;
+      st.shieldMesh.visible =
+        !this.isPreviewMode &&
+        (Boolean(base.isProtected) || (base.defenseShield > 0 && this.selectedBaseId === base.id));
       st.selectionRing.visible = !this.isPreviewMode && this.selectedBaseId === base.id;
     }
 
@@ -1831,7 +1921,8 @@ export class TacticalRenderer {
     // 1. Base Labels, Health Bars, Shield Bars & Capture Progress
     for (const base of this.bases) {
       if (!this.showUnitLabels && this.selectedBaseId !== base.id) continue;
-      const sp = this.worldToScreen(base.x, base.y, 1.9);
+      const isHome = Boolean(base.isHomeBase || base.type === 'home');
+      const sp = this.worldToScreen(base.x, base.y, isHome ? 2.45 : 1.9);
       if (!sp.visible) continue;
 
       const isPlayer = base.ownerId === this.currentUserId;
@@ -1841,20 +1932,21 @@ export class TacticalRenderer {
 
       const hpPct = Math.max(0, base.health / base.maxHealth);
       const shieldPct = base.maxShield > 0 ? Math.max(0, base.defenseShield / base.maxShield) : 0;
-      const barW = 92;
+      const barW = isHome ? 114 : 92;
       const barH = 5;
 
       // Base Name Tag
-      ctx.font = 'bold 11px "Chakra Petch", sans-serif';
+      ctx.font = isHome ? 'bold 11.5px "Chakra Petch", sans-serif' : 'bold 11px "Chakra Petch", sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(9, 14, 23, 0.88)';
-      ctx.fillRect(sp.x - barW / 2 - 6, sp.y - 23, barW + 12, 29);
+      ctx.fillStyle = isHome ? 'rgba(8, 15, 32, 0.94)' : 'rgba(9, 14, 23, 0.88)';
+      ctx.fillRect(sp.x - barW / 2 - 6, sp.y - 24, barW + 12, 30);
       ctx.strokeStyle = isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(sp.x - barW / 2 - 6, sp.y - 23, barW + 12, 29);
+      ctx.lineWidth = isHome ? 1.6 : 1;
+      ctx.strokeRect(sp.x - barW / 2 - 6, sp.y - 24, barW + 12, 30);
 
       ctx.fillStyle = isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
-      ctx.fillText(base.name, sp.x, sp.y - 10);
+      const displayLabel = isHome ? `★ HQ · ${base.name}` : base.name;
+      ctx.fillText(displayLabel, sp.x, sp.y - 10);
 
       // Shield bar
       if (base.maxShield > 0) {
@@ -1870,12 +1962,24 @@ export class TacticalRenderer {
       ctx.fillStyle = hpPct > 0.5 ? '#22c55e' : hpPct > 0.25 ? '#f59e0b' : '#ef4444';
       ctx.fillRect(sp.x - barW / 2, sp.y - 2, barW * hpPct, barH);
 
-      if (base.isProtected) {
+      if (base.lifecycleState === 'rebuilding') {
+        ctx.fillStyle = 'rgba(30, 58, 138, 0.94)';
+        ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 10);
+        ctx.fillStyle = '#bfdbfe';
+        ctx.font = 'bold 8px "JetBrains Mono", monospace';
+        ctx.fillText('HQ REBUILDING SHIELD', sp.x, sp.y + 12);
+      } else if (base.isProtected) {
         ctx.fillStyle = 'rgba(14, 116, 144, 0.92)';
         ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 9);
         ctx.fillStyle = '#e0f2fe';
         ctx.font = 'bold 8px "JetBrains Mono", monospace';
-        ctx.fillText('SHIELD PROTECTED', sp.x, sp.y + 12);
+        ctx.fillText(isHome ? 'HQ SHIELD · 3X ARMOR' : 'SHIELD PROTECTED', sp.x, sp.y + 12);
+      } else if (isHome) {
+        ctx.fillStyle = 'rgba(49, 46, 129, 0.88)';
+        ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 9);
+        ctx.fillStyle = '#ddd6fe';
+        ctx.font = 'bold 8px "JetBrains Mono", monospace';
+        ctx.fillText(`COMMAND HQ · ${base.armorMultiplier || 3}X ARMOR`, sp.x, sp.y + 12);
       } else if (base.captureContested) {
         ctx.fillStyle = 'rgba(180, 83, 9, 0.95)';
         ctx.fillRect(sp.x - barW / 2, sp.y + 5, barW, 9);
@@ -2031,16 +2135,39 @@ export class TacticalRenderer {
       }
     }
 
-    // Base Dots
+    // Base Dots & Home Base Command Markers
     this.bases.forEach((b) => {
       const isPlayer = b.ownerId === this.currentUserId;
       const isAllied = this.userAllianceId && b.allianceId === this.userAllianceId;
       const isEnemy = base.ownerIsEnemy(b.ownerId, isPlayer, !!isAllied);
+      const isHome = Boolean(b.isHomeBase || b.type === 'home');
+      const bx = b.x * cellW;
+      const by = b.y * cellH;
+      const fillCol = isPlayer ? '#3b82f6' : isAllied ? '#10b981' : isEnemy ? '#ef4444' : '#f59e0b';
 
-      mCtx.fillStyle = isPlayer ? '#3b82f6' : isAllied ? '#10b981' : isEnemy ? '#ef4444' : '#f59e0b';
-      mCtx.beginPath();
-      mCtx.arc(b.x * cellW, b.y * cellH, 4.5, 0, Math.PI * 2);
-      mCtx.fill();
+      if (isHome) {
+        mCtx.save();
+        mCtx.strokeStyle = isPlayer ? '#38bdf8' : '#e2e8f0';
+        mCtx.lineWidth = 1.6;
+        mCtx.beginPath();
+        mCtx.arc(bx, by, 6.8, 0, Math.PI * 2);
+        mCtx.stroke();
+
+        mCtx.fillStyle = fillCol;
+        mCtx.beginPath();
+        mCtx.moveTo(bx, by - 5.5);
+        mCtx.lineTo(bx + 5.5, by);
+        mCtx.lineTo(bx, by + 5.5);
+        mCtx.lineTo(bx - 5.5, by);
+        mCtx.closePath();
+        mCtx.fill();
+        mCtx.restore();
+      } else {
+        mCtx.fillStyle = fillCol;
+        mCtx.beginPath();
+        mCtx.arc(bx, by, 4.5, 0, Math.PI * 2);
+        mCtx.fill();
+      }
     });
 
     // Highway Exit Dots on Minimap

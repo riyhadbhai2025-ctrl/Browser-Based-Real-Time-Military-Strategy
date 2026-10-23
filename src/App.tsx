@@ -1131,6 +1131,80 @@ export default function App() {
     });
   };
 
+  const handleCancelBuild = (baseId: string, orderId: string) => {
+    if (!isAuthenticated) return;
+    socketRef.current?.emit('base:cancel_build', { baseId, orderId }, (res: any) => {
+      if (res?.success) {
+        soundEngine.playCommandAck();
+        setNotificationToast({
+          title: 'CONSTRUCTION CANCELLED',
+          message: 'Construction order cancelled and 100% resources refunded.',
+        });
+        setTimeout(() => setNotificationToast(null), 3000);
+      }
+    });
+  };
+
+  const handleCancelUnit = (baseId: string, orderId: string) => {
+    if (!isAuthenticated) return;
+    socketRef.current?.emit('base:cancel_unit', { baseId, orderId }, (res: any) => {
+      if (res?.success) {
+        soundEngine.playCommandAck();
+        setNotificationToast({
+          title: 'UNIT PRODUCTION CANCELLED',
+          message: 'Unit training cancelled and 100% resources refunded.',
+        });
+        setTimeout(() => setNotificationToast(null), 3000);
+      }
+    });
+  };
+
+  const handleRepairBuilding = (baseId: string, buildingId?: string) => {
+    if (!isAuthenticated) return;
+    socketRef.current?.emit('base:repair_building', { baseId, buildingId }, (res: any) => {
+      if (res?.success) {
+        soundEngine.playBuildComplete();
+      } else if (res?.error) {
+        setNotificationToast({
+          title: 'REPAIR BLOCKED',
+          message: res.error,
+        });
+        setTimeout(() => setNotificationToast(null), 3500);
+      }
+    });
+  };
+
+  const handleChangeHomeMap = (targetMapId: string) => {
+    if (!isAuthenticated || !socketRef.current) return;
+    socketRef.current.emit('base:change_home_map', { targetMapId }, (res: any) => {
+      if (res?.success) {
+        soundEngine.playCommandAck();
+        needsHomeFocusRef.current = true;
+        setCurrentMapId(targetMapId);
+        if (profile) {
+          setProfile({
+            ...profile,
+            currentMapId: targetMapId,
+            homeMapId: targetMapId,
+            homeBaseCoords: res.base ? { x: res.base.x, y: res.base.y } : profile.homeBaseCoords,
+            homeMapChangeCooldownUntil: Date.now() + 5 * 60 * 1000,
+          });
+        }
+        setNotificationToast({
+          title: 'HOME BASE RELOCATED',
+          message: res.message || 'Command Headquarters relocated to target sector.',
+        });
+        setTimeout(() => setNotificationToast(null), 4500);
+      } else if (res?.error) {
+        setNotificationToast({
+          title: 'HQ RELOCATION BLOCKED',
+          message: res.error,
+        });
+        setTimeout(() => setNotificationToast(null), 4500);
+      }
+    });
+  };
+
   const handleChangeAiDifficulty = (difficulty: AIDifficulty) => {
     if (!isAuthenticated) return;
     updateSettings((prev) => ({ ...prev, aiDifficulty: difficulty }));
@@ -1468,11 +1542,17 @@ export default function App() {
             <BaseDrawer
               base={selectedBase}
               currentUserId={currentUserId}
+              profile={profile}
+              maps={maps}
               onClose={() => setSelectedBaseId(null)}
               onBuild={handleBuild}
+              onCancelBuild={handleCancelBuild}
               onStartPlaceBuilding3D={handleStartPlaceBuilding3D}
               onProduceUnit={handleProduceUnit}
+              onCancelUnit={handleCancelUnit}
               onRepairBase={handleRepairBase}
+              onRepairBuilding={handleRepairBuilding}
+              onChangeHomeMap={handleChangeHomeMap}
             />
           )}
 

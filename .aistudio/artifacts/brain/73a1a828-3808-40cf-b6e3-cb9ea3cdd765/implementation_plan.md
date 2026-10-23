@@ -158,3 +158,26 @@ Transform **Frontline Dominion** from a 2D canvas tactical strategy game into a 
    - **Base Construction & Unit Production Tabs**: Selecting an owned base switches the center dock panel between *Overview & Defenses*, *Construct / Upgrade Facilities* (showing all valid buildings from `BUILDING_CATALOG` with 4-resource costs, level badges, and build timers), and *Deploy Combat Units* (filtering `UNIT_CATALOG` by required facility, showing live training progress bars, and enabling one-click enqueueing).
 3. **Top Strategic Bar & Skirmish Controls**:
    - Displays live `Concrete`, `Steel`, `Aluminum`, and `Fuel` stockpiles + net production rates, total unit count, owned bases, AI difficulty selector (`Easy` / `Normal` / `Hard`), `New Skirmish` reset trigger, camera reset (`Reset View`), and existing modal launchers (`Intel`, `Alliances`, `Map Editor`, `Shortcuts`, `Account`).
+
+
+---
+
+### 5. Combat Siege Strategic Home Base & Player Type Detection (Completed)
+
+- **Strategic Home Base Architecture**:
+  - Authoritative individual Home Bases for all commanders with dedicated lifecycle states (`active`, `under_attack`, `destroyed`, `rebuilding`, `protected`, `ownerless`, `neutralized`).
+  - Home Base capture protection (ordinary conquest units reject capture attempts against protected HQs).
+  - 3x armor multiplier (`econ.homeBaseArmorMultiplier || 3.0`) for active defense resilience.
+  - Destruction & Relocation: Automated recovery/reconstruction process preserving persistent HQ/Storage levels while resetting operational facilities and granting temporary rebuild shields.
+  - Atomic base placement avoiding collisions and enforcing multi-map sector capacity limits.
+  - Inactivity Eviction & Recovery: Archiving inactive player bases (>14 days) and cleanly recovering them upon commander return.
+  - Admin Home Base Diagnostics & Management endpoints (`recover`, `relocate`, `repair`, `reset_cooldowns`).
+
+- **Authoritative Player Type Detection & Anti-Spoofing**:
+  - Authoritative classification: `HUMAN`, `BOT`, `SYSTEM`, `UNKNOWN`.
+  - Anti-spoofing in `detectAuthoritativePlayerType`: Prevents client-injected or untrusted headers from impersonating humans or bots.
+  - Admin Player Directory with real-time filtering, bot registry, system entities, and type verification.
+
+- **Automated Test Verification**:
+  - 27/27 automated integration tests passing (`NODE_ENV=test npx tsx --test tests/game.test.ts`).
+  - Clean `lint_applet` and `compile_applet` compilation.

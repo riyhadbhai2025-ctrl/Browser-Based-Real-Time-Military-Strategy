@@ -30,6 +30,7 @@ import {
   MatchParticipantSummary,
   MatchRecord,
   MissionProgress,
+  ModerationRecord,
   PlayerProfile,
   PlayerType,
   PlayerTypeStatsSummary,
@@ -134,7 +135,7 @@ export function createDefaultEconomyConfig(): EconomyConfig {
     minBaseSpawnDistance: 5,
     homeBaseProtectionDurationHours: 48,
     rebuildProtectionDurationMinutes: 30,
-    homeBaseArmorMultiplier: 1.5,
+    homeBaseArmorMultiplier: 3.0,
     productionDestroyPercentOnNeutralize: 50,
     destroyMaxCapBuildingsOnNeutralize: true,
     newbaseMaxOwnedBasesThreshold: 2,
@@ -743,8 +744,21 @@ export class GameStore {
       if (b.isHomeBase === undefined) {
         b.isHomeBase = Boolean(
           (b.ownerId && userHqMap.get(b.id) === b.ownerId) ||
-          (b.ownerId === 'player_default' && (b.id === 'base_home' || b.name?.includes('HQ')))
+          (b.ownerId === 'player_default' && (b.id === 'base_0' || b.id === 'base_home'))
         );
+      } else if (b.isHomeBase && b.ownerId && b.ownerId !== 'neutral' && b.ownerId !== 'enemy_insurgent') {
+        const expectedHqId = userHqMap.get(b.id);
+        const ownerProfile = parsed.users?.[b.ownerId]?.profile;
+        if (ownerProfile?.homeBaseId && ownerProfile.homeBaseId !== b.id && expectedHqId !== b.ownerId) {
+          b.isHomeBase = false;
+        }
+      }
+
+      if (b.isHomeBase) {
+        b.lastKnownValidCoords = b.lastKnownValidCoords || { x: b.x, y: b.y };
+        b.destructionHistory = Array.isArray(b.destructionHistory) ? b.destructionHistory : [];
+        const cc = (b.buildings || []).find((bld: any) => bld.type === 'command_center');
+        b.hqLevel = cc ? cc.level : 1;
       }
 
       // Explicit lifecycleState
@@ -785,7 +799,7 @@ export class GameStore {
 
     // Generate bases, units, and envObjects for Sector 02 and Sector 03 if not yet populated
     for (const mapCfg of parsed.maps) {
-      const mapBases = parsed.bases.filter((b) => b.mapId === mapCfg.id);
+      const mapBases = parsed.bases.filter((b: any) => b.mapId === mapCfg.id);
       if (mapBases.length === 0) {
         const generated = generateWorld({
           width: mapCfg.width,
@@ -803,15 +817,19 @@ export class GameStore {
             id: `${b.id}_${sectorTag}`,
             mapId: mapCfg.id,
             name: `${sectorLabel} ${b.name}`,
+            isHomeBase: false,
           };
           if (idx === 0) {
             clone.ownerId = 'player_default';
             clone.ownerName = parsed.users['player_default']?.profile.username || 'Commander';
             clone.allianceId = 'alliance_vanguard';
-            clone.name = `${sectorLabel} Forward HQ`;
+            clone.type = 'tank';
+            clone.isHomeBase = false;
+            clone.name = `${sectorLabel} Forward Garrison`;
           } else if (idx === 1 || idx === 4) {
             clone.ownerId = 'enemy_insurgent';
             clone.ownerName = 'Kodiak PMC';
+            clone.isHomeBase = false;
             clone.name = `Kodiak ${sectorLabel} Garrison ${idx}`;
           }
           return clone;
@@ -927,6 +945,9 @@ export class GameStore {
       parsed.economyConfig = defEcon;
     } else {
       parsed.economyConfig = { ...defEcon, ...parsed.economyConfig };
+      if (parsed.economyConfig.homeBaseArmorMultiplier === 1.5 && parsed.economyConfig.version === 1) {
+        parsed.economyConfig.homeBaseArmorMultiplier = 3.0;
+      }
     }
     if (!parsed.configHistory) {
       parsed.configHistory = [
@@ -1732,10 +1753,48 @@ export class GameStore {
     return counted.size;
   }
 
+  public recordPlacementFailure(
+    userId: string | undefined,
+    mapId: string,
+    reason: string,
+    attemptedCoords?: { x: number; y: number }
+  ): void {
+    if (!userId || !this.data.users[userId]) return;
+    const profile = this.data.users[userId].profile;
+    profile.placementFailures = profile.placementFailures || [];
+    profile.placementFailures.unshift({
+      id: `pf_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      mapId,
+      attemptedCoords,
+      reason,
+      timestamp: Date.now(),
+    });
+    if (profile.placementFailures.length > 20) {
+      profile.placementFailures = profile.placementFailures.slice(0, 20);
+    }
+  }
+
+  public recordMeaningfulPlayerActivity(userId: string, now = Date.now()): void {
+    const userRecord = this.data.users[userId];
+    if (!userRecord) return;
+    userRecord.profile.lastActiveAt = now;
+    userRecord.profile.lastMapActivityAt = now;
+    const homeBase = this.data.bases.find((b) => b.id === userRecord.profile.homeBaseId && b.ownerId === userId);
+    if (homeBase) {
+      homeBase.lastMeaningfulActivityAt = now;
+    }
+  }
+
   public findAndReserveBaseSpawnLocation(
     preferredMapId = 'map_riverfront_assault',
     playerAllianceId?: string | null,
-    radius = 4
+    radius = 4,
+    options?: {
+      preferredCoords?: { x: number; y: number } | null;
+      ownerId?: string;
+      excludeBaseId?: string;
+      strictMapOnly?: boolean;
+    }
   ): { success: true; mapId: string; x: number; y: number; reservationId: string } | { success: false; reason: string; code: string } {
     const now = Date.now();
     for (const [id, res] of this.reservedSpawns.entries()) {
@@ -1746,7 +1805,7 @@ export class GameStore {
 
     const econ = this.getEconomyConfig();
     const minBaseDist = econ.minBaseSpawnDistance || 12;
-    const fallbackPolicy = econ.spawnMapFallbackPolicy || 'next_eligible_map';
+    const fallbackPolicy = options?.strictMapOnly ? 'reject_when_full' : econ.spawnMapFallbackPolicy || 'next_eligible_map';
 
     const enabledMaps = this.data.maps.filter((m) => m.enabled);
     let candidateMaps: MapSectorConfig[] = [];
@@ -1758,17 +1817,33 @@ export class GameStore {
         if (m.id !== preferredMapId) candidateMaps.push(m);
       }
     }
-    if (candidateMaps.length === 0) candidateMaps = enabledMaps;
+    if (candidateMaps.length === 0 && !options?.strictMapOnly) candidateMaps = enabledMaps;
 
     for (const mapCfg of candidateMaps) {
       const activePlayers = this.getActivePlayerCountOnMap(mapCfg.id);
       const maxPlayers = mapCfg.maxPlayers || 8;
-      if (activePlayers >= maxPlayers) {
+      // Allow existing player on this map when relocating within the same map
+      const alreadyOnMap = options?.ownerId
+        ? this.data.bases.some(
+            (b) =>
+              (b.mapId || 'map_riverfront_assault') === mapCfg.id &&
+              b.ownerId === options.ownerId &&
+              b.id !== options.excludeBaseId
+          )
+        : false;
+      if (activePlayers >= maxPlayers && !alreadyOnMap) {
+        this.recordPlacementFailure(
+          options?.ownerId,
+          mapCfg.id,
+          `Sector ${mapCfg.name} reached maximum commander capacity (${activePlayers}/${maxPlayers})`
+        );
         continue;
       }
 
       const terrain = this.getMapTerrain(mapCfg.id);
-      const mapBases = this.data.bases.filter((b) => (b.mapId || 'map_riverfront_assault') === mapCfg.id);
+      const mapBases = this.data.bases.filter(
+        (b) => (b.mapId || 'map_riverfront_assault') === mapCfg.id && b.id !== options?.excludeBaseId
+      );
       const mapActiveReservations = Array.from(this.reservedSpawns.values()).filter((r) => r.mapId === mapCfg.id);
       const mapEnv = this.getMapEnvObjects(mapCfg.id).filter((e) => e.blocksMovement);
       const alliedBases = playerAllianceId ? mapBases.filter((b) => b.allianceId === playerAllianceId) : [];
@@ -1778,14 +1853,20 @@ export class GameStore {
       const margin = radius + 2;
 
       const isPassableFootprint = (cx: number, cy: number): boolean => {
+        if (cx < margin || cx > width - margin || cy < margin || cy > height - margin) return false;
         if (!isCellPassable(terrain, cx, cy, 'ground')) return false;
         const sampleOffsets = [
           [1, 0], [-1, 0], [0, 1], [0, -1],
+          [1, 1], [-1, 1], [1, -1], [-1, -1],
         ];
         for (const [ox, oy] of sampleOffsets) {
           const sx = cx + ox;
           const sy = cy + oy;
           if (!isCellPassable(terrain, sx, sy, 'ground')) return false;
+        }
+        // Check blocking environment props at center
+        for (const env of mapEnv) {
+          if (Math.hypot(env.x - cx, env.y - cy) < 1.8) return false;
         }
         return true;
       };
@@ -1806,24 +1887,54 @@ export class GameStore {
 
       let bestCandidate: { x: number; y: number; score: number } | null = null;
 
-      for (let attempt = 0; attempt < 150; attempt++) {
-        const candX = Math.floor(Math.random() * (width - margin * 2) + margin);
-        const candY = Math.floor(Math.random() * (height - margin * 2) + margin);
-
-        if (!isPassableFootprint(candX, candY)) continue;
-        if (!isFarFromBasesAndReservations(candX, candY)) continue;
-
-        let score = 100;
-        if (alliedBases.length > 0) {
-          const nearestAlliedDist = Math.min(...alliedBases.map((b) => Math.hypot(b.x - candX, b.y - candY)));
-          if (nearestAlliedDist >= radius + minBaseDist && nearestAlliedDist <= radius + minBaseDist + 24) {
-            score += 500 - nearestAlliedDist * 5;
+      // 1. If preferredCoords is provided on the preferred map, validate it or nearby coordinates first
+      if (options?.preferredCoords && mapCfg.id === preferredMapId) {
+        const px = Math.round(options.preferredCoords.x);
+        const py = Math.round(options.preferredCoords.y);
+        if (isPassableFootprint(px, py) && isFarFromBasesAndReservations(px, py)) {
+          bestCandidate = { x: px, y: py, score: 1000 };
+        } else {
+          this.recordPlacementFailure(
+            options?.ownerId,
+            mapCfg.id,
+            'Preferred / previous coordinates obstructed or within minimum base exclusion zone',
+            { x: px, y: py }
+          );
+          // Search spiral around preferredCoords
+          for (let distRadius = 3; distRadius <= 18 && !bestCandidate; distRadius += 3) {
+            for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+              const nx = Math.round(px + Math.cos(angle) * distRadius);
+              const ny = Math.round(py + Math.sin(angle) * distRadius);
+              if (isPassableFootprint(nx, ny) && isFarFromBasesAndReservations(nx, ny)) {
+                bestCandidate = { x: nx, y: ny, score: 850 - distRadius * 5 };
+                break;
+              }
+            }
           }
         }
+      }
 
-        if (!bestCandidate || score > bestCandidate.score) {
-          bestCandidate = { x: candX, y: candY, score };
-          if (score >= 400) break;
+      // 2. Standard candidate sampling (preferring allied proximity & road connectivity)
+      if (!bestCandidate) {
+        for (let attempt = 0; attempt < 150; attempt++) {
+          const candX = Math.floor(Math.random() * (width - margin * 2) + margin);
+          const candY = Math.floor(Math.random() * (height - margin * 2) + margin);
+
+          if (!isPassableFootprint(candX, candY)) continue;
+          if (!isFarFromBasesAndReservations(candX, candY)) continue;
+
+          let score = 100;
+          if (alliedBases.length > 0) {
+            const nearestAlliedDist = Math.min(...alliedBases.map((b) => Math.hypot(b.x - candX, b.y - candY)));
+            if (nearestAlliedDist >= radius + minBaseDist && nearestAlliedDist <= radius + minBaseDist + 24) {
+              score += 500 - nearestAlliedDist * 5;
+            }
+          }
+
+          if (!bestCandidate || score > bestCandidate.score) {
+            bestCandidate = { x: candX, y: candY, score };
+            if (score >= 400) break;
+          }
         }
       }
 
@@ -1856,6 +1967,12 @@ export class GameStore {
           y: bestCandidate.y,
           reservationId,
         };
+      } else {
+        this.recordPlacementFailure(
+          options?.ownerId,
+          mapCfg.id,
+          `No unobstructed terrain footprint found on ${mapCfg.name} satisfying ${minBaseDist}-tile separation`
+        );
       }
     }
 
@@ -1937,6 +2054,7 @@ export class GameStore {
     profile.weeklyCapturesCount = profile.weeklyCaptureTimestamps.length;
     profile.totalBasesCaptured = (profile.totalBasesCaptured || 0) + 1;
     profile.lastActiveAt = now;
+    profile.lastMapActivityAt = now;
     this.recalculatePlayerProgression(profile);
     this.persistUser(userId);
     return { success: true, weeklyCount: profile.weeklyCapturesCount };
@@ -1953,8 +2071,21 @@ export class GameStore {
       const profile = userRecord.profile;
       if (profile.isAdmin || profile.adminRole || profile.isInactiveRelocated) continue;
 
-      const lastActivity = profile.lastActiveAt || profile.lastLoginAt || profile.joinedAt;
+      const lastActivity = profile.lastMapActivityAt || profile.lastActiveAt || profile.lastLoginAt || profile.joinedAt;
       if (now - lastActivity >= maxIdleMs) {
+        const homeBase = this.data.bases.find((b) => b.id === profile.homeBaseId && b.ownerId === userId);
+        if (homeBase) {
+          profile.archivedHomeBase = {
+            baseId: homeBase.id,
+            name: homeBase.name,
+            mapId: homeBase.mapId || profile.homeMapId || 'map_riverfront_assault',
+            lastValidCoords: { x: homeBase.x, y: homeBase.y },
+            resources: { ...homeBase.resources },
+            buildings: homeBase.buildings.map((bld) => ({ ...bld, isConstructing: false })),
+            destructionHistory: homeBase.destructionHistory ? [...homeBase.destructionHistory] : [],
+            archivedAt: now,
+          };
+        }
         this.data.bases = this.data.bases.filter((b) => !(b.id === profile.homeBaseId && b.ownerId === userId));
         profile.isInactiveRelocated = true;
         evictedUserIds.push(userId);
@@ -1969,81 +2100,411 @@ export class GameStore {
   }
 
   public recoverInactivePlayerBaseIfNeeded(userId: string, now = Date.now()): { recovered: boolean; base?: Base } {
-    const userRecord = this.data.users[userId];
-    if (!userRecord) return { recovered: false };
-    const profile = userRecord.profile;
+    const lockRes = this.withLock(`home_base_recover_${userId}`, () => {
+      const userRecord = this.data.users[userId];
+      if (!userRecord) return { recovered: false };
+      const profile = userRecord.profile;
 
-    const hasExistingHomeBase = this.data.bases.some((b) => b.id === profile.homeBaseId && b.ownerId === userId);
-    if (hasExistingHomeBase && !profile.isInactiveRelocated) {
+      const existingHomeBase = this.data.bases.find(
+        (b) => (b.id === profile.homeBaseId || b.isHomeBase) && b.ownerId === userId
+      );
+      if (existingHomeBase && !profile.isInactiveRelocated) {
+        profile.homeBaseId = existingHomeBase.id;
+        existingHomeBase.isHomeBase = true;
+        profile.lastActiveAt = now;
+        profile.lastMapActivityAt = now;
+        return { recovered: false, base: existingHomeBase };
+      }
+
+      // Remove any duplicate stale home bases for this user before spawning replacement
+      this.data.bases = this.data.bases.filter(
+        (b) => !(b.ownerId === userId && (b.isHomeBase || b.id === profile.homeBaseId))
+      );
+
+      const archived = profile.archivedHomeBase;
+      const targetMapId = archived?.mapId || profile.homeMapId || profile.currentMapId || 'map_riverfront_assault';
+      const spawnRes = this.findAndReserveBaseSpawnLocation(targetMapId, profile.allianceId, 4, {
+        preferredCoords: archived?.lastValidCoords || null,
+        ownerId: userId,
+      });
+      if (!spawnRes.success) {
+        return { recovered: false };
+      }
+
+      const econ = this.getEconomyConfig();
+      const rebuildShieldMs = (econ.rebuildProtectionDurationMinutes || 30) * 60 * 1000;
+      const newBaseId = archived?.baseId || `base_home_${userId}_rec_${now}`;
+
+      const restoredBuildings =
+        archived && Array.isArray(archived.buildings) && archived.buildings.length > 0
+          ? archived.buildings.map((bld) => ({
+              ...bld,
+              health: bld.maxHealth || 600,
+              isConstructing: false,
+            }))
+          : [
+              { id: `b_cc_${userId}`, type: 'command_center' as const, level: 2, health: 1200, maxHealth: 1200 },
+              { id: `b_cw_${userId}`, type: 'concrete_works' as const, level: 2, health: 600, maxHealth: 600 },
+              { id: `b_sf_${userId}`, type: 'steel_foundry' as const, level: 2, health: 650, maxHealth: 650 },
+              { id: `b_as_${userId}`, type: 'aluminum_smelter' as const, level: 2, health: 500, maxHealth: 500 },
+              { id: `b_fr_${userId}`, type: 'fuel_refinery' as const, level: 2, health: 550, maxHealth: 550 },
+              { id: `b_br_${userId}`, type: 'barracks' as const, level: 1, health: 600, maxHealth: 600 },
+              { id: `b_vf_${userId}`, type: 'vehicle_factory' as const, level: 2, health: 900, maxHealth: 900 },
+              { id: `b_vt_${userId}`, type: 'vulcan_turret' as const, level: 2, health: 450, maxHealth: 450 },
+            ];
+
+      const ccLevel = restoredBuildings.find((b) => b.type === 'command_center')?.level || 2;
+
+      const replacementBase: Base = {
+        id: newBaseId,
+        mapId: spawnRes.mapId,
+        name: archived?.name || `${profile.username}'s Forward Redoubt`,
+        type: 'home',
+        isHomeBase: true,
+        lifecycleState: 'protected',
+        ownerId: userId,
+        ownerName: profile.username,
+        allianceId: profile.allianceId || null,
+        x: spawnRes.x,
+        y: spawnRes.y,
+        radius: 4,
+        health: 3500,
+        maxHealth: 3500,
+        hqLevel: ccLevel,
+        armorMultiplier: econ.homeBaseArmorMultiplier || 3.0,
+        defenseShield: 1200,
+        maxShield: 1200,
+        captureProgress: 0,
+        isProtected: true,
+        rebuildProtectionUntil: now + rebuildShieldMs,
+        resources: archived?.resources ? { ...archived.resources } : { ...econ.startingResources },
+        storageCap: { ...econ.baseStorageCap },
+        productionRates: { ...econ.baseGenerationRates },
+        lastResourceUpdate: now,
+        constructionQueue: [],
+        productionQueue: [],
+        buildings: restoredBuildings,
+        destructionHistory: archived?.destructionHistory || profile.homeBaseDestructionHistory || [],
+        lastKnownValidCoords: { x: spawnRes.x, y: spawnRes.y },
+        lastMeaningfulActivityAt: now,
+      };
+
+      this.data.bases.push(replacementBase);
+      profile.homeBaseId = newBaseId;
+      profile.homeMapId = spawnRes.mapId;
+      profile.currentMapId = spawnRes.mapId;
+      profile.isInactiveRelocated = false;
+      profile.archivedHomeBase = null;
       profile.lastActiveAt = now;
+      profile.lastMapActivityAt = now;
+
+      for (const u of this.data.units) {
+        if (u.ownerId === userId) u.homeBaseId = newBaseId;
+      }
+
+      this.releaseSpawnReservation(spawnRes.reservationId);
+      this.persistBaseAndUnits(replacementBase, []);
+      this.persistUser(userId);
+      this.saveData();
+
+      return { recovered: true, base: replacementBase };
+    });
+
+    if (!lockRes.locked || !lockRes.result) {
       return { recovered: false };
     }
+    return lockRes.result;
+  }
 
-    const targetMapId = profile.homeMapId || profile.currentMapId || 'map_riverfront_assault';
-    const spawnRes = this.findAndReserveBaseSpawnLocation(targetMapId, profile.allianceId, 4);
-    if (!spawnRes.success) {
-      return { recovered: false };
+  public changePlayerHomeMap(
+    userId: string,
+    targetMapId: string,
+    now = Date.now()
+  ): { success: boolean; message: string; base?: Base; mapId?: string; coords?: { x: number; y: number } } {
+    const userRecord = this.data.users[userId];
+    if (!userRecord) {
+      return { success: false, message: 'Commander profile not found' };
+    }
+    const profile = userRecord.profile;
+    const targetMap = this.data.maps.find((m) => m.id === targetMapId);
+    if (!targetMap || !targetMap.enabled) {
+      return { success: false, message: 'Selected sector map is offline or unavailable for Home Base deployment' };
     }
 
-    const econ = this.getEconomyConfig();
-    const rebuildShieldMs = (econ.rebuildProtectionDurationMinutes || 30) * 60 * 1000;
-    const newBaseId = `base_home_${userId}_rec_${now}`;
+    const homeBase = this.data.bases.find(
+      (b) => b.ownerId === userId && (b.id === profile.homeBaseId || b.isHomeBase)
+    );
+    if (!homeBase) {
+      return { success: false, message: 'Active Home Base not found; reconnect to restore headquarters first' };
+    }
 
-    const replacementBase: Base = {
-      id: newBaseId,
-      mapId: spawnRes.mapId,
-      name: `${profile.username}'s Forward Redoubt`,
-      type: 'home',
-      isHomeBase: true,
-      lifecycleState: 'protected',
+    const currentMapId = homeBase.mapId || 'map_riverfront_assault';
+    if (currentMapId === targetMapId) {
+      return { success: false, message: `Your Home Base is already deployed in ${targetMap.name}` };
+    }
+
+    // Cannot relocate Home Map while under active hostile siege
+    const hostileAttackersNearby = this.data.units.some(
+      (u) =>
+        (u.mapId || 'map_riverfront_assault') === currentMapId &&
+        u.ownerId !== userId &&
+        u.ownerId !== 'neutral' &&
+        (!profile.allianceId || u.allianceId !== profile.allianceId) &&
+        (u.targetBaseId === homeBase.id || Math.hypot(u.x - homeBase.x, u.y - homeBase.y) <= (homeBase.radius || 4) + 8)
+    );
+    if (hostileAttackersNearby || homeBase.health < homeBase.maxHealth * 0.7) {
+      return {
+        success: false,
+        message: 'Home Base relocation blocked: Headquarters is under active hostile siege or requires structural repair (>70% HP required)',
+      };
+    }
+
+    // Check cooldown (60 seconds in standard play)
+    const cooldownMs = 60 * 1000;
+    if (profile.lastHomeMapChangeAt && now - profile.lastHomeMapChangeAt < cooldownMs) {
+      const waitSec = Math.ceil((cooldownMs - (now - profile.lastHomeMapChangeAt)) / 1000);
+      return {
+        success: false,
+        message: `Home Map redeployment logistics on cooldown (${waitSec}s remaining)`,
+      };
+    }
+
+    const spawnRes = this.findAndReserveBaseSpawnLocation(targetMapId, profile.allianceId, homeBase.radius || 4, {
       ownerId: userId,
-      ownerName: profile.username,
-      allianceId: profile.allianceId || null,
-      x: spawnRes.x,
-      y: spawnRes.y,
-      radius: 4,
-      health: 3500,
-      maxHealth: 3500,
-      defenseShield: 1200,
-      maxShield: 1200,
-      captureProgress: 0,
-      isProtected: true,
-      rebuildProtectionUntil: now + rebuildShieldMs,
-      resources: { ...econ.startingResources },
-      storageCap: { ...econ.baseStorageCap },
-      productionRates: { ...econ.baseGenerationRates },
-      lastResourceUpdate: now,
-      constructionQueue: [],
-      productionQueue: [],
-      buildings: [
-        { id: `b_cc_${userId}`, type: 'command_center', level: 2, health: 1200, maxHealth: 1200 },
-        { id: `b_cw_${userId}`, type: 'concrete_works', level: 2, health: 600, maxHealth: 600 },
-        { id: `b_sf_${userId}`, type: 'steel_foundry', level: 2, health: 650, maxHealth: 650 },
-        { id: `b_as_${userId}`, type: 'aluminum_smelter', level: 2, health: 500, maxHealth: 500 },
-        { id: `b_fr_${userId}`, type: 'fuel_refinery', level: 2, health: 550, maxHealth: 550 },
-        { id: `b_br_${userId}`, type: 'barracks', level: 1, health: 600, maxHealth: 600 },
-        { id: `b_vf_${userId}`, type: 'vehicle_factory', level: 2, health: 900, maxHealth: 900 },
-        { id: `b_vt_${userId}`, type: 'vulcan_turret', level: 2, health: 450, maxHealth: 450 },
-      ],
-    };
+      excludeBaseId: homeBase.id,
+      strictMapOnly: true,
+    });
+    if (!spawnRes.success || spawnRes.mapId !== targetMapId) {
+      return {
+        success: false,
+        message: spawnRes.success
+          ? `Target sector ${targetMap.name} has no available HQ deployment zones`
+          : spawnRes.reason,
+      };
+    }
 
-    this.data.bases.push(replacementBase);
-    profile.homeBaseId = newBaseId;
+    const oldX = homeBase.x;
+    const oldY = homeBase.y;
+
+    homeBase.mapId = spawnRes.mapId;
+    homeBase.x = spawnRes.x;
+    homeBase.y = spawnRes.y;
+    homeBase.lastKnownValidCoords = { x: spawnRes.x, y: spawnRes.y };
+    homeBase.lastMeaningfulActivityAt = now;
+    homeBase.captureProgress = 0;
+    homeBase.capturingPlayerId = null;
+
+    // Relocate garrisoned ground units within 6 tiles of the old Home Base to the new Home Base perimeter
+    const garrisonUnits = this.data.units.filter(
+      (u) =>
+        u.ownerId === userId &&
+        (u.mapId || 'map_riverfront_assault') === currentMapId &&
+        Math.hypot(u.x - oldX, u.y - oldY) <= 6
+    );
+    garrisonUnits.forEach((u, idx) => {
+      const angle = (idx / Math.max(1, garrisonUnits.length)) * Math.PI * 2;
+      u.mapId = spawnRes.mapId;
+      u.x = Math.round(spawnRes.x + Math.cos(angle) * 2);
+      u.y = Math.round(spawnRes.y + Math.sin(angle) * 2);
+      u.path = [];
+      u.command = 'idle';
+      u.targetUnitId = null;
+      u.targetBaseId = null;
+    });
+
     profile.homeMapId = spawnRes.mapId;
     profile.currentMapId = spawnRes.mapId;
-    profile.isInactiveRelocated = false;
+    profile.lastHomeMapChangeAt = now;
     profile.lastActiveAt = now;
-
-    for (const u of this.data.units) {
-      if (u.ownerId === userId) u.homeBaseId = newBaseId;
-    }
+    profile.lastMapActivityAt = now;
 
     this.releaseSpawnReservation(spawnRes.reservationId);
-    this.persistBaseAndUnits(replacementBase, []);
+    this.persistBaseAndUnits(homeBase, garrisonUnits);
     this.persistUser(userId);
     this.saveData();
 
-    return { recovered: true, base: replacementBase };
+    return {
+      success: true,
+      message: `Home Base '${homeBase.name}' redeployed to ${targetMap.name} at (${spawnRes.x}, ${spawnRes.y})`,
+      base: homeBase,
+      mapId: spawnRes.mapId,
+      coords: { x: spawnRes.x, y: spawnRes.y },
+    };
+  }
+
+  public getAdminPlayerHomeBaseDiagnostics(targetId: string) {
+    const userRecord = this.data.users[targetId];
+    const profile = userRecord?.profile;
+    const homeBase = this.data.bases.find(
+      (b) => b.ownerId === targetId && (b.isHomeBase || (profile && b.id === profile.homeBaseId))
+    );
+    const econ = this.getEconomyConfig();
+    const now = Date.now();
+    const inactivityDays = econ.inactivityEvictionDays || 14;
+    const lastActivity = profile?.lastMapActivityAt || profile?.lastActiveAt || profile?.lastLoginAt || profile?.joinedAt || now;
+    const idleMs = Math.max(0, now - lastActivity);
+
+    return {
+      playerId: targetId,
+      username: profile?.username || targetId,
+      hasActiveHomeBase: Boolean(homeBase),
+      homeBaseId: homeBase?.id || profile?.homeBaseId || null,
+      homeMapId: homeBase?.mapId || profile?.homeMapId || 'map_riverfront_assault',
+      mapId: homeBase?.mapId || profile?.homeMapId || 'map_riverfront_assault',
+      coords: homeBase ? { x: homeBase.x, y: homeBase.y } : profile?.archivedHomeBase?.lastValidCoords || null,
+      lifecycleState: homeBase?.lifecycleState || (profile?.isInactiveRelocated ? 'ownerless' : 'unknown'),
+      health: homeBase?.health ?? 0,
+      maxHealth: homeBase?.maxHealth ?? 3500,
+      defenseShield: homeBase?.defenseShield ?? 0,
+      maxShield: homeBase?.maxShield ?? 1200,
+      hqLevel:
+        homeBase?.hqLevel ||
+        homeBase?.buildings.find((b) => b.type === 'command_center')?.level ||
+        1,
+      armorMultiplier: homeBase?.armorMultiplier || econ.homeBaseArmorMultiplier || 3.0,
+      isProtected: Boolean(
+        homeBase?.isProtected ||
+          (homeBase?.rebuildProtectionUntil && homeBase.rebuildProtectionUntil > now) ||
+          (profile?.beginnerProtectionUntil && profile.beginnerProtectionUntil > now)
+      ),
+      beginnerProtectionUntil: profile?.beginnerProtectionUntil || 0,
+      rebuildProtectionUntil: homeBase?.rebuildProtectionUntil || null,
+      isInactiveRelocated: Boolean(profile?.isInactiveRelocated),
+      archivedHomeBase: profile?.archivedHomeBase || null,
+      lastMapActivityAt: lastActivity,
+      idleHours: Math.round((idleMs / 3600000) * 10) / 10,
+      inactivityEvictionDays: inactivityDays,
+      homeBaseDestroyedCount: profile?.homeBaseDestroyedCount || 0,
+      destructionHistory: homeBase?.destructionHistory || profile?.homeBaseDestructionHistory || [],
+      placementFailures: profile?.placementFailures || [],
+      buildingsCount: homeBase?.buildings.length || 0,
+      damagedBuildingsCount: homeBase ? homeBase.buildings.filter((b) => b.health < b.maxHealth).length : 0,
+      resources: homeBase?.resources || null,
+    };
+  }
+
+  public adminManagePlayerHomeBase(
+    targetId: string,
+    action: 'recover' | 'relocate' | 'repair' | 'reset_cooldowns',
+    params: {
+      targetMapId?: string;
+      reason: string;
+      adminId: string;
+      adminUsername: string;
+      adminRole: AdminRole;
+      ipAddress?: string;
+    }
+  ): { success: boolean; status: number; message: string; diagnostics?: any } {
+    const userRecord = this.data.users[targetId];
+    if (!userRecord) {
+      return { success: false, status: 404, message: 'Target player account not found' };
+    }
+    const profile = userRecord.profile;
+    const now = Date.now();
+    const econ = this.getEconomyConfig();
+
+    if (action === 'recover') {
+      profile.isInactiveRelocated = true;
+      const rec = this.recoverInactivePlayerBaseIfNeeded(targetId, now);
+      if (!rec.recovered && !rec.base) {
+        return { success: false, status: 400, message: 'Unable to recover or spawn Home Base in available sectors' };
+      }
+    } else if (action === 'relocate') {
+      let homeBase = this.data.bases.find(
+        (b) => b.ownerId === targetId && (b.isHomeBase || b.id === profile.homeBaseId)
+      );
+      if (!homeBase) {
+        const rec = this.recoverInactivePlayerBaseIfNeeded(targetId, now);
+        homeBase = rec.base;
+      }
+      if (!homeBase) {
+        return { success: false, status: 400, message: 'Player has no Home Base to relocate' };
+      }
+      const destMapId = params.targetMapId || homeBase.mapId || profile.homeMapId || 'map_riverfront_assault';
+      const spawnRes = this.findAndReserveBaseSpawnLocation(destMapId, profile.allianceId, homeBase.radius || 4, {
+        ownerId: targetId,
+        excludeBaseId: homeBase.id,
+      });
+      if (!spawnRes.success) {
+        return { success: false, status: 400, message: spawnRes.reason };
+      }
+      homeBase.mapId = spawnRes.mapId;
+      homeBase.x = spawnRes.x;
+      homeBase.y = spawnRes.y;
+      homeBase.lastKnownValidCoords = { x: spawnRes.x, y: spawnRes.y };
+      profile.homeMapId = spawnRes.mapId;
+      profile.currentMapId = spawnRes.mapId;
+      this.releaseSpawnReservation(spawnRes.reservationId);
+      this.persistBaseAndUnits(homeBase, []);
+    } else if (action === 'repair') {
+      const homeBase = this.data.bases.find(
+        (b) => b.ownerId === targetId && (b.isHomeBase || b.id === profile.homeBaseId)
+      );
+      if (!homeBase) {
+        return { success: false, status: 404, message: 'Active Home Base not found on map' };
+      }
+      homeBase.health = homeBase.maxHealth;
+      homeBase.defenseShield = homeBase.maxShield;
+      homeBase.lifecycleState = homeBase.isProtected ? 'protected' : 'active';
+      for (const bld of homeBase.buildings) {
+        bld.health = bld.maxHealth;
+      }
+      this.persistBaseAndUnits(homeBase, []);
+    } else if (action === 'reset_cooldowns') {
+      profile.lastHomeMapChangeAt = 0;
+      const homeBase = this.data.bases.find(
+        (b) => b.ownerId === targetId && (b.isHomeBase || b.id === profile.homeBaseId)
+      );
+      if (homeBase) {
+        const shieldMs = (econ.rebuildProtectionDurationMinutes || 30) * 60 * 1000;
+        homeBase.rebuildProtectionUntil = now + shieldMs;
+        homeBase.isProtected = true;
+        homeBase.lifecycleState = 'protected';
+        this.persistBaseAndUnits(homeBase, []);
+      }
+    } else {
+      return { success: false, status: 400, message: 'Unsupported Home Base admin action' };
+    }
+
+    const modActionMap: Record<typeof action, ModerationRecord['action']> = {
+      recover: 'home_base_recover',
+      relocate: 'home_base_relocate',
+      repair: 'home_base_repair',
+      reset_cooldowns: 'home_base_reset_cooldowns',
+    };
+
+    profile.moderationHistory = profile.moderationHistory || [];
+    profile.moderationHistory.unshift({
+      id: `mod_${now}_${Math.random().toString(36).substring(2, 6)}`,
+      action: modActionMap[action],
+      adminId: params.adminId,
+      adminUsername: params.adminUsername,
+      reason: params.reason,
+      timestamp: now,
+    });
+
+    this.addAuditLog({
+      adminId: params.adminId,
+      adminUsername: params.adminUsername,
+      adminRole: params.adminRole,
+      action: `player.home_base.${action}`,
+      targetType: 'player',
+      targetId,
+      reason: params.reason,
+      status: 'success',
+      ipAddress: params.ipAddress || '127.0.0.1',
+      metadata: { targetMapId: params.targetMapId },
+    });
+
+    this.persistUser(targetId);
+    this.saveData();
+
+    return {
+      success: true,
+      status: 200,
+      message: `Home Base action '${action}' executed for ${profile.username}`,
+      diagnostics: this.getAdminPlayerHomeBaseDiagnostics(targetId),
+    };
   }
 
   public previewAndMigrateOverlappingBases(dryRun = true): {
@@ -2664,6 +3125,7 @@ export class GameStore {
       recentAudits,
       botRecord: this.data.botRegistry?.[targetId] || null,
       systemRecord: this.data.systemEntities?.[targetId] || null,
+      homeBaseDiagnostics: this.getAdminPlayerHomeBaseDiagnostics(targetId),
     };
   }
 

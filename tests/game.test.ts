@@ -1567,3 +1567,397 @@ test('22. Player Type Detection & Admin Player Management: Authoritative HUMAN, 
     delete storeData.botRegistry['bot_vanguard_ai'];
   });
 });
+
+test('23. Combat Siege Strategic Home Base System: Complete 14-Point End-to-End Verification', async () => {
+  resetRateLimiterForTests();
+  await withTestServer(async (baseUrl) => {
+    const storeData = gameStore.getData();
+
+    // 1. Home Base Initialization for a new Commander (Single authoritative Home Base, 3x Armor, HQ Level, Consumption Rates)
+    const regRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'Commander_SiegeHQ',
+        email: 'siegehq@frontline.mil',
+        password: 'password123',
+        faction: '1st Vanguard Coalition',
+      }),
+    });
+    assert.strictEqual(regRes.status, 200, 'Registration for Commander_SiegeHQ must succeed');
+    const regData = await regRes.json();
+    const playerToken: string = regData.token;
+    const playerProfile = regData.profile;
+    assert.ok(playerProfile.homeBaseId, 'New commander must be assigned an authoritative homeBaseId');
+
+    // Verify single authoritative Home Base across all maps
+    const ownedHomeBases = storeData.bases.filter(
+      (b) => b.ownerId === playerProfile.id && (b.isHomeBase || b.type === 'home')
+    );
+    assert.strictEqual(
+      ownedHomeBases.length,
+      1,
+      'Each player must own exactly 1 authoritative Home Base across all maps'
+    );
+    const homeBase = ownedHomeBases[0];
+    assert.strictEqual(homeBase.id, playerProfile.homeBaseId);
+    assert.strictEqual(homeBase.isHomeBase, true);
+    assert.strictEqual(homeBase.type, 'home');
+
+    // 2. Home Base Selection & Visible World State Telemetry (hqLevel, armorMultiplier=3.0, consumptionRates)
+    const worldState = gameSimulation.getVisibleWorldState(playerProfile.id, homeBase.mapId);
+    const visibleHq = worldState.bases.find((b) => b.id === homeBase.id);
+    assert.ok(visibleHq, 'Home Base must be present in visible world state');
+    assert.strictEqual(visibleHq!.isHomeBase, true);
+    assert.strictEqual(visibleHq!.armorMultiplier, 3.0, 'Home Base must report 3.0x armorMultiplier');
+    assert.ok((visibleHq!.hqLevel || 0) >= 1, 'Initial Home Base Command Center level must be >= 1');
+    assert.ok(visibleHq!.consumptionRates, 'Home Base must include server-authoritative consumptionRates');
+
+    // 3. Resource Production & Storage Cap Enforcement
+    homeBase.resources = { concrete: 5995, steel: 5995, aluminum: 5995, fuel: 5995 };
+    (gameSimulation as any).lastEconomyTickMs = 0;
+    (gameSimulation as any).tick();
+    assert.ok(
+      homeBase.resources.concrete <= (homeBase.storageCap?.concrete || 6000),
+      'Resource generation must strictly respect storageCap'
+    );
+
+    // 4. Building Construction, Duplicate Queue Rejection, Invalid Placement Logging, and Cancel Construction Refund
+    homeBase.resources = { concrete: 5000, steel: 5000, aluminum: 5000, fuel: 5000 };
+    homeBase.constructionQueue = [];
+
+    // 4a. Reject out-of-perimeter building placement and record placement failure
+    const invalidPlaceRes = gameSimulation.buildOrUpgrade(
+      playerProfile.id,
+      homeBase.id,
+      'radar_station',
+      25, // way outside base radius
+      25
+    );
+    assert.strictEqual(invalidPlaceRes.success, false, 'Out-of-perimeter building placement must be rejected');
+    assert.ok(
+      Array.isArray(storeData.users[playerProfile.id].profile.placementFailures) &&
+        storeData.users[playerProfile.id].profile.placementFailures!.length >= 1,
+      'Invalid placement must record a diagnostic entry in profile.placementFailures'
+    );
+
+    // 4b. Queue valid construction (upgrade Concrete Works)
+    const concreteBeforeBuild = homeBase.resources.concrete;
+    const buildRes = gameSimulation.buildOrUpgrade(playerProfile.id, homeBase.id, 'concrete_works');
+    assert.strictEqual(buildRes.success, true, 'Upgrading Concrete Works must succeed');
+    assert.strictEqual(homeBase.constructionQueue.length, 1);
+    assert.ok(homeBase.resources.concrete < concreteBeforeBuild, 'Construction must deduct resources immediately');
+
+    // 4c. Prevent duplicate queued construction for the same buildingType
+    const dupBuildRes = gameSimulation.buildOrUpgrade(playerProfile.id, homeBase.id, 'concrete_works');
+    assert.strictEqual(dupBuildRes.success, false, 'Duplicate construction order for same building must be rejected');
+
+    // 4d. Cancel construction and verify 100% resource refund
+    const orderIdToCancel = homeBase.constructionQueue[0].id;
+    const cancelBuildRes = gameSimulation.cancelConstruction(playerProfile.id, homeBase.id, orderIdToCancel);
+    assert.strictEqual(cancelBuildRes.success, true, 'Cancelling construction must succeed');
+    assert.strictEqual(homeBase.constructionQueue.length, 0, 'Construction queue must be empty after cancel');
+    assert.strictEqual(
+      homeBase.resources.concrete,
+      concreteBeforeBuild,
+      'Cancelling construction must refund 100% of spent concrete'
+    );
+
+    // 5. Vehicle Production Queue, Home Base Ground-Unit Specialization, Cancel Production, and Unit Spawn
+    // 5a. Ensure Home Base rejects non-ground unit production even if someone attempts to spoof aviation/naval unit
+    const airAtHomeRes = gameSimulation.produceUnit(playerProfile.id, homeBase.id, 'cobra_gunship');
+    assert.strictEqual(
+      airAtHomeRes.success,
+      false,
+      'Home Base Motor Pool must reject aircraft production (ground vehicles only)'
+    );
+
+    // 5b. Queue ground vehicle (vanguard_scout)
+    const steelBeforeUnit = homeBase.resources.steel;
+    const prodRes = gameSimulation.produceUnit(playerProfile.id, homeBase.id, 'vanguard_scout');
+    assert.strictEqual(prodRes.success, true, 'Producing ground vehicle at Home Base must succeed');
+    assert.strictEqual(homeBase.productionQueue.length, 1);
+    assert.ok(homeBase.resources.steel < steelBeforeUnit, 'Producing unit must deduct resources');
+
+    // 5c. Cancel unit production and verify resource refund
+    const prodOrderId = homeBase.productionQueue[0].id;
+    const cancelUnitRes = gameSimulation.cancelUnitProduction(playerProfile.id, homeBase.id, prodOrderId);
+    assert.strictEqual(cancelUnitRes.success, true, 'Cancelling unit production must succeed');
+    assert.strictEqual(homeBase.productionQueue.length, 0);
+    assert.strictEqual(homeBase.resources.steel, steelBeforeUnit, 'Cancelling unit must refund 100% of steel');
+
+    // 5d. Complete unit production and verify unit spawns near Home Base
+    const prodRes2 = gameSimulation.produceUnit(playerProfile.id, homeBase.id, 'vanguard_scout');
+    assert.strictEqual(prodRes2.success, true);
+    homeBase.productionQueue[0].finishTime = Date.now() - 10;
+    (gameSimulation as any).lastEconomyTickMs = 0;
+    (gameSimulation as any).tick();
+    assert.strictEqual(homeBase.productionQueue.length, 0, 'Completed unit must leave productionQueue');
+    const spawnedScout = storeData.units.find(
+      (u) => u.ownerId === playerProfile.id && u.type === 'vanguard_scout' && u.mapId === homeBase.mapId
+    );
+    assert.ok(spawnedScout, 'Completed ground unit must spawn in world state on the Home Base map');
+    storeData.units = storeData.units.filter((u) => u.id !== spawnedScout!.id);
+
+    // 6. Unauthorized Modification Rejection
+    const unauthCancel = gameSimulation.buildOrUpgrade('enemy_insurgent', homeBase.id, 'vulcan_turret');
+    assert.strictEqual(
+      unauthCancel.success,
+      false,
+      'Another player/bot must not be allowed to construct or modify a player Home Base'
+    );
+
+    // 7. Individual Building Repair & Full Base Repair
+    const targetBuilding = homeBase.buildings.find((b) => b.type === 'vehicle_factory')!;
+    targetBuilding.health = Math.floor(targetBuilding.maxHealth * 0.4);
+    homeBase.health = 1800;
+    const repairSingleRes = gameSimulation.repairBuilding(playerProfile.id, homeBase.id, targetBuilding.id);
+    assert.strictEqual(repairSingleRes.success, true, 'Individual facility repair must succeed');
+    assert.strictEqual(
+      targetBuilding.health,
+      targetBuilding.maxHealth,
+      'Repaired building must be restored to 100% health'
+    );
+
+    const repairFullRes = gameSimulation.repairBuilding(playerProfile.id, homeBase.id);
+    assert.strictEqual(repairFullRes.success, true, 'Full base repair must succeed');
+    assert.strictEqual(homeBase.health, homeBase.maxHealth);
+
+    // 8. Home Base Capture Protection & 3.0x Armor Bonus
+    storeData.users[playerProfile.id].profile.beginnerProtectionUntil = 0;
+    homeBase.isProtected = false;
+    homeBase.newcomerProtectionUntil = 0;
+    homeBase.rebuildProtectionUntil = 0;
+    homeBase.defenseShield = 0;
+    const enemyInfId = `unit_test_siege_inf_${Date.now()}`;
+    storeData.units.push({
+      id: enemyInfId,
+      mapId: homeBase.mapId,
+      type: 'rifle_infantry',
+      ownerId: 'enemy_insurgent',
+      ownerName: 'Insurgent_AI',
+      x: homeBase.x + 0.5,
+      y: homeBase.y + 0.5,
+      health: 150,
+      maxHealth: 150,
+      command: 'attack',
+      targetUnitId: null,
+      targetBaseId: homeBase.id,
+      path: [],
+      lastAttackTime: 0,
+      rotation: 0,
+      kills: 0,
+      homeBaseId: 'base_insurgent_alpha',
+    });
+    (gameSimulation as any).tick();
+    assert.strictEqual(homeBase.ownerId, playerProfile.id, 'Home Base must NEVER be captured by enemy infantry');
+    assert.strictEqual(homeBase.captureProgress, 0, 'Home Base captureProgress must remain 0');
+    assert.ok(
+      homeBase.captureBlockedReason?.includes('cannot be conquered') ||
+        homeBase.captureBlockedReason?.includes('Home Base'),
+      'Home Base must report capture immunity reason'
+    );
+    storeData.units = storeData.units.filter((u) => u.id !== enemyInfId);
+
+    // 9. Home Base Destruction & Reconstruction Lifecycle (Preserving Persistent HQ Structures vs Resetting Starter Facilities)
+    const ccBldg = homeBase.buildings.find((b) => b.type === 'command_center')!;
+    ccBldg.level = 3;
+    let depotBldg = homeBase.buildings.find((b) => b.type === 'storage_depot');
+    if (!depotBldg) {
+      depotBldg = {
+        id: 'bldg_test_depot',
+        type: 'storage_depot',
+        level: 2,
+        health: 900,
+        maxHealth: 900,
+        isConstructing: false,
+      };
+      homeBase.buildings.push(depotBldg);
+    } else {
+      depotBldg.level = 2;
+    }
+    const vfBldg = homeBase.buildings.find((b) => b.type === 'vehicle_factory')!;
+    vfBldg.level = 3;
+
+    // Trigger siege destruction via lethal enemy tank strike once defensive turrets & shield are down
+    for (const b of homeBase.buildings) {
+      if (['vulcan_turret', 'sam_launcher', 'artillery_battery'].includes(b.type)) {
+        b.health = 0;
+      }
+    }
+    homeBase.health = 1;
+    homeBase.defenseShield = 0;
+    homeBase.isProtected = false;
+    homeBase.rebuildProtectionUntil = 0;
+    homeBase.newcomerProtectionUntil = 0;
+    const siegeTankId = `unit_test_siege_mbt_${Date.now()}`;
+    storeData.units.push({
+      id: siegeTankId,
+      mapId: homeBase.mapId,
+      type: 'titan_mbt',
+      ownerId: 'enemy_insurgent',
+      ownerName: 'Insurgent_AI',
+      x: homeBase.x + 2,
+      y: homeBase.y + 2,
+      health: 800,
+      maxHealth: 800,
+      command: 'attack',
+      targetUnitId: null,
+      targetBaseId: homeBase.id,
+      path: [],
+      lastAttackTime: 0,
+      rotation: 0,
+      kills: 0,
+      homeBaseId: 'base_insurgent_alpha',
+    });
+    (gameSimulation as any).tick();
+    storeData.units = storeData.units.filter((u) => u.id !== siegeTankId);
+
+    assert.strictEqual(homeBase.ownerId, playerProfile.id, 'Destroyed Home Base must remain owned by the player');
+    assert.strictEqual(
+      homeBase.lifecycleState,
+      'rebuilding',
+      'Destroyed Home Base must transition to rebuilding state'
+    );
+    assert.strictEqual(homeBase.isProtected, true, 'Rebuilding Home Base must activate rebuild protection shield');
+    assert.strictEqual(
+      homeBase.buildings.find((b) => b.type === 'command_center')?.level,
+      3,
+      'Persistent Command Center must retain Level 3 across Home Base reconstruction'
+    );
+    assert.strictEqual(
+      homeBase.buildings.find((b) => b.type === 'storage_depot')?.level,
+      2,
+      'Persistent Storage Depot must retain Level 2 across Home Base reconstruction'
+    );
+    assert.strictEqual(
+      homeBase.buildings.find((b) => b.type === 'vehicle_factory')?.level,
+      1,
+      'Resettable Vehicle Factory must reset to Level 1 upon Home Base reconstruction'
+    );
+    assert.ok(
+      Array.isArray(homeBase.destructionHistory) && homeBase.destructionHistory.length >= 1,
+      'Home Base reconstruction must append a HomeBaseDestructionRecord'
+    );
+
+    // 10. Home Map Relocation API (POST /api/player/home-map) & Cooldown Enforcement
+    const targetMapId = homeBase.mapId === 'map_iron_ridge_corridor' ? 'map_riverfront_assault' : 'map_iron_ridge_corridor';
+    const cooldownTargetMapId = homeBase.mapId;
+    const relocateRes = await fetch(`${baseUrl}/api/player/home-map`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${playerToken}`,
+      },
+      body: JSON.stringify({ targetMapId }),
+    });
+    assert.strictEqual(relocateRes.status, 200, 'POST /api/player/home-map must succeed');
+    const relocateData = await relocateRes.json();
+    assert.strictEqual(relocateData.base.mapId, targetMapId);
+    assert.strictEqual(homeBase.mapId, targetMapId);
+    assert.strictEqual(storeData.users[playerProfile.id].profile.homeMapId, targetMapId);
+
+    // Immediate second relocation must be blocked by cooldown
+    const cooldownRelocateRes = await fetch(`${baseUrl}/api/player/home-map`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${playerToken}`,
+      },
+      body: JSON.stringify({ targetMapId: cooldownTargetMapId }),
+    });
+    assert.strictEqual(
+      cooldownRelocateRes.status,
+      400,
+      'Immediate second Home Map relocation must be blocked by cooldown'
+    );
+
+    // 11. Returning-Player Restoration After Inactivity Archiving
+    const pastTime = Date.now() - 15 * 24 * 60 * 60 * 1000;
+    storeData.users[playerProfile.id].profile.lastMapActivityAt = pastTime;
+    storeData.users[playerProfile.id].profile.lastActiveAt = pastTime;
+    storeData.users[playerProfile.id].profile.lastLoginAt = pastTime;
+    const evicted = gameStore.processInactivityEvictions(Date.now());
+    assert.ok(
+      evicted.evictedUserIds.includes(playerProfile.id),
+      'Inactive player must be processed by inactivity eviction'
+    );
+    assert.ok(
+      !storeData.bases.some((b) => b.id === homeBase.id),
+      'Evicted Home Base must be removed from active map'
+    );
+    assert.ok(
+      storeData.users[playerProfile.id].profile.archivedHomeBase,
+      'Evicted Home Base must be archived in profile.archivedHomeBase'
+    );
+
+    // Returning player recovers their Home Base with persistent HQ levels preserved
+    const recovered = gameStore.recoverInactivePlayerBaseIfNeeded(playerProfile.id, Date.now());
+    assert.strictEqual(recovered.recovered, true, 'Returning player must automatically recover their Home Base');
+    const restoredBase = storeData.bases.find((b) => b.ownerId === playerProfile.id && b.isHomeBase);
+    assert.ok(restoredBase, 'Restored Home Base must exist on map');
+    assert.strictEqual(
+      restoredBase!.buildings.find((b) => b.type === 'command_center')?.level,
+      3,
+      'Recovered Home Base must restore archived Command Center Level 3'
+    );
+    assert.strictEqual(
+      storeData.users[playerProfile.id].profile.archivedHomeBase,
+      null,
+      'archivedHomeBase snapshot must be cleared once restored'
+    );
+
+    // 12. Admin Home Base Inspection & Management Endpoints
+    const adminLoginRes = await fetch(`${baseUrl}/api/admin/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'Commander',
+        password: process.env.ADMIN_BOOTSTRAP_PASSWORD || 'admin123',
+      }),
+    });
+    const { token: adminToken } = await adminLoginRes.json();
+    const adminHeaders = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${adminToken}`,
+    };
+
+    const diagRes = await fetch(`${baseUrl}/api/admin/players/${playerProfile.id}/home-base`, {
+      headers: adminHeaders,
+    });
+    assert.strictEqual(diagRes.status, 200, 'GET /api/admin/players/:id/home-base must return 200');
+    const diagData = await diagRes.json();
+    assert.strictEqual(diagData.diagnostics.hqLevel, 3);
+    assert.strictEqual(diagData.diagnostics.armorMultiplier, 3.0);
+
+    // Admin resets cooldowns and relocates player Home Base back to Sector 01
+    const adminResetCdRes = await fetch(`${baseUrl}/api/admin/players/${playerProfile.id}/home-base/action`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({ action: 'reset_cooldowns', reason: 'Clear relocation cooldown for test verification' }),
+    });
+    assert.strictEqual(adminResetCdRes.status, 200);
+
+    const adminRelocateRes = await fetch(`${baseUrl}/api/admin/players/${playerProfile.id}/home-base/action`, {
+      method: 'POST',
+      headers: adminHeaders,
+      body: JSON.stringify({
+        action: 'relocate',
+        targetMapId: 'map_riverfront_assault',
+        reason: 'Relocate commander HQ back to Sector 01',
+      }),
+    });
+    assert.strictEqual(adminRelocateRes.status, 200);
+    const adminRelocateBody = await adminRelocateRes.json();
+    assert.strictEqual(adminRelocateBody.diagnostics.mapId, 'map_riverfront_assault');
+
+    // Clean up test commander account
+    await fetch(`${baseUrl}/api/admin/players/${playerProfile.id}`, {
+      method: 'DELETE',
+      headers: adminHeaders,
+      body: JSON.stringify({ reason: 'Cleanup Test 23 Commander_SiegeHQ account' }),
+    });
+  });
+});
+
+

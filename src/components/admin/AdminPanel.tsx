@@ -671,6 +671,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
     }
   };
 
+  const handleAdminHomeBaseAction = async (
+    action: 'recover' | 'relocate' | 'repair' | 'reset_cooldowns',
+    targetMapId?: string
+  ) => {
+    if (!selectedPlayerDetail?.profile?.id) return;
+    try {
+      const res = await apiFetch(`/players/${selectedPlayerDetail.profile.id}/home-base/action`, {
+        method: 'POST',
+        body: JSON.stringify({
+          action,
+          targetMapId,
+          reason: `Administrative Home Base ${action} operation`,
+        }),
+      });
+      showToast('success', res.message || `Home Base '${action}' executed.`);
+      await handleInspectPlayer(selectedPlayerDetail.profile.id);
+      refreshCurrentSection();
+    } catch (err: any) {
+      showToast('error', err.message);
+    }
+  };
+
   const handleExecuteModeration = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!modModal) return;
@@ -1998,6 +2020,119 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                     </div>
                   )}
 
+                  {/* Home Base Command Diagnostics & Recovery Section */}
+                  {selectedPlayerDetail.homeBaseDiagnostics && (
+                    <div className="p-4 bg-slate-950 border border-indigo-500/40 rounded space-y-3 text-xs font-mono">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded bg-purple-950 text-purple-200 border border-purple-500/60 text-[10px] font-bold">
+                            ★ HOME BASE HQ DIAGNOSTICS
+                          </span>
+                          <span className="font-bold text-white">
+                            {selectedPlayerDetail.homeBaseDiagnostics.activeHomeBase
+                              ? `${selectedPlayerDetail.homeBaseDiagnostics.activeHomeBase.name} (${selectedPlayerDetail.homeBaseDiagnostics.activeHomeBase.id})`
+                              : selectedPlayerDetail.homeBaseDiagnostics.archivedHomeBase
+                              ? 'ARCHIVED (INACTIVE EVICTION)'
+                              : 'MISSING / UNASSIGNED'}
+                          </span>
+                        </div>
+
+                        {hasPerm('players.reset_progress') && (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleAdminHomeBaseAction('recover')}
+                              className="px-2.5 py-1 rounded bg-emerald-950/80 hover:bg-emerald-900 text-emerald-200 border border-emerald-600/60 text-[11px]"
+                              title="Recover or spawn missing/archived Home Base on a validated map coordinate"
+                            >
+                              Recover / Spawn HQ
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminHomeBaseAction('repair')}
+                              className="px-2.5 py-1 rounded bg-cyan-950/80 hover:bg-cyan-900 text-cyan-200 border border-cyan-600/60 text-[11px]"
+                              title="Restore Home Base and all HQ structures to 100% health and shields"
+                            >
+                              Full HQ Repair
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleAdminHomeBaseAction(
+                                  'relocate',
+                                  selectedPlayerDetail.homeBaseDiagnostics.homeMapId || 'map_riverfront_assault'
+                                )
+                              }
+                              className="px-2.5 py-1 rounded bg-indigo-950/80 hover:bg-indigo-900 text-indigo-200 border border-indigo-600/60 text-[11px]"
+                              title="Relocate Home Base to a fresh unobstructed spawn coordinate"
+                            >
+                              Relocate HQ
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAdminHomeBaseAction('reset_cooldowns')}
+                              className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px]"
+                              title="Clear Home Map relocation and reconstruction cooldowns"
+                            >
+                              Reset Cooldowns
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-[11px]">
+                        <div className="p-2.5 bg-slate-900 border border-slate-800 rounded">
+                          <div className="text-slate-400 text-[10px]">HOME MAP & COORDS</div>
+                          <div className="text-slate-100 font-bold truncate">
+                            {selectedPlayerDetail.homeBaseDiagnostics.homeMapName ||
+                              selectedPlayerDetail.homeBaseDiagnostics.homeMapId}
+                          </div>
+                          <div className="text-cyan-400">
+                            {selectedPlayerDetail.homeBaseDiagnostics.homeBaseCoords
+                              ? `X:${selectedPlayerDetail.homeBaseDiagnostics.homeBaseCoords.x}, Y:${selectedPlayerDetail.homeBaseDiagnostics.homeBaseCoords.y}`
+                              : 'Unassigned'}
+                          </div>
+                        </div>
+
+                        <div className="p-2.5 bg-slate-900 border border-slate-800 rounded">
+                          <div className="text-slate-400 text-[10px]">LIFECYCLE & INTEGRITY</div>
+                          <div className="text-indigo-300 font-bold uppercase">
+                            State: {selectedPlayerDetail.homeBaseDiagnostics.lifecycleState || 'none'}
+                          </div>
+                          <div className="text-emerald-400">
+                            {selectedPlayerDetail.homeBaseDiagnostics.activeHomeBase
+                              ? `HP ${selectedPlayerDetail.homeBaseDiagnostics.activeHomeBase.health}/${selectedPlayerDetail.homeBaseDiagnostics.activeHomeBase.maxHealth} (${selectedPlayerDetail.homeBaseDiagnostics.armorMultiplier}x Armor)`
+                              : 'Offline'}
+                          </div>
+                        </div>
+
+                        <div className="p-2.5 bg-slate-900 border border-slate-800 rounded">
+                          <div className="text-slate-400 text-[10px]">HQ LEVEL & FACILITIES</div>
+                          <div className="text-slate-100 font-bold">
+                            Command Center Level {selectedPlayerDetail.homeBaseDiagnostics.hqLevel || 1}
+                          </div>
+                          <div className="text-slate-400">
+                            {selectedPlayerDetail.homeBaseDiagnostics.activeHomeBase
+                              ? `${selectedPlayerDetail.homeBaseDiagnostics.activeHomeBase.buildings.length} structures · ${selectedPlayerDetail.homeBaseDiagnostics.activeHomeBase.activeTurretsCount || 0} turrets`
+                              : selectedPlayerDetail.homeBaseDiagnostics.archivedHomeBase
+                              ? `Archived (${selectedPlayerDetail.homeBaseDiagnostics.archivedHomeBase.buildings.length} structures)`
+                              : '0 structures'}
+                          </div>
+                        </div>
+
+                        <div className="p-2.5 bg-slate-900 border border-slate-800 rounded">
+                          <div className="text-slate-400 text-[10px]">PLACEMENT & RECONSTRUCTION LOG</div>
+                          <div className="text-slate-200">
+                            Rebuilds: {(selectedPlayerDetail.homeBaseDiagnostics.destructionHistory || []).length}
+                          </div>
+                          <div className="text-amber-300">
+                            Placement Failures: {(selectedPlayerDetail.homeBaseDiagnostics.placementFailures || []).length}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
                     <div>
                       <div className="text-slate-400 uppercase mb-1.5">
@@ -2036,6 +2171,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onReturnToGame }) => {
                             className="p-2 bg-slate-950 border border-slate-800 rounded flex justify-between"
                           >
                             <span>
+                              {b.isHomeBase ? '★ HQ · ' : ''}
                               {b.name} ({b.type.toUpperCase()}) · {b.mapId || 'Sector 01'}
                             </span>
                             <span className="tabular-nums text-emerald-400">

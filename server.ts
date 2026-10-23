@@ -500,6 +500,24 @@ app.post('/api/world/transfer-units', (req, res) => {
   res.json(result);
 });
 
+// 4c. Home Base: Change / Relocate Home Map REST Endpoint
+app.post('/api/player/home-map', (req, res) => {
+  const userId = getAuthenticatedPlayerId(req, res);
+  if (!userId) return;
+
+  const targetMapId = sanitizeText(req.body?.targetMapId, 64);
+  if (!targetMapId) {
+    return res.status(400).json({ error: 'targetMapId is required' });
+  }
+
+  const result = gameStore.changePlayerHomeMap(userId, targetMapId);
+  if (!result.success) {
+    return res.status(400).json({ error: result.message });
+  }
+  gameSimulation.broadcastWorldSync();
+  res.json(result);
+});
+
 // 5. Full Alliance Management REST Endpoints (Phase 5)
 app.get('/api/alliances/:id/members', (req, res) => {
   const data = gameStore.getData();
@@ -1132,6 +1150,85 @@ io.on('connection', (socket) => {
       return;
     }
     const result = gameSimulation.produceUnit(uid, payload.baseId, payload.unitType);
+    if (callback) callback(result);
+  });
+
+  // Cancel queued construction
+  socket.on('base:cancel_build', (payload: { baseId: string; orderId: string }, callback?: Function) => {
+    const uid = canPerformGameplayAction();
+    if (!uid) {
+      if (callback) callback({ success: false, message: 'Authentication required or action blocked' });
+      return;
+    }
+    const result = gameSimulation.cancelConstruction(
+      uid,
+      sanitizeText(payload?.baseId, 64),
+      sanitizeText(payload?.orderId, 64)
+    );
+    if (callback) callback(result);
+  });
+
+  // Cancel queued unit production
+  socket.on('base:cancel_unit', (payload: { baseId: string; orderId: string }, callback?: Function) => {
+    const uid = canPerformGameplayAction();
+    if (!uid) {
+      if (callback) callback({ success: false, message: 'Authentication required or action blocked' });
+      return;
+    }
+    const result = gameSimulation.cancelUnitProduction(
+      uid,
+      sanitizeText(payload?.baseId, 64),
+      sanitizeText(payload?.orderId, 64)
+    );
+    if (callback) callback(result);
+  });
+
+  // Individual building or full base structural repair
+  socket.on('base:repair_building', (payload: { baseId: string; buildingId?: string }, callback?: Function) => {
+    const uid = canPerformGameplayAction();
+    if (!uid) {
+      if (callback) callback({ success: false, message: 'Authentication required or action blocked' });
+      return;
+    }
+    const result = gameSimulation.repairBuilding(
+      uid,
+      sanitizeText(payload?.baseId, 64),
+      payload?.buildingId ? sanitizeText(payload.buildingId, 64) : undefined
+    );
+    if (callback) callback(result);
+  });
+
+  // Relocate Home Base to another sector map
+  socket.on('base:change_home_map', (payload: { targetMapId: string }, callback?: Function) => {
+    const uid = canPerformGameplayAction();
+    if (!uid) {
+      if (callback) callback({ success: false, message: 'Authentication required or action blocked' });
+      return;
+    }
+    const targetMapId = sanitizeText(payload?.targetMapId, 64);
+    const result = gameStore.changePlayerHomeMap(uid, targetMapId);
+    if (result.success && result.mapId) {
+      (socket.data as any).mapId = result.mapId;
+      const state = gameStore.getData();
+      const targetMap = state.maps.find((m) => m.id === result.mapId);
+      const visible = gameSimulation.getVisibleWorldState(
+        uid,
+        result.mapId,
+        Array.from(new Set(onlineSockets.values()))
+      );
+      const terrain = gameSimulation.getTerrain(result.mapId);
+      socket.emit('world:state', {
+        ...visible,
+        terrain,
+        activeMap: targetMap,
+        maps: state.maps.filter((m) => m.enabled),
+        chat: state.chat.slice(-50),
+        notifications: state.notifications
+          .filter((n) => n.userId === uid || n.userId === 'all')
+          .slice(-20),
+      });
+      gameSimulation.broadcastWorldSync();
+    }
     if (callback) callback(result);
   });
 
