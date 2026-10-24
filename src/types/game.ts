@@ -120,6 +120,7 @@ export interface BuildingInstance {
   upgradeCompletionTime?: number; // epoch ms
   offsetX?: number; // relative to base center in grid cells
   offsetY?: number; // relative to base center in grid cells
+  lastAttackTime?: number; // epoch ms for deterministic defense turret firing
 }
 
 export interface ConstructionOrder {
@@ -278,6 +279,10 @@ export interface Unit {
   y: number; // current float y on grid
   targetX?: number;
   targetY?: number;
+  patrolStartX?: number;
+  patrolStartY?: number;
+  patrolTargetX?: number;
+  patrolTargetY?: number;
   rotation: number; // radians
   health: number;
   maxHealth: number;

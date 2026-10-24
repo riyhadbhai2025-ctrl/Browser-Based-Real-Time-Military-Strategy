@@ -1085,8 +1085,14 @@ export function createAdminRouter(
           activeMatch.terminationReason = reason;
         }
 
-        // Regenerate fresh world
+        // Regenerate sector bases while preserving other map sectors and registered human Home Bases
         const activeMap = data.maps.find((m) => m.isActiveMap) || data.maps[0];
+        const targetMapId = activeMap?.id || 'map_riverfront_assault';
+        const preservedBases = data.bases.filter(
+          (b) =>
+            (b.mapId || 'map_riverfront_assault') !== targetMapId ||
+            (b.isHomeBase && b.ownerId !== 'player_default' && b.ownerId !== 'enemy_insurgent' && b.ownerId !== 'neutral')
+        );
         const generated = gameSimulation.regenerateWorldWithSeed(
           activeMap?.seed || data.worldConfig.seed,
           activeMap?.width || 100,
@@ -1095,6 +1101,7 @@ export function createAdminRouter(
         const econ = gameStore.getEconomyConfig();
 
         generated.bases.forEach((b) => {
+          b.mapId = targetMapId;
           b.resources = { ...econ.startingResources };
           b.storageCap = { ...econ.baseStorageCap };
         });
@@ -1104,6 +1111,7 @@ export function createAdminRouter(
         homeBase.ownerName = data.users['player_default']?.profile.username || 'Commander';
         homeBase.name = 'Fortress Alpha (HQ)';
         homeBase.allianceId = 'alliance_vanguard';
+        homeBase.isHomeBase = true;
 
         const forwardBase = generated.bases[3];
         if (forwardBase) {
@@ -1124,10 +1132,17 @@ export function createAdminRouter(
           enemyOutpost.ownerName = 'Kodiak PMC';
         }
 
-        data.bases = generated.bases;
+        data.bases = [...generated.bases, ...preservedBases];
+        const preservedUnits = data.units.filter(
+          (u) =>
+            (u.mapId || 'map_riverfront_assault') !== targetMapId ||
+            (u.ownerId !== 'player_default' && u.ownerId !== 'enemy_insurgent' && u.ownerId !== 'neutral')
+        );
         data.units = [
+          ...preservedUnits,
           {
             id: `unit_reset_1_${now}`,
+            mapId: targetMapId,
             type: 'rifle_infantry',
             ownerId: 'player_default',
             ownerName: homeBase.ownerName,
@@ -1145,6 +1160,7 @@ export function createAdminRouter(
           },
           {
             id: `unit_reset_2_${now}`,
+            mapId: targetMapId,
             type: 'titan_mbt',
             ownerId: 'player_default',
             ownerName: homeBase.ownerName,
@@ -1162,6 +1178,7 @@ export function createAdminRouter(
           },
           {
             id: `unit_reset_e1_${now}`,
+            mapId: targetMapId,
             type: 'titan_mbt',
             ownerId: 'enemy_insurgent',
             ownerName: 'Kodiak PMC',
@@ -1181,7 +1198,7 @@ export function createAdminRouter(
         const newMatchId = `match_${now}`;
         data.matches.unshift({
           id: newMatchId,
-          mapId: activeMap?.id || 'map_riverfront_assault',
+          mapId: targetMapId,
           mapName: activeMap?.name || 'Sector 01: Riverfront Assault',
           seed: data.worldConfig.seed,
           status: 'active',
@@ -1201,7 +1218,7 @@ export function createAdminRouter(
           units: data.units,
           envObjects: data.envObjects,
           alliances: data.alliances,
-          chat: data.chat.slice(-50),
+          chat: data.chat.filter((c) => c.channel !== 'alliance').slice(-50),
           onlineUserIds: Array.from(new Set(onlineSockets.values())),
           timestamp: now,
         });
@@ -1988,20 +2005,30 @@ export function createAdminRouter(
         m.isActiveMap = m.id === mapId;
       });
 
-      const generated = gameSimulation.regenerateWorldWithSeed(targetMap.seed, targetMap.width, targetMap.height);
-      const homeBase = generated.bases[0];
-      if (homeBase) {
-        homeBase.ownerId = 'player_default';
-        homeBase.ownerName = data.users['player_default']?.profile.username || 'Commander';
-        homeBase.name = 'Fortress Alpha (HQ)';
+      const existingMapBases = data.bases.filter((b) => (b.mapId || 'map_riverfront_assault') === mapId);
+      if (existingMapBases.length === 0) {
+        const generated = gameSimulation.regenerateWorldWithSeed(targetMap.seed, targetMap.width, targetMap.height);
+        generated.bases.forEach((b) => {
+          b.mapId = mapId;
+        });
+        const homeBase = generated.bases[0];
+        if (homeBase && !data.bases.some((b) => b.ownerId === 'player_default' && b.isHomeBase)) {
+          homeBase.ownerId = 'player_default';
+          homeBase.ownerName = data.users['player_default']?.profile.username || 'Commander';
+          homeBase.name = 'Fortress Alpha (HQ)';
+          homeBase.isHomeBase = true;
+        }
+        const enemyBase = generated.bases[1];
+        if (enemyBase) {
+          enemyBase.ownerId = 'enemy_insurgent';
+          enemyBase.ownerName = 'Kodiak PMC';
+          enemyBase.name = 'Kodiak Stronghold';
+        }
+        data.bases.push(...generated.bases);
+      } else {
+        // Ensure terrain cache is initialized for the activated map without wiping existing bases
+        gameSimulation.getTerrain(mapId);
       }
-      const enemyBase = generated.bases[1];
-      if (enemyBase) {
-        enemyBase.ownerId = 'enemy_insurgent';
-        enemyBase.ownerName = 'Kodiak PMC';
-        enemyBase.name = 'Kodiak Stronghold';
-      }
-      data.bases = generated.bases;
       gameStore.saveData();
 
       io.emit('world:state', {
@@ -2009,7 +2036,7 @@ export function createAdminRouter(
         units: data.units,
         envObjects: data.envObjects,
         alliances: data.alliances,
-        chat: data.chat.slice(-50),
+        chat: data.chat.filter((c) => c.channel !== 'alliance').slice(-50),
         onlineUserIds: Array.from(new Set(onlineSockets.values())),
         timestamp: Date.now(),
       });
@@ -2594,6 +2621,18 @@ export function createAdminRouter(
     requirePermission('admins.manage'),
     (req: AuthenticatedAdminRequest, res: Response) => {
       const session = req.adminSession!;
+      const confirmed =
+        req.body?.confirm === true ||
+        req.body?.confirmReset === 'RESET_ALL_DATA' ||
+        req.body?.confirmation === 'RESET_ALL_DATA';
+      const reason = sanitizeText(req.body?.reason, 300);
+      if (!confirmed || !reason || reason.length < 3) {
+        res.status(400).json({
+          error:
+            'WARNING: Full system reset is destructive and irreversible. You must provide explicit confirmation (confirm: true or confirmReset: "RESET_ALL_DATA") and a valid audit reason (minimum 3 characters).',
+        });
+        return;
+      }
       gameStore.resetAllData();
       gameStore.addAuditLog({
         adminId: session.userId,
@@ -2602,7 +2641,7 @@ export function createAdminRouter(
         action: 'system.reset_all_data',
         targetType: 'system',
         targetId: 'all',
-        reason: sanitizeText(req.body?.reason, 300) || 'Full system reset cleared all users and bases',
+        reason,
         status: 'success',
         ipAddress: getClientIp(req),
       });

@@ -38,7 +38,7 @@
         "weeklyCapturesCount": 1,
         "homeBaseDestroyedCount": 0,
         "beginnerProtectionUntil": 0,
-        "totalResourcesHarvested": 152354,
+        "totalResourcesHarvested": 157957,
         "weeklyCaptureTimestamps": [
           1792764165823
         ],
@@ -129,9 +129,9 @@
       "ownerName": "Kodiak PMC",
       "powerUsed": 132,
       "resources": {
-        "fuel": 5421.547599999995,
-        "steel": 10325.481349999925,
-        "aluminum": 630.817350000039,
+        "fuel": 6752.716764999997,
+        "steel": 11529.412324999885,
+        "aluminum": 787.8518250000378,
         "concrete": 12000
       },
       "allianceId": "alli_dominion",
@@ -164,7 +164,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "lifecycleState": "active"
     },
@@ -214,7 +214,7 @@
       "ownerName": "Independent Defense Corps",
       "powerUsed": 24,
       "resources": {
-        "fuel": 10132.139999999925,
+        "fuel": 10454.2619999999,
         "steel": 10000,
         "aluminum": 12000,
         "concrete": 10000
@@ -249,7 +249,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 1,
       "activeTurretsCount": 1,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
       "lifecycleState": "ownerless"
     },
@@ -292,10 +292,10 @@
       "ownerName": "Maritime Patrol Force",
       "powerUsed": 16,
       "resources": {
-        "fuel": 9732.139999999945,
-        "steel": 11965.175000000056,
-        "aluminum": 6999.10500000007,
-        "concrete": 11165.175000000041
+        "fuel": 10000,
+        "steel": 12367.82750000005,
+        "aluminum": 7240.6965000000755,
+        "concrete": 11567.827500000036
       },
       "isHomeBase": false,
       "storageCap": {
@@ -327,7 +327,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 1,
       "activeTurretsCount": 1,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "captureBlockedReason": "Base is shielded by active command protection",
       "lifecycleState": "ownerless",
       "isNewcomerBase": true,
@@ -385,9 +385,9 @@
         {
           "id": "bld_1792766694154_maq5",
           "type": "fuel_refinery",
-          "level": 5,
-          "health": 1750,
-          "maxHealth": 1750,
+          "level": 6,
+          "health": 2000,
+          "maxHealth": 2000,
           "isConstructing": false
         },
         {
@@ -410,12 +410,12 @@
       "maxHealth": 2900,
       "maxShield": 700,
       "ownerName": "Kodiak PMC",
-      "powerUsed": 136,
+      "powerUsed": 140,
       "resources": {
         "fuel": 9000,
-        "steel": 8614.578225000045,
-        "aluminum": 231.34812500004043,
-        "concrete": 11698.184895000086
+        "steel": 10165.405699999983,
+        "aluminum": 73.38260000004033,
+        "concrete": 12000
       },
       "isHomeBase": false,
       "storageCap": {
@@ -435,7 +435,7 @@
         "concrete": 16.4,
         "steel": 14,
         "aluminum": 1,
-        "fuel": 8.9
+        "fuel": 10.1
       },
       "consumptionRates": {
         "concrete": 0,
@@ -446,7 +446,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "lifecycleState": "active"
     },
@@ -547,7 +547,7 @@
       "resources": {
         "fuel": 10000,
         "steel": 12000,
-        "aluminum": 4892.056000000024,
+        "aluminum": 5133.64750000003,
         "concrete": 15000
       },
       "allianceId": null,
@@ -580,7 +580,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "lifecycleState": "active",
       "previousOwnerId": "player_default",
@@ -692,10 +692,10 @@
       "ownerName": "Kodiak PMC",
       "powerUsed": 140,
       "resources": {
-        "fuel": 1937.1967800000152,
-        "steel": 6914.878950000056,
-        "aluminum": 849.9086500000478,
-        "concrete": 11364.710750000062
+        "fuel": 3142.738365000014,
+        "steel": 9165.706425000028,
+        "aluminum": 1006.9431250000466,
+        "concrete": 14013.358895000041
       },
       "isHomeBase": false,
       "storageCap": {
@@ -726,7 +726,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "lifecycleState": "active"
     },
@@ -804,7 +804,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 1,
       "activeTurretsCount": 1,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
       "lifecycleState": "ownerless"
     },
@@ -905,7 +905,7 @@
       "resources": {
         "fuel": 10000,
         "steel": 12000,
-        "aluminum": 5397.91480000006,
+        "aluminum": 5639.5063000000655,
         "concrete": 15000
       },
       "allianceId": null,
@@ -966,7 +966,7 @@
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
       "capturedAllianceId": null,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "capturedAllianceTag": null,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "capturedAllianceName": null,
@@ -1052,7 +1052,7 @@
       "resources": {
         "fuel": 12000,
         "steel": 16000,
-        "aluminum": 5424.105000000051,
+        "aluminum": 5665.696500000057,
         "concrete": 16000
       },
       "isHomeBase": false,
@@ -1084,7 +1084,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "lifecycleState": "active"
     },
@@ -1162,7 +1162,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 1,
       "activeTurretsCount": 1,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
       "lifecycleState": "ownerless"
     },
@@ -1276,7 +1276,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 1,
       "activeTurretsCount": 1,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "captureBlockedReason": "Home Bases are permanent command centers and cannot be conquered",
       "lastMeaningfulActivityAt": 1792764172487,
       "lastKnownValidCoords": {
@@ -1324,10 +1324,10 @@
       "ownerName": "Maritime Patrol Force",
       "powerUsed": 16,
       "resources": {
-        "fuel": 9732.139999999945,
-        "steel": 11965.175000000056,
-        "aluminum": 6999.10500000007,
-        "concrete": 11165.175000000041
+        "fuel": 10000,
+        "steel": 12367.82750000005,
+        "aluminum": 7240.6965000000755,
+        "concrete": 11567.827500000036
       },
       "isHomeBase": false,
       "storageCap": {
@@ -1359,7 +1359,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 1,
       "activeTurretsCount": 1,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "captureBlockedReason": "Base is shielded by active command protection",
       "lifecycleState": "ownerless",
       "isNewcomerBase": true,
@@ -1445,7 +1445,7 @@
       "resources": {
         "fuel": 8000,
         "steel": 15000,
-        "aluminum": 4961.105000000046,
+        "aluminum": 5202.696500000052,
         "concrete": 12000
       },
       "allianceId": "alli_dominion",
@@ -1478,7 +1478,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "lifecycleState": "active"
     },
@@ -1528,7 +1528,7 @@
       "ownerName": "Independent Defense Corps",
       "powerUsed": 24,
       "resources": {
-        "fuel": 10132.139999999925,
+        "fuel": 10454.2619999999,
         "steel": 10000,
         "aluminum": 12000,
         "concrete": 10000
@@ -1563,7 +1563,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 1,
       "activeTurretsCount": 1,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
       "lifecycleState": "ownerless"
     },
@@ -1648,7 +1648,7 @@
       "resources": {
         "fuel": 9000,
         "steel": 15000,
-        "aluminum": 5174.105000000049,
+        "aluminum": 5415.696500000055,
         "concrete": 12000
       },
       "isHomeBase": false,
@@ -1680,7 +1680,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "lifecycleState": "active"
     },
@@ -1701,10 +1701,10 @@
       "captureProgress": 0,
       "isProtected": false,
       "resources": {
-        "concrete": 13449.607199999924,
-        "steel": 11671.67600000002,
-        "aluminum": 7641.9712000000245,
-        "fuel": 9731.45400000005
+        "concrete": 15000,
+        "steel": 12000,
+        "aluminum": 8000,
+        "fuel": 10000
       },
       "storageCap": {
         "concrete": 15000,
@@ -1718,7 +1718,7 @@
         "aluminum": 6.4,
         "fuel": 8.3
       },
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -1815,7 +1815,8 @@
         "fuel": 0
       },
       "hqLevel": 3,
-      "armorMultiplier": 1
+      "armorMultiplier": 1,
+      "lifecycleState": "active"
     },
     {
       "id": "base_tank_armory_s3",
@@ -1833,9 +1834,9 @@
       "maxShield": 800,
       "captureProgress": 0,
       "resources": {
-        "concrete": 4482.019999999991,
-        "steel": 13897.292000000045,
-        "aluminum": 2269.2120000000145,
+        "concrete": 4884.672500000009,
+        "steel": 15000,
+        "aluminum": 2510.803500000016,
         "fuel": 1600
       },
       "storageCap": {
@@ -1850,7 +1851,7 @@
         "aluminum": 1.5,
         "fuel": 2
       },
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -1899,7 +1900,8 @@
         "fuel": 4.15
       },
       "hqLevel": 2,
-      "armorMultiplier": 1
+      "armorMultiplier": 1,
+      "lifecycleState": "active"
     },
     {
       "id": "base_air_eagle_s3",
@@ -1916,10 +1918,10 @@
       "maxShield": 600,
       "captureProgress": 0,
       "resources": {
-        "concrete": 3782.019999999981,
-        "steel": 3782.019999999981,
-        "aluminum": 8341.971200000029,
-        "fuel": 4625.616000000035
+        "concrete": 4184.672499999981,
+        "steel": 4184.672499999981,
+        "aluminum": 9372.761599999974,
+        "fuel": 4947.738000000026
       },
       "storageCap": {
         "concrete": 10000,
@@ -1933,7 +1935,7 @@
         "aluminum": 6.4,
         "fuel": 2
       },
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -1983,11 +1985,12 @@
         "fuel": 0
       },
       "hqLevel": 2,
-      "armorMultiplier": 1
+      "armorMultiplier": 1,
+      "lifecycleState": "ownerless"
     },
     {
       "id": "base_harbor_trident_s3",
-      "name": "Bastion Delta Vanguard Deepwater Naval Port",
+      "name": "Sector 03 Newcomer Outpost",
       "type": "harbor",
       "ownerId": "neutral",
       "ownerName": "Maritime Patrol Force",
@@ -2000,10 +2003,10 @@
       "maxShield": 800,
       "captureProgress": 0,
       "resources": {
-        "concrete": 4282.019999999982,
-        "steel": 5082.020000000017,
-        "aluminum": 2869.2120000000145,
-        "fuel": 4225.616000000058
+        "concrete": 4684.6725,
+        "steel": 5484.672500000034,
+        "aluminum": 3110.803500000016,
+        "fuel": 4547.738000000049
       },
       "storageCap": {
         "concrete": 12000,
@@ -2017,7 +2020,7 @@
         "aluminum": 1.5,
         "fuel": 2
       },
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -2045,12 +2048,12 @@
       ],
       "mapId": "map_custom_1792748967438",
       "isHomeBase": false,
-      "isProtected": false,
+      "isProtected": true,
       "activeTurretsCount": 1,
       "totalTurretsCount": 1,
       "defensesIntact": true,
       "captureContested": false,
-      "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
+      "captureBlockedReason": "Base is shielded by active command protection",
       "powerUsed": 16,
       "powerCapacity": 65,
       "consumptionRates": {
@@ -2060,7 +2063,10 @@
         "fuel": 0
       },
       "hqLevel": 2,
-      "armorMultiplier": 1
+      "armorMultiplier": 1,
+      "lifecycleState": "ownerless",
+      "isNewcomerBase": true,
+      "newcomerProtectionUntil": 1793119288884
     },
     {
       "id": "base_rail_fortress_s3",
@@ -2077,10 +2083,10 @@
       "maxShield": 700,
       "captureProgress": 0,
       "resources": {
-        "concrete": 4782.020000000004,
-        "steel": 5882.020000000057,
-        "aluminum": 2569.212000000013,
-        "fuel": 3825.6160000000605
+        "concrete": 5184.6725000000215,
+        "steel": 6284.672500000074,
+        "aluminum": 2810.8035000000145,
+        "fuel": 4147.738000000069
       },
       "storageCap": {
         "concrete": 12000,
@@ -2094,7 +2100,7 @@
         "aluminum": 1.5,
         "fuel": 2
       },
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -2136,7 +2142,8 @@
         "fuel": 0
       },
       "hqLevel": 2,
-      "armorMultiplier": 1
+      "armorMultiplier": 1,
+      "lifecycleState": "active"
     },
     {
       "id": "base_enemy_stronghold_s3",
@@ -2153,9 +2160,9 @@
       "maxShield": 1000,
       "captureProgress": 0,
       "resources": {
-        "concrete": 6282.020000000073,
-        "steel": 6782.02000000008,
-        "aluminum": 3369.212000000011,
+        "concrete": 6684.672500000091,
+        "steel": 7184.672500000097,
+        "aluminum": 3610.8035000000123,
         "fuel": 3000
       },
       "storageCap": {
@@ -2170,7 +2177,7 @@
         "aluminum": 1.5,
         "fuel": 2
       },
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -2219,7 +2226,8 @@
         "fuel": 4.93
       },
       "hqLevel": 3,
-      "armorMultiplier": 1
+      "armorMultiplier": 1,
+      "lifecycleState": "active"
     },
     {
       "id": "base_southern_outpost_s3",
@@ -2236,10 +2244,10 @@
       "maxShield": 500,
       "captureProgress": 0,
       "resources": {
-        "concrete": 3482.019999999987,
-        "steel": 3682.019999999982,
-        "aluminum": 1969.2120000000084,
-        "fuel": 13719.360799999933
+        "concrete": 3884.672499999982,
+        "steel": 4084.672499999977,
+        "aluminum": 2210.8035000000104,
+        "fuel": 15000
       },
       "storageCap": {
         "concrete": 8000,
@@ -2253,7 +2261,7 @@
         "aluminum": 1.5,
         "fuel": 10.1
       },
-      "lastResourceUpdate": 1792767579444,
+      "lastResourceUpdate": 1792860249946,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -2296,7 +2304,8 @@
         "fuel": 0
       },
       "hqLevel": 1,
-      "armorMultiplier": 1
+      "armorMultiplier": 1,
+      "lifecycleState": "ownerless"
     }
   ],
   "units": [
@@ -52451,7 +52460,7 @@
       "creationSource": "server_simulation_engine",
       "state": "active",
       "createdAt": 1791537541620,
-      "lastDecisionAt": 1792767579644
+      "lastDecisionAt": 1792860247611
     }
   },
   "systemEntities": {
@@ -52470,7 +52479,7 @@
       "creationSource": "world_generator",
       "state": "active",
       "createdAt": 1791537541620,
-      "lastUpdatedAt": 1792766667216
+      "lastUpdatedAt": 1792860088883
     }
   },
   "accountsPurged": true

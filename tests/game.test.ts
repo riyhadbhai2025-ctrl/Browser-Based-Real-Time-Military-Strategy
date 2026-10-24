@@ -2502,7 +2502,494 @@ test('27. Rail Base Unit Production Pipeline, Depot Prerequisites, Blocked Track
   state.units = state.units.filter((u: any) => u.id !== spawnedUnit.id);
 });
 
+test('28. Persistence Safety: Server Restart/Reload Preserves Data Across Custom Seeds & Admin Reset Requires Explicit Confirmation', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  resetRateLimiterForTests();
 
+  // 1. Verify reloadFromDisk preserves player accounts, bases, and units even when worldConfig.seed differs from 202610
+  const tempFile = path.join(process.cwd(), 'data', `test_persist_${Date.now()}.json`);
+  const state = gameStore.getData();
+  const originalSeed = state.worldConfig.seed;
+  const markerUserId = `persist_user_${Date.now()}`;
+  const markerBaseId = `persist_base_${Date.now()}`;
 
+  try {
+    state.worldConfig.seed = 404555; // Non-default seed (e.g. after activating Sector 02/03)
+    state.users[markerUserId] = {
+      passwordHash: 'persisthash',
+      profile: {
+        id: markerUserId,
+        username: 'PersistCommander',
+        email: 'persist@frontline.mil',
+        rank: 'Commander',
+        score: 1234,
+        level: 4,
+        avatar: 'commander',
+        homeBaseId: markerBaseId,
+        homeMapId: 'map_iron_ridge_corridor',
+        currentMapId: 'map_iron_ridge_corridor',
+        totalBasesCaptured: 2,
+        totalUnitsProduced: 8,
+        totalUnitsDestroyed: 5,
+        totalResourcesHarvested: 4000,
+        highwayTransfersCompleted: 1,
+        claimedRewardIds: [],
+        joinedAt: Date.now(),
+        lastLoginAt: Date.now(),
+        lastActiveAt: Date.now(),
+        beginnerProtectionUntil: 0,
+        isAdmin: false,
+        adminRole: null,
+        status: 'active',
+        suspendedUntil: null,
+        banReason: null,
+        moderationHistory: [],
+      },
+    };
+    state.bases.push({
+      id: markerBaseId,
+      mapId: 'map_iron_ridge_corridor',
+      name: 'Persist Citadel',
+      type: 'home',
+      isHomeBase: true,
+      ownerId: markerUserId,
+      ownerName: 'PersistCommander',
+      x: 24,
+      y: 24,
+      radius: 4,
+      health: 3500,
+      maxHealth: 3500,
+      defenseShield: 1200,
+      maxShield: 1200,
+      captureProgress: 0,
+      isProtected: false,
+      lifecycleState: 'active',
+      resources: { concrete: 2222, steel: 1888, aluminum: 999, fuel: 1444 },
+      storageCap: { concrete: 5000, steel: 5000, aluminum: 5000, fuel: 5000 },
+      productionRates: { concrete: 12, steel: 10, aluminum: 8, fuel: 10 },
+      lastResourceUpdate: Date.now(),
+      constructionQueue: [],
+      productionQueue: [],
+      buildings: [{ id: 'b_cc_persist', type: 'command_center', level: 3, health: 1500, maxHealth: 1500 }],
+    });
 
+    fs.writeFileSync(tempFile, JSON.stringify(state), 'utf-8');
+
+    // Simulate in-memory state loss and reload from the saved file
+    delete state.users[markerUserId];
+    state.bases = state.bases.filter((b) => b.id !== markerBaseId);
+
+    const reloaded = gameStore.reloadFromDisk(tempFile);
+    assert.strictEqual(reloaded, true, 'reloadFromDisk must succeed for valid persisted state regardless of map seed');
+
+    const afterState = gameStore.getData();
+    assert.ok(afterState.users[markerUserId], 'Persisted player account must survive server reload with custom world seed');
+    assert.strictEqual(afterState.users[markerUserId].profile.score, 1234);
+    const restoredBase = afterState.bases.find((b) => b.id === markerBaseId);
+    assert.ok(restoredBase, 'Persisted player home base must survive server reload');
+    assert.strictEqual(restoredBase?.resources.concrete, 2222);
+  } finally {
+    const cleanState = gameStore.getData();
+    cleanState.worldConfig.seed = originalSeed;
+    delete cleanState.users[markerUserId];
+    cleanState.bases = cleanState.bases.filter((b) => b.id !== markerBaseId);
+    if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+    gameStore.saveData();
+  }
+
+  // 2. Verify /api/admin/system/reset requires explicit confirmation and audit reason
+  await withTestServer(async (baseUrl) => {
+    const superLogin = await fetch(`${baseUrl}/api/admin/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'Commander', password: process.env.ADMIN_BOOTSTRAP_PASSWORD || 'admin123' }),
+    }).then((r) => r.json());
+
+    const noConfirmRes = await fetch(`${baseUrl}/api/admin/system/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${superLogin.token}` },
+      body: JSON.stringify({ reason: 'Accidental click without confirmation flag' }),
+    });
+    assert.strictEqual(noConfirmRes.status, 400, 'System reset without explicit confirm flag must be rejected with 400');
+
+    const noReasonRes = await fetch(`${baseUrl}/api/admin/system/reset`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${superLogin.token}` },
+      body: JSON.stringify({ confirm: true }),
+    });
+    assert.strictEqual(noReasonRes.status, 400, 'System reset without audit reason must be rejected with 400');
+  });
+});
+
+test('29. Economy Tick Resource Accumulation, Building Construction/Cancel Refund & Unit Production/Cancel Refund', () => {
+  const state = gameStore.getData();
+  const econ = gameStore.getEconomyConfig();
+  const now = Date.now();
+  const userId = 'player_default';
+  const testBaseId = `base_econ_lifecycle_${now}`;
+
+  const testBase: any = {
+    id: testBaseId,
+    mapId: 'map_riverfront_assault',
+    name: 'Economy Verification Outpost',
+    type: 'tank',
+    ownerId: userId,
+    ownerName: 'Command Headquarters',
+    x: 32,
+    y: 32,
+    radius: 4,
+    health: 2500,
+    maxHealth: 2500,
+    defenseShield: 500,
+    maxShield: 500,
+    captureProgress: 0,
+    isProtected: false,
+    lifecycleState: 'active',
+    resources: { concrete: 1500, steel: 1500, aluminum: 1500, fuel: 1500 },
+    storageCap: { concrete: 10000, steel: 10000, aluminum: 10000, fuel: 10000 },
+    productionRates: { ...econ.baseGenerationRates },
+    lastResourceUpdate: now - 5000,
+    constructionQueue: [],
+    productionQueue: [],
+    buildings: [
+      { id: `b_cc_${now}`, type: 'command_center', level: 2, health: 1200, maxHealth: 1200 },
+      { id: `b_cw_${now}`, type: 'concrete_works', level: 2, health: 500, maxHealth: 500 },
+      { id: `b_vf_${now}`, type: 'vehicle_factory', level: 1, health: 700, maxHealth: 700 },
+    ],
+  };
+  state.bases.push(testBase);
+
+  try {
+    // 1. Resource accumulation over economy tick
+    const concreteBefore = testBase.resources.concrete;
+    (gameSimulation as any).lastEconomyTickMs = 0;
+    (gameSimulation as any).tick();
+    assert.ok(
+      testBase.resources.concrete > concreteBefore,
+      `Resources must accumulate on economy tick (${testBase.resources.concrete} > ${concreteBefore})`
+    );
+
+    // 2. Building construction queue & cancellation refund
+    const preBuildConcrete = testBase.resources.concrete;
+    const buildRes = gameSimulation.buildOrUpgrade(userId, testBaseId, 'steel_foundry');
+    assert.strictEqual(buildRes.success, true, 'Queueing steel_foundry must succeed');
+    assert.ok(testBase.resources.concrete < preBuildConcrete, 'Building cost must be deducted immediately');
+    assert.strictEqual(testBase.constructionQueue.length, 1);
+
+    const cancelBuildRes = gameSimulation.cancelConstruction(userId, testBaseId, buildRes.orderId!);
+    assert.strictEqual(cancelBuildRes.success, true, 'Cancelling construction order must succeed');
+    assert.strictEqual(testBase.constructionQueue.length, 0);
+    assert.strictEqual(testBase.resources.concrete, preBuildConcrete, 'Cancelled construction must refund full concrete cost');
+
+    // 3. Building construction completion via tick
+    const buildRes2 = gameSimulation.buildOrUpgrade(userId, testBaseId, 'steel_foundry');
+    assert.strictEqual(buildRes2.success, true);
+    testBase.constructionQueue[0].finishTime = Date.now() - 50;
+    (gameSimulation as any).lastEconomyTickMs = 0;
+    (gameSimulation as any).tick();
+    assert.strictEqual(testBase.constructionQueue.length, 0, 'Completed construction order must leave queue');
+    assert.ok(
+      testBase.buildings.some((b: any) => b.type === 'steel_foundry' && b.level === 1),
+      'Completed building must be added to base.buildings at level 1'
+    );
+
+    // 4. Unit production queue & cancellation refund
+    const preProdSteel = testBase.resources.steel;
+    const prodRes = gameSimulation.produceUnit(userId, testBaseId, 'vanguard_scout');
+    assert.strictEqual(prodRes.success, true, 'Queueing vanguard_scout must succeed');
+    assert.ok(testBase.resources.steel < preProdSteel, 'Unit cost must be deducted immediately');
+    assert.strictEqual(testBase.productionQueue.length, 1);
+
+    const cancelProdRes = gameSimulation.cancelUnitProduction(userId, testBaseId, prodRes.orderId!);
+    assert.strictEqual(cancelProdRes.success, true, 'Cancelling unit production order must succeed');
+    assert.strictEqual(testBase.productionQueue.length, 0);
+    assert.strictEqual(testBase.resources.steel, preProdSteel, 'Cancelled unit production must refund full steel cost');
+  } finally {
+    state.bases = state.bases.filter((b) => b.id !== testBaseId);
+  }
+});
+
+test('30. Unit Movement Validation, Impassable Terrain Rejection, Attack-Move, Patrol & Deterministic Turret Defense', () => {
+  const state = gameStore.getData();
+  const mapId = 'map_riverfront_assault';
+  const terrain = gameSimulation.getTerrain(mapId);
+  const userId = 'player_default';
+  const now = Date.now();
+
+  // Locate a passable plains tile, a water tile, and a mountain tile on map_riverfront_assault
+  let plainsCoord = { x: 20, y: 20 };
+  let waterCoord = { x: -1, y: -1 };
+  let mountainCoord = { x: -1, y: -1 };
+
+  for (let y = 2; y < terrain.length - 2; y++) {
+    for (let x = 2; x < terrain[0].length - 2; x++) {
+      const t = terrain[y][x];
+      if (t === 'plains' && isCellPassable(terrain, x, y, 'ground')) {
+        plainsCoord = { x, y };
+      } else if ((t === 'water' || t === 'deep_water') && waterCoord.x === -1) {
+        waterCoord = { x, y };
+      } else if (t === 'mountain' && mountainCoord.x === -1) {
+        mountainCoord = { x, y };
+      }
+    }
+  }
+
+  const groundUnitId = `unit_test_ground_${now}`;
+  const navalUnitId = `unit_test_naval_${now}`;
+  const enemyUnitId = `unit_test_enemy_${now}`;
+  const turretBaseId = `base_test_turret_${now}`;
+
+  state.units.push(
+    {
+      id: groundUnitId,
+      mapId,
+      type: 'titan_mbt',
+      ownerId: userId,
+      ownerName: 'Command Headquarters',
+      x: plainsCoord.x,
+      y: plainsCoord.y,
+      rotation: 0,
+      health: 950,
+      maxHealth: 950,
+      command: 'idle',
+      path: [],
+      lastAttackTime: 0,
+      kills: 0,
+      homeBaseId: 'base_0',
+    },
+    {
+      id: navalUnitId,
+      mapId,
+      type: 'trident_destroyer',
+      ownerId: userId,
+      ownerName: 'Command Headquarters',
+      x: waterCoord.x !== -1 ? waterCoord.x : 50,
+      y: waterCoord.y !== -1 ? waterCoord.y : 35,
+      rotation: 0,
+      health: 1200,
+      maxHealth: 1200,
+      command: 'idle',
+      path: [],
+      lastAttackTime: 0,
+      kills: 0,
+      homeBaseId: 'base_0',
+    }
+  );
+
+  try {
+    // 1. Ground unit must reject direct move order into water or impassable mountain
+    if (waterCoord.x !== -1) {
+      const waterMove = gameSimulation.commandUnits(userId, [groundUnitId], 'move', waterCoord.x, waterCoord.y);
+      assert.strictEqual(waterMove.success, false, 'Ground unit must reject movement onto water');
+    }
+    if (mountainCoord.x !== -1) {
+      const mountainMove = gameSimulation.commandUnits(userId, [groundUnitId], 'move', mountainCoord.x, mountainCoord.y);
+      assert.strictEqual(mountainMove.success, false, 'Ground unit must reject movement onto impassable mountain');
+    }
+
+    // 2. Naval unit must reject direct move order onto land (plains)
+    const landMove = gameSimulation.commandUnits(userId, [navalUnitId], 'move', plainsCoord.x, plainsCoord.y);
+    assert.strictEqual(landMove.success, false, 'Naval unit must reject movement onto land');
+
+    // 3. Patrol command sets waypoints and reverses path when reaching patrol destination
+    const groundUnit = state.units.find((u) => u.id === groundUnitId)!;
+    let nearbyPlains = { x: plainsCoord.x + 1, y: plainsCoord.y };
+    for (let dx = -3; dx <= 3; dx++) {
+      for (let dy = -3; dy <= 3; dy++) {
+        if (dx === 0 && dy === 0) continue;
+        if (isCellPassable(terrain, plainsCoord.x + dx, plainsCoord.y + dy, 'ground')) {
+          nearbyPlains = { x: plainsCoord.x + dx, y: plainsCoord.y + dy };
+          break;
+        }
+      }
+    }
+    const patrolRes = gameSimulation.commandUnits(userId, [groundUnitId], 'patrol', nearbyPlains.x, nearbyPlains.y);
+    assert.strictEqual(patrolRes.success, true, 'Patrol order to valid plains must succeed');
+    assert.strictEqual(groundUnit.command, 'patrol');
+    assert.strictEqual(groundUnit.patrolStartX, plainsCoord.x);
+    assert.strictEqual(groundUnit.patrolTargetX, nearbyPlains.x);
+
+    // Advance unit to final waypoint of patrol leg and verify automatic reversal
+    groundUnit.path = [{ x: nearbyPlains.x, y: nearbyPlains.y }];
+    groundUnit.x = nearbyPlains.x;
+    groundUnit.y = nearbyPlains.y;
+    (gameSimulation as any).tick();
+    assert.strictEqual(groundUnit.command, 'patrol', 'Patrol unit must remain in patrol state after reaching waypoint');
+    assert.strictEqual(groundUnit.patrolTargetX, plainsCoord.x, 'Patrol target must reverse back to origin');
+
+    // 4. Attack-move pauses movement to engage hostile unit in range and fires
+    groundUnit.x = plainsCoord.x;
+    groundUnit.y = plainsCoord.y;
+    groundUnit.command = 'attack_move';
+    groundUnit.path = [{ x: nearbyPlains.x, y: nearbyPlains.y }];
+    groundUnit.lastAttackTime = 0;
+
+    state.units.push({
+      id: enemyUnitId,
+      mapId,
+      type: 'vanguard_scout',
+      ownerId: 'enemy_insurgent',
+      ownerName: 'Kodiak PMC',
+      x: plainsCoord.x + 1,
+      y: plainsCoord.y,
+      rotation: 0,
+      health: 200,
+      maxHealth: 200,
+      command: 'hold',
+      path: [],
+      lastAttackTime: Date.now() + 60000,
+      kills: 0,
+      homeBaseId: 'base_1',
+    });
+
+    (gameSimulation as any).tick();
+    const enemyUnit = state.units.find((u) => u.id === enemyUnitId);
+    assert.ok(!enemyUnit || enemyUnit.health < 200, 'Attack-move unit must engage and damage hostile unit in range');
+    assert.strictEqual(groundUnit.x, plainsCoord.x, 'Attack-move unit must pause movement while engaging target in range');
+
+    // 5. Deterministic Base Turret Auto-Defense fires reliably when cooldown is ready
+    state.bases.push({
+      id: turretBaseId,
+      mapId,
+      name: 'Turret Defense Test Base',
+      type: 'tank',
+      ownerId: 'enemy_insurgent',
+      ownerName: 'Kodiak PMC',
+      x: plainsCoord.x + 2,
+      y: plainsCoord.y,
+      radius: 4,
+      health: 1500,
+      maxHealth: 1500,
+      defenseShield: 0,
+      maxShield: 500,
+      captureProgress: 0,
+      isProtected: false,
+      lifecycleState: 'active',
+      resources: { concrete: 500, steel: 500, aluminum: 500, fuel: 500 },
+      storageCap: { concrete: 2500, steel: 2500, aluminum: 2500, fuel: 2500 },
+      productionRates: { concrete: 5, steel: 5, aluminum: 5, fuel: 5 },
+      lastResourceUpdate: now,
+      constructionQueue: [],
+      productionQueue: [],
+      buildings: [
+        {
+          id: `turret_det_${now}`,
+          type: 'vulcan_turret',
+          level: 1,
+          health: 500,
+          maxHealth: 500,
+          isConstructing: false,
+          lastAttackTime: 0,
+        },
+      ],
+    });
+
+    const hpBeforeTurret = groundUnit.health;
+    (gameSimulation as any).tick();
+    assert.ok(
+      groundUnit.health < hpBeforeTurret,
+      `Active base turret must deterministically fire on hostile unit in range (${groundUnit.health} < ${hpBeforeTurret})`
+    );
+  } finally {
+    state.units = state.units.filter((u) => ![groundUnitId, navalUnitId, enemyUnitId].includes(u.id));
+    state.bases = state.bases.filter((b) => b.id !== turretBaseId);
+  }
+});
+
+test('31. Alliance Chat Privacy Isolation & Socket.IO Unit Command Acknowledgements', async () => {
+  const { server } = await import('../server');
+  const { io: ClientIO } = await import('socket.io-client');
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const addr = server.address() as { port: number };
+  const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+  let allySocket: any = null;
+  let outsiderSocket: any = null;
+
+  try {
+    const suffix = Date.now().toString().slice(-4);
+    const regAlly = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: `CoalitionCmdr_${suffix}`, password: 'password123' }),
+    }).then((r) => r.json());
+
+    const regOutsider = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: `OutsiderCmdr_${suffix}`, password: 'password123' }),
+    }).then((r) => r.json());
+
+    // Create an alliance for CoalitionCmdr
+    const createRes = gameStore.createAlliance(
+      regAlly.profile.id,
+      `Vanguard Pact ${suffix}`,
+      `V${suffix.slice(-3)}`,
+      'Private coalition comms test'
+    );
+    assert.strictEqual(createRes.success, true);
+
+    allySocket = ClientIO(baseUrl, {
+      transports: ['websocket'],
+      reconnection: false,
+      auth: { token: regAlly.token },
+    });
+    outsiderSocket = ClientIO(baseUrl, {
+      transports: ['websocket'],
+      reconnection: false,
+      auth: { token: regOutsider.token },
+    });
+
+    await Promise.all([
+      new Promise<void>((resolve) => {
+        allySocket.on('connect', () => allySocket.emit('world:join', { token: regAlly.token }));
+        allySocket.once('world:state', () => resolve());
+      }),
+      new Promise<void>((resolve) => {
+        outsiderSocket.on('connect', () => outsiderSocket.emit('world:join', { token: regOutsider.token }));
+        outsiderSocket.once('world:state', () => resolve());
+      }),
+    ]);
+
+    // 1. Alliance chat message is delivered to alliance member and NEVER leaked to outsider
+    let outsiderReceivedAllianceMsg = false;
+    outsiderSocket.on('chat:message', (msg: any) => {
+      if (msg.channel === 'alliance') outsiderReceivedAllianceMsg = true;
+    });
+
+    const receivedByAlly = await new Promise<any>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Alliance member did not receive alliance chat')), 2000);
+      allySocket.on('chat:message', (msg: any) => {
+        if (msg.channel === 'alliance' && msg.content.includes('Classified Operation')) {
+          clearTimeout(timer);
+          resolve(msg);
+        }
+      });
+      allySocket.emit('chat:send', { content: 'Classified Operation Alpha', channel: 'alliance' });
+    });
+
+    assert.strictEqual(receivedByAlly.channel, 'alliance');
+    await new Promise((r) => setTimeout(r, 150));
+    assert.strictEqual(outsiderReceivedAllianceMsg, false, 'Non-member must never receive alliance channel messages');
+
+    // 2. Socket.IO unit:command callback returns structured error for invalid coordinates
+    const myUnits = gameStore.getData().units.filter((u) => u.ownerId === regAlly.profile.id);
+    assert.ok(myUnits.length > 0);
+    const cmdAck = await new Promise<any>((resolve) => {
+      allySocket.emit(
+        'unit:command',
+        { unitIds: [myUnits[0].id], command: 'move', targetX: -50, targetY: -50 },
+        (res: any) => resolve(res)
+      );
+    });
+    assert.strictEqual(cmdAck.success, false, 'Out-of-bounds unit:command must return success: false via callback');
+    assert.ok(cmdAck.message, 'Rejected unit:command must include an explanation message');
+  } finally {
+    if (allySocket) allySocket.disconnect();
+    if (outsiderSocket) outsiderSocket.disconnect();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
 

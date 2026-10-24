@@ -130,7 +130,9 @@ export default function App() {
   // Selection, Commands & 3D Placement
   const [selectedUnitIds, setSelectedUnitIds] = useState<Set<string>>(new Set());
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
-  const [activeCommand, setActiveCommand] = useState<'move' | 'attack' | 'hold' | 'patrol' | 'retreat' | 'stop'>('move');
+  const [activeCommand, setActiveCommand] = useState<
+    'move' | 'attack' | 'attack_move' | 'hold' | 'patrol' | 'retreat' | 'stop'
+  >('move');
   const [controlGroups, setControlGroups] = useState<Record<number, string[]>>({});
   const [placingBuilding, setPlacingBuilding] = useState<{ baseId: string; buildingType: BuildingType } | null>(null);
 
@@ -604,7 +606,7 @@ export default function App() {
 
   const issueUnitCommand = useCallback(
     (
-      command: 'move' | 'attack' | 'hold' | 'patrol' | 'retreat' | 'stop',
+      command: 'move' | 'attack' | 'attack_move' | 'hold' | 'patrol' | 'retreat' | 'stop',
       targetX?: number,
       targetY?: number,
       targetUnitId?: string,
@@ -612,17 +614,25 @@ export default function App() {
     ) => {
       if (!isAuthenticated || selectedUnitIds.size === 0 || !socketRef.current) return;
 
-      socketRef.current.emit('unit:command', {
-        unitIds: Array.from(selectedUnitIds),
-        command,
-        targetX,
-        targetY,
-        targetUnitId,
-        targetBaseId,
-      });
+      socketRef.current.emit(
+        'unit:command',
+        {
+          unitIds: Array.from(selectedUnitIds),
+          command,
+          targetX,
+          targetY,
+          targetUnitId,
+          targetBaseId,
+        },
+        (res: any) => {
+          if (res && res.success === false && res.message) {
+            addToast('error', 'COMMAND REJECTED', res.message);
+          }
+        }
+      );
       soundEngine.playCommandAck();
     },
-    [isAuthenticated, selectedUnitIds]
+    [isAuthenticated, selectedUnitIds, addToast]
   );
 
   // 4. Initialize Single Three.js 3D Tactical Renderer Instance (shared across Preview & Gameplay)
@@ -1156,7 +1166,11 @@ export default function App() {
           if (e.pointerType === 'touch' && settings.touchTapToOrder && selectedUnitIds.size > 0) {
             const worldPos = renderer.screenToWorld(e.clientX, e.clientY);
             issueUnitCommand(
-              activeCommand === 'attack' ? 'attack' : activeCommand === 'patrol' ? 'patrol' : 'move',
+              activeCommand === 'attack' || activeCommand === 'attack_move'
+                ? 'attack_move'
+                : activeCommand === 'patrol'
+                ? 'patrol'
+                : 'move',
               worldPos.x,
               worldPos.y
             );
@@ -1206,7 +1220,11 @@ export default function App() {
 
     const worldPos = renderer.screenToWorld(e.clientX, e.clientY);
     issueUnitCommand(
-      activeCommand === 'attack' ? 'attack' : activeCommand === 'patrol' ? 'patrol' : 'move',
+      activeCommand === 'attack' || activeCommand === 'attack_move'
+        ? 'attack_move'
+        : activeCommand === 'patrol'
+        ? 'patrol'
+        : 'move',
       worldPos.x,
       worldPos.y
     );

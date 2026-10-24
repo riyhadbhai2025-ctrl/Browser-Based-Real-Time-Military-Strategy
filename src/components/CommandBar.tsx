@@ -22,7 +22,7 @@ interface CommandBarProps {
   selectedUnits: Unit[];
   allPlayerUnitsCount?: number;
   activeCommand: string;
-  onSetCommand: (command: 'move' | 'attack' | 'hold' | 'patrol' | 'retreat' | 'stop') => void;
+  onSetCommand: (command: 'move' | 'attack' | 'attack_move' | 'hold' | 'patrol' | 'retreat' | 'stop') => void;
   onSelectSingleUnit: (id: string) => void;
   onSelectAllUnits?: () => void;
   onClearSelection?: () => void;

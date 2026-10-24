@@ -389,27 +389,93 @@ export class GameStore {
     }
   }
 
+  private isSavingFile = false;
+
   private async initPostgresLayer(): Promise<void> {
     if (process.env.NODE_ENV === 'test') return;
     if (!isPostgresConfigured()) return;
     try {
+      const bootTime = this.startTime;
       const existing = await loadStateFromPostgres();
       if (existing && (existing.bases.length > 0 || existing.maps.length > 0)) {
         const pgPurged = Boolean(existing.kv.accountsPurged || this.data.accountsPurged);
         if (pgPurged) {
           this.data.accountsPurged = true;
-          this.data.users = existing.users;
-          this.data.tokens = existing.tokens;
-          this.data.adminSessions = { ...this.data.adminSessions, ...existing.adminSessions };
+          // Preserve any newly registered users created in-memory after server boot
+          const newInMemoryUsers: typeof this.data.users = {};
+          for (const [uid, rec] of Object.entries(this.data.users)) {
+            if ((rec.profile?.joinedAt || 0) >= bootTime) {
+              newInMemoryUsers[uid] = rec;
+            }
+          }
+          this.data.users = { ...existing.users, ...newInMemoryUsers };
+          this.data.tokens = { ...existing.tokens, ...this.data.tokens };
+          this.data.adminSessions = { ...existing.adminSessions, ...this.data.adminSessions };
         } else {
-          // Merge PostgreSQL durable state with any local schema upgrades
-          this.data.users = { ...this.data.users, ...existing.users };
-          this.data.tokens = { ...this.data.tokens, ...existing.tokens };
-          this.data.adminSessions = { ...this.data.adminSessions, ...existing.adminSessions };
+          // Merge PostgreSQL durable state with in-memory state, keeping newer user records
+          const mergedUsers: typeof this.data.users = { ...existing.users };
+          for (const [uid, memUser] of Object.entries(this.data.users)) {
+            const pgUser = mergedUsers[uid];
+            const memTs = Math.max(
+              memUser.profile?.lastActiveAt || 0,
+              memUser.profile?.lastLoginAt || 0,
+              memUser.profile?.joinedAt || 0
+            );
+            const pgTs = Math.max(
+              pgUser?.profile?.lastActiveAt || 0,
+              pgUser?.profile?.lastLoginAt || 0,
+              pgUser?.profile?.joinedAt || 0
+            );
+            if (!pgUser || memTs >= pgTs) {
+              mergedUsers[uid] = memUser;
+            }
+          }
+          this.data.users = mergedUsers;
+          this.data.tokens = { ...existing.tokens, ...this.data.tokens };
+          this.data.adminSessions = { ...existing.adminSessions, ...this.data.adminSessions };
         }
-        if (existing.bases.length > 0) this.data.bases = existing.bases;
-        if (existing.units.length > 0) this.data.units = existing.units;
-        this.data.alliances = existing.alliances;
+
+        if (existing.bases.length > 0) {
+          const baseMap = new Map<string, Base>();
+          for (const pgBase of existing.bases) {
+            baseMap.set(pgBase.id, pgBase);
+          }
+          for (const memBase of this.data.bases) {
+            const pgBase = baseMap.get(memBase.id);
+            if (
+              !pgBase ||
+              (memBase.lastResourceUpdate || 0) >= (pgBase.lastResourceUpdate || 0) ||
+              (memBase.lastMeaningfulActivityAt || 0) >= bootTime
+            ) {
+              baseMap.set(memBase.id, memBase);
+            }
+          }
+          this.data.bases = Array.from(baseMap.values());
+        }
+
+        if (existing.units.length > 0) {
+          const unitMap = new Map<string, Unit>();
+          for (const pgUnit of existing.units) {
+            unitMap.set(pgUnit.id, pgUnit);
+          }
+          for (const memUnit of this.data.units) {
+            if (!unitMap.has(memUnit.id) || (memUnit.lastAttackTime || 0) >= bootTime) {
+              unitMap.set(memUnit.id, memUnit);
+            }
+          }
+          this.data.units = Array.from(unitMap.values());
+        }
+
+        if (existing.alliances.length > 0) {
+          const allianceMap = new Map<string, Alliance>();
+          for (const a of existing.alliances) allianceMap.set(a.id, a);
+          for (const a of this.data.alliances) {
+            if (!allianceMap.has(a.id) || (a.createdTime || 0) >= bootTime) {
+              allianceMap.set(a.id, a);
+            }
+          }
+          this.data.alliances = Array.from(allianceMap.values());
+        }
         if (existing.maps.length > 0) this.data.maps = existing.maps;
         if (Object.keys(existing.envObjectsByMap).length > 0) {
           this.data.envObjectsByMap = existing.envObjectsByMap;
@@ -1197,12 +1263,13 @@ export class GameStore {
     return parsed as PersistentData;
   }
 
-  private loadOrInit(): PersistentData {
-    if (process.env.NODE_ENV !== 'test' && fs.existsSync(DATA_FILE)) {
+  private loadOrInit(customFilePath?: string): PersistentData {
+    const targetFile = customFilePath || DATA_FILE;
+    if ((customFilePath || process.env.NODE_ENV !== 'test') && fs.existsSync(targetFile)) {
       try {
-        const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+        const raw = fs.readFileSync(targetFile, 'utf-8');
         const parsed = JSON.parse(raw);
-        if (parsed.worldConfig && parsed.worldConfig.seed === 202610 && parsed.envObjects) {
+        if (parsed && typeof parsed === 'object' && (parsed.users || Array.isArray(parsed.bases))) {
           return this.migrateData(parsed);
         }
       } catch (e) {
@@ -1558,15 +1625,33 @@ export class GameStore {
     return this.data;
   }
 
-  public saveData(dataToSave: PersistentData = this.data) {
-    if (process.env.NODE_ENV === 'test') return;
+  public saveData(dataToSave: PersistentData = this.data, customFilePath?: string) {
+    if (process.env.NODE_ENV === 'test' && !customFilePath) return;
+    const targetFile = customFilePath || DATA_FILE;
+    if (this.isSavingFile && !customFilePath) return;
+    this.isSavingFile = true;
     try {
-      fs.writeFileSync(DATA_FILE, JSON.stringify(dataToSave, null, 2), 'utf-8');
+      const dir = path.dirname(targetFile);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const tmpFile = `${targetFile}.tmp.${process.pid}.${Date.now()}`;
+      fs.writeFileSync(tmpFile, JSON.stringify(dataToSave, null, 2), 'utf-8');
+      fs.renameSync(tmpFile, targetFile);
     } catch (e) {
       console.error('Failed to save gamestate.json:', e);
+    } finally {
+      this.isSavingFile = false;
     }
-    // Non-blocking sync to Cloud SQL PostgreSQL
-    void this.syncToDatabaseNow();
+    if (!customFilePath) {
+      // Non-blocking sync to Cloud SQL PostgreSQL
+      void this.syncToDatabaseNow();
+    }
+  }
+
+  public reloadFromDisk(customFilePath?: string): PersistentData {
+    this.data = this.loadOrInit(customFilePath);
+    return this.data;
   }
 
   public persistBaseAndUnits(base: Base, unitsToSave: Unit[] = []) {

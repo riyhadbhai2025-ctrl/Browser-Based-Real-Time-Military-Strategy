@@ -983,11 +983,14 @@ io.on('connection', (socket) => {
     );
     const terrain = gameSimulation.getTerrain(requestedMapId);
 
+    const userAllianceId = state.users[authenticatedUserId]?.profile?.allianceId || null;
     socket.emit('world:state', {
       ...visible,
       terrain,
       maps: state.maps.filter((m) => m.enabled),
-      chat: state.chat.slice(-50),
+      chat: state.chat
+        .filter((c) => c.channel !== 'alliance' || (userAllianceId && c.allianceId === userAllianceId))
+        .slice(-50),
       notifications: state.notifications
         .filter((n) => n.userId === authenticatedUserId || n.userId === 'all')
         .slice(-20),
@@ -1019,13 +1022,16 @@ io.on('connection', (socket) => {
       Array.from(new Set(onlineSockets.values()))
     );
     const terrain = gameSimulation.getTerrain(targetMap.id);
+    const userAllianceId = userProf?.allianceId || null;
 
     socket.emit('world:state', {
       ...visible,
       terrain,
       activeMap: targetMap,
       maps: state.maps.filter((m) => m.enabled),
-      chat: state.chat.slice(-50),
+      chat: state.chat
+        .filter((c) => c.channel !== 'alliance' || (userAllianceId && c.allianceId === userAllianceId))
+        .slice(-50),
       notifications: state.notifications
         .filter((n) => n.userId === authenticatedUserId || n.userId === 'all')
         .slice(-20),
@@ -1077,17 +1083,28 @@ io.on('connection', (socket) => {
   // Unit command
   socket.on(
     'unit:command',
-    (payload: {
-      unitIds: string[];
-      command: 'move' | 'attack' | 'hold' | 'patrol' | 'retreat' | 'stop';
-      targetX?: number;
-      targetY?: number;
-      targetUnitId?: string;
-      targetBaseId?: string;
-    }) => {
+    (
+      payload: {
+        unitIds: string[];
+        command: 'move' | 'attack' | 'attack_move' | 'hold' | 'patrol' | 'retreat' | 'stop';
+        targetX?: number;
+        targetY?: number;
+        targetUnitId?: string;
+        targetBaseId?: string;
+      },
+      callback?: Function
+    ) => {
       const uid = canPerformGameplayAction();
-      if (!uid || !payload || !Array.isArray(payload.unitIds)) return;
-      gameSimulation.commandUnits(
+      if (!uid || !payload || !Array.isArray(payload.unitIds)) {
+        if (callback) callback({ success: false, message: 'Invalid command payload or unauthorized' });
+        return;
+      }
+      const allowedCommands = ['move', 'attack', 'attack_move', 'hold', 'patrol', 'retreat', 'stop'];
+      if (!allowedCommands.includes(payload.command)) {
+        if (callback) callback({ success: false, message: `Unsupported unit command: ${payload.command}` });
+        return;
+      }
+      const result = gameSimulation.commandUnits(
         uid,
         payload.unitIds,
         payload.command,
@@ -1096,6 +1113,11 @@ io.on('connection', (socket) => {
         payload.targetUnitId,
         payload.targetBaseId
       );
+      if (callback) {
+        callback(result);
+      } else if (!result.success && result.message) {
+        socket.emit('action:error', { title: 'COMMAND REJECTED', message: result.message });
+      }
     }
   );
 
@@ -1262,17 +1284,31 @@ io.on('connection', (socket) => {
   // Chat message
   socket.on(
     'chat:send',
-    (payload: { content: string; channel?: 'global' | 'alliance'; coords?: { x: number; y: number } }) => {
+    (payload: { content: string; channel?: 'global' | 'alliance'; coords?: { x: number; y: number } }, callback?: Function) => {
       const uid = canPerformGameplayAction();
-      if (!uid) return;
+      if (!uid) {
+        if (callback) callback({ success: false, message: 'Authentication required' });
+        return;
+      }
       const cleanContent = sanitizeText(payload?.content, 300);
-      if (!cleanContent) return;
+      if (!cleanContent) {
+        if (callback) callback({ success: false, message: 'Message content cannot be empty' });
+        return;
+      }
 
       const data = gameStore.getData();
       const userProfile = data.users[uid]?.profile;
       if (!userProfile) return;
       const senderName = userProfile.username;
       const alliance = data.alliances.find((a) => a.id === userProfile.allianceId);
+      const requestedChannel = payload.channel === 'alliance' ? 'alliance' : 'global';
+
+      if (requestedChannel === 'alliance' && !alliance) {
+        const msg = 'You must belong to an alliance to transmit on the coalition channel.';
+        socket.emit('action:error', { title: 'ALLIANCE COMMS', message: msg });
+        if (callback) callback({ success: false, message: msg });
+        return;
+      }
 
       const newMsg: ChatMessage = {
         id: `chat_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -1280,7 +1316,7 @@ io.on('connection', (socket) => {
         senderId: uid,
         senderName,
         allianceTag: alliance?.tag || null,
-        channel: payload.channel || 'global',
+        channel: requestedChannel,
         allianceId: alliance?.id || null,
         content: cleanContent,
         coords: payload.coords,
@@ -1290,7 +1326,17 @@ io.on('connection', (socket) => {
       data.chat.push(newMsg);
       if (data.chat.length > 200) data.chat.shift();
 
-      io.to('authenticated_commanders').emit('chat:message', newMsg);
+      if (requestedChannel === 'alliance' && alliance) {
+        for (const [sockId, sockUserId] of onlineSockets.entries()) {
+          const targetAllianceId = data.users[sockUserId]?.profile?.allianceId;
+          if (targetAllianceId === alliance.id) {
+            io.to(sockId).emit('chat:message', newMsg);
+          }
+        }
+      } else {
+        io.to('authenticated_commanders').emit('chat:message', newMsg);
+      }
+      if (callback) callback({ success: true, message: newMsg });
     }
   );
 
