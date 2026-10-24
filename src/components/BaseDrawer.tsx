@@ -374,12 +374,18 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
 
           <div className="flex items-center gap-1">
             <span className="text-slate-400">TURRETS:</span>
-            <span className={base.defensesIntact ? 'text-cyan-400 font-bold' : 'text-rose-400 font-bold'}>
+            <span
+              className={
+                (base.activeTurretsCount ?? 0) > 0
+                  ? 'text-cyan-400 font-bold'
+                  : 'text-rose-400 font-bold'
+              }
+            >
               {base.activeTurretsCount !== undefined
-                ? `${base.activeTurretsCount} ACTIVE`
+                ? `${base.activeTurretsCount}/${base.totalTurretsCount ?? base.activeTurretsCount} ACTIVE`
                 : base.defenseShield > 0
                 ? 'SHIELD UP'
-                : 'OFFLINE'}
+                : 'DESTROYED'}
             </span>
           </div>
 
@@ -387,10 +393,14 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
             <span className="text-slate-400">STATE:</span>
             <span
               className={`uppercase font-bold ${
-                isNeutralized ? 'text-amber-300 animate-pulse' : 'text-indigo-300'
+                isNeutralized
+                  ? 'text-amber-300 animate-pulse'
+                  : isNeutral
+                  ? 'text-amber-400'
+                  : 'text-indigo-300'
               }`}
             >
-              {base.lifecycleState || 'ACTIVE'}
+              {isNeutralized ? 'NEUTRALIZED' : isNeutral ? 'FORTIFIED NEUTRAL' : base.lifecycleState || 'ACTIVE'}
             </span>
           </div>
         </div>
@@ -400,7 +410,7 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
             <div className="flex items-center justify-between text-[10px] font-bold text-amber-300 font-mono">
               <span className="flex items-center gap-1">
                 <Target className="w-3.5 h-3.5 text-amber-400" />
-                <span>CONQUEST UPLINK</span>
+                <span>BASE NEUTRALIZED — CONQUEST UPLINK</span>
               </span>
               <span>{Math.round(base.captureProgress || 0)}%</span>
             </div>
@@ -417,18 +427,31 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
                 </span>
               ) : (
                 <span>
-                  Deploy a designated <strong className="text-amber-200">Dominator Command Vehicle</strong> within capture perimeter ({Math.max(6.0, (base.radius || 4) + 2.5).toFixed(1)} tiles) to capture this base.
+                  Base neutralized. Deploy a designated <strong className="text-amber-200">Dominator Command Vehicle</strong> within capture perimeter ({Math.max(6.0, (base.radius || 4) + 2.5).toFixed(1)} tiles) to capture this base.
                 </span>
               )}
             </div>
           </div>
         )}
 
-        {base.captureBlockedReason && !isOwner && !isNeutralized && (
+        {!isOwner && !isNeutralized && (
           <div className="mb-1.5 px-2.5 py-1.5 rounded bg-amber-950/60 border border-amber-600/40 text-[10px] font-mono text-amber-200 flex items-start gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
-            <div className="leading-tight">
-              <span className="font-bold text-amber-300">SIEGE DOCTRINE:</span> {base.captureBlockedReason}
+            <div className="leading-tight space-y-0.5">
+              <div>
+                <span className="font-bold text-amber-300">SIEGE DOCTRINE:</span>{' '}
+                {base.captureBlockedReason ||
+                  (base.defenseShield > 0 && (base.activeTurretsCount ?? 0) > 0
+                    ? 'Base defensive shield and all defensive turrets must be destroyed first'
+                    : base.defenseShield > 0
+                    ? 'Defense shield active — deplete shield before structural siege'
+                    : (base.activeTurretsCount ?? 0) > 0
+                    ? 'Destroy defensive turrets first before structural siege'
+                    : 'Structural integrity exposed — reduce base health to 0 to neutralize')}
+              </div>
+              <div className="text-[9px] text-slate-300">
+                Select combat units and right-click this installation to engage.
+              </div>
             </div>
           </div>
         )}
@@ -595,18 +618,24 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
                     <span className="text-slate-500">ORIGIN:</span> Permanent Command Headquarters of{' '}
                     <span className="text-purple-300 font-bold">{base.ownerName}</span>
                   </div>
-                ) : isNeutral ? (
+                ) : isNeutralized ? (
                   <div className="text-slate-400 text-[10px] py-0.5">
                     {base.previousOwnerName ? (
                       <span>
-                        <span className="text-slate-500">STATUS:</span> Neutralized. Former Controller:{' '}
+                        <span className="text-slate-500">STATUS:</span> Base neutralized. Former Controller:{' '}
                         <span className="text-amber-300 font-bold">{base.previousOwnerName}</span>
                       </span>
                     ) : (
                       <span>
-                        <span className="text-slate-500">STATUS:</span> Unclaimed Sector Base. Ready for conquest.
+                        <span className="text-slate-500">STATUS:</span> Base neutralized. Ready for Dominator conquest.
                       </span>
                     )}
+                  </div>
+                ) : isNeutral ? (
+                  <div className="text-slate-400 text-[10px] py-0.5">
+                    <span>
+                      <span className="text-slate-500">STATUS:</span> Fortified Neutral Garrison — Destroy shield, turrets, and structural integrity before conquest.
+                    </span>
                   </div>
                 ) : (
                   <div className="space-y-0.5 py-0.5">

@@ -3211,4 +3211,402 @@ test('32. Specialized Military Bases (Tank, Air, Helicopter, Railway, Train Stat
   }
 });
 
+test('33. Fortified Neutral Base Siege, Shield & Turret Destruction, Single Neutralization Transition & Dominator Conquest Across All Base Types', async () => {
+  const data = gameStore.getData();
+  const commanderId = 'player_default';
+  const originalUnits = [...data.units];
+
+  // Locate Garrison Iron-Spur Rail Yard (neutral rail base)
+  const sector1Bases = data.bases.filter((b) => (b.mapId || 'map_riverfront_assault') === 'map_riverfront_assault');
+  const railYard = sector1Bases.find((b) => b.id === 'base_rail_hub' || b.type === 'rail')!;
+  assert.ok(railYard, 'Sector 01 must contain Garrison Iron-Spur Rail Yard (rail base)');
+
+  // Snapshot all sector1 bases so we can restore cleanly after testing
+  const baseSnapshots = sector1Bases.map((b) => ({
+    base: b,
+    snapshot: JSON.parse(JSON.stringify(b)),
+  }));
+
+  try {
+    // Isolate test units so no unrelated map units interfere with target acquisition
+    data.units = [];
+
+    // Configure Garrison Iron-Spur Rail Yard to match the fortified neutral state:
+    // Structural Integrity: 2900 / 2900, Defense Shield: 700 / 700, Ownership: Neutral, with active turret
+    railYard.ownerId = 'neutral';
+    railYard.ownerName = 'Railway Logistics Union';
+    railYard.allianceId = null;
+    railYard.lifecycleState = 'active';
+    railYard.isProtected = false;
+    railYard.newcomerProtectionUntil = 0;
+    railYard.rebuildProtectionUntil = 0;
+    railYard.health = 2900;
+    railYard.maxHealth = 2900;
+    railYard.defenseShield = 700;
+    railYard.maxShield = 700;
+    railYard.buildings = [
+      { id: 'ry_cc', type: 'command_center', level: 2, health: 1500, maxHealth: 1500 },
+      { id: 'ry_lc', type: 'logistics_center', level: 2, health: 850, maxHealth: 850 },
+      { id: 'ry_rep', type: 'repair_depot', level: 2, health: 800, maxHealth: 800 },
+      { id: 'ry_vf', type: 'vehicle_factory', level: 1, health: 800, maxHealth: 800 },
+      { id: 'ry_ps', type: 'power_station', level: 2, health: 750, maxHealth: 750 },
+      { id: 'ry_vt', type: 'vulcan_turret', level: 1, health: 300, maxHealth: 300 },
+    ];
+    railYard.constructionQueue = [
+      {
+        id: 'ry_q1',
+        baseId: railYard.id,
+        buildingType: 'steel_foundry',
+        targetLevel: 1,
+        startTime: Date.now(),
+        finishTime: Date.now() + 60000,
+        cost: { concrete: 100, steel: 100, aluminum: 50, fuel: 50 },
+      },
+    ];
+    railYard.productionQueue = [
+      {
+        id: 'ry_pq1',
+        baseId: railYard.id,
+        unitType: 'vanguard_scout',
+        startTime: Date.now(),
+        finishTime: Date.now() + 60000,
+        cost: { concrete: 40, steel: 60, aluminum: 20, fuel: 30 },
+      },
+    ];
+
+    // Spawn an attacker tank outside range first to test approach movement
+    const distantTankId = 'test33_distant_tank';
+    const terrain = gameSimulation.getTerrain('map_riverfront_assault');
+    const approachPt = gameSimulation.findApproachPointForBase(
+      terrain,
+      railYard.x - 12,
+      railYard.y,
+      railYard,
+      'ground',
+      7
+    );
+    data.units.push({
+      id: distantTankId,
+      mapId: 'map_riverfront_assault',
+      type: 'titan_mbt',
+      ownerId: commanderId,
+      ownerName: 'HighCommander_One',
+      allianceId: 'alliance_vanguard',
+      x: Math.max(2, railYard.x - 14),
+      y: railYard.y,
+      rotation: 0,
+      health: 50000,
+      maxHealth: 50000,
+      command: 'idle',
+      path: [],
+      lastAttackTime: 0,
+      kills: 0,
+      homeBaseId: 'base_home_player',
+    });
+
+    // 1 & 2. Issuing an attack command against a fortified neutral base succeeds and preserves command === 'attack' (NOT converted to 'move')
+    const atkOrder = gameSimulation.commandUnits(
+      commanderId,
+      [distantTankId],
+      'attack',
+      railYard.x,
+      railYard.y,
+      undefined,
+      railYard.id
+    );
+    assert.strictEqual(atkOrder.success, true, `Attack command on fortified neutral base must succeed: ${atkOrder.message}`);
+    const distantTank = data.units.find((u) => u.id === distantTankId)!;
+    assert.strictEqual(
+      distantTank.command,
+      'attack',
+      'Attack order against a fortified neutral base must NOT be converted into a move command'
+    );
+    assert.strictEqual(
+      distantTank.targetBaseId,
+      railYard.id,
+      'Attack order against a fortified neutral base must retain targetBaseId'
+    );
+
+    // 3. Units outside range compute a path toward the target neutral base
+    assert.ok(
+      distantTank.path.length > 0 || Math.hypot(distantTank.x - approachPt.x, distantTank.y - approachPt.y) <= 1,
+      'Unit outside firing range must compute a movement path toward the target neutral base'
+    );
+
+    // 5, 6, 7. Friendly bases, protected bases, and invalid base IDs are rejected cleanly
+    const friendlyHome = sector1Bases.find((b) => b.ownerId === commanderId)!;
+    const friendlyAtk = gameSimulation.commandUnits(
+      commanderId,
+      [distantTankId],
+      'attack',
+      friendlyHome.x,
+      friendlyHome.y,
+      undefined,
+      friendlyHome.id
+    );
+    assert.strictEqual(friendlyAtk.success, false, 'Friendly bases must not be attackable');
+
+    const invalidBaseAtk = gameSimulation.commandUnits(
+      commanderId,
+      [distantTankId],
+      'attack',
+      50,
+      50,
+      undefined,
+      'non_existent_base_id_999'
+    );
+    assert.strictEqual(invalidBaseAtk.success, false, 'Invalid base IDs must be rejected cleanly');
+
+    railYard.rebuildProtectionUntil = Date.now() + 60000;
+    const protectedAtk = gameSimulation.commandUnits(
+      commanderId,
+      [distantTankId],
+      'attack',
+      railYard.x,
+      railYard.y,
+      undefined,
+      railYard.id
+    );
+    assert.strictEqual(protectedAtk.success, false, 'Protected bases must not be attackable while protection is active');
+    railYard.rebuildProtectionUntil = 0;
+
+    // Also verify AA-only unit (skyguard_aa, which only targets 'air') is rejected from attacking surface bases
+    const aaUnitId = 'test33_aa_unit';
+    data.units.push({
+      id: aaUnitId,
+      mapId: 'map_riverfront_assault',
+      type: 'skyguard_aa',
+      ownerId: commanderId,
+      ownerName: 'HighCommander_One',
+      x: railYard.x + 2,
+      y: railYard.y + 1,
+      rotation: 0,
+      health: 400,
+      maxHealth: 400,
+      command: 'idle',
+      path: [],
+      lastAttackTime: 0,
+      kills: 0,
+      homeBaseId: 'base_home_player',
+    });
+    const aaAtk = gameSimulation.commandUnits(
+      commanderId,
+      [aaUnitId],
+      'attack',
+      railYard.x,
+      railYard.y,
+      undefined,
+      railYard.id
+    );
+    assert.strictEqual(aaAtk.success, false, 'Air-only weapon unit must be rejected from attacking surface bases');
+    data.units = data.units.filter((u) => u.id !== aaUnitId);
+
+    // Place a siege strike tank in range of Garrison Iron-Spur Rail Yard
+    distantTank.x = railYard.x + 2;
+    distantTank.y = railYard.y + 1;
+    distantTank.path = [];
+    distantTank.command = 'attack';
+    distantTank.targetBaseId = railYard.id;
+    distantTank.lastAttackTime = 0;
+
+    // Place a Dominator nearby to verify premature capture is blocked while base is intact
+    const dominatorId = 'test33_dominator';
+    data.units.push({
+      id: dominatorId,
+      mapId: 'map_riverfront_assault',
+      type: 'dominator_conquest',
+      ownerId: commanderId,
+      ownerName: 'HighCommander_One',
+      allianceId: 'alliance_vanguard',
+      x: railYard.x + 1,
+      y: railYard.y - 1,
+      rotation: 0,
+      health: 50000,
+      maxHealth: 50000,
+      command: 'idle',
+      path: [],
+      lastAttackTime: 0,
+      kills: 0,
+      homeBaseId: 'base_home_player',
+    });
+
+    // 4, 8, 10, 17. Run first combat tick: shield takes damage, turret retaliates against attacker, and capture is blocked
+    const initialCombinedHp = distantTank.health + 50000;
+    gameSimulation.tick(false);
+
+    assert.ok(
+      railYard.defenseShield < 700,
+      `Defense shield must decrease when attacked (was 700, now ${railYard.defenseShield})`
+    );
+    assert.strictEqual(
+      railYard.health,
+      2900,
+      'Structural integrity must not decrease while shield and active turrets remain'
+    );
+    const dominatorUnit = data.units.find((u) => u.id === dominatorId)!;
+    assert.ok(
+      distantTank.health + dominatorUnit.health < initialCombinedHp,
+      'Active defensive turret on fortified neutral base must retaliate against hostile units in range'
+    );
+    assert.strictEqual(
+      railYard.captureProgress,
+      0,
+      'Fortified neutral base must NOT be capturable while shield, turrets, or structural health remain'
+    );
+
+    // 10 & 11. Deplete remaining shield across simulation ticks and verify turret damage begins next
+    for (let i = 0; i < 30 && railYard.defenseShield > 0; i++) {
+      distantTank.lastAttackTime = 0;
+      gameSimulation.tick(false);
+    }
+    assert.strictEqual(railYard.defenseShield, 0, 'Defense shield must reach 0');
+    assert.strictEqual(
+      railYard.health,
+      2900,
+      'Active turret must still prevent structural damage after shield depletion'
+    );
+
+    // 8 & 9. Damage and destroy the active defensive turret
+    const vulcanTurret = railYard.buildings.find((b) => b.type === 'vulcan_turret')!;
+    assert.ok(vulcanTurret.health > 0, 'Vulcan turret should initially be active');
+    for (let i = 0; i < 20 && vulcanTurret.health > 0; i++) {
+      distantTank.lastAttackTime = 0;
+      gameSimulation.tick(false);
+    }
+    assert.strictEqual(vulcanTurret.health, 0, 'Turret health must reach 0');
+    assert.strictEqual(railYard.activeTurretsCount, 0, 'Active turret count must update to 0');
+    assert.strictEqual(railYard.defensesIntact, false, 'defensesIntact must become false once shield and turrets are 0');
+
+    // Verify that even with shield=0 and turrets=0, capture is STILL blocked while structural health > 0
+    assert.strictEqual(
+      railYard.captureProgress,
+      0,
+      'Capture must remain blocked while structural health > 0 even after shield and turrets are destroyed'
+    );
+    assert.ok(
+      railYard.captureBlockedReason?.includes('Structural integrity exposed'),
+      `Expected structural siege prerequisite message, got: ${railYard.captureBlockedReason}`
+    );
+
+    // 12, 13, 14, 15, 16. Deplete structural integrity to 0 and verify single neutralization transition
+    distantTank.lastAttackTime = 0;
+    gameSimulation.tick(false);
+    assert.ok(
+      railYard.health < 2900 && railYard.health > 0,
+      `Structural integrity must decrease once shield and turrets are destroyed (now ${railYard.health})`
+    );
+
+    const reportsBeforeNeutralize = (data.battleReports || []).filter(
+      (r) => r.baseId === railYard.id && r.type === 'base_neutralized'
+    ).length;
+
+    for (let i = 0; i < 80 && railYard.health > 0; i++) {
+      distantTank.lastAttackTime = 0;
+      gameSimulation.tick(false);
+    }
+
+    // 13 & 15. Verify neutralized state invariants
+    assert.strictEqual(railYard.health, 0, 'Structural integrity must clamp to 0 and never go negative');
+    assert.strictEqual(railYard.defenseShield, 0, 'Neutralized base shield must be 0');
+    assert.strictEqual(railYard.lifecycleState, 'neutralized', 'Defeated base must enter neutralized lifecycleState');
+    assert.strictEqual(railYard.ownerId, 'neutral', 'Neutralized base ownerId must be neutral');
+    assert.strictEqual(railYard.activeTurretsCount, 0, 'Neutralized base must have 0 active turrets');
+    assert.strictEqual(railYard.defensesIntact, false, 'Neutralized base defensesIntact must be false');
+    assert.strictEqual(railYard.constructionQueue.length, 0, 'Neutralized base constructionQueue must be cleared');
+    assert.strictEqual(railYard.productionQueue.length, 0, 'Neutralized base productionQueue must be cleared');
+
+    // 14 & 16. Verify neutralization triggered exactly once and attacking non-conquest unit stopped firing
+    const reportsAfterNeutralize = (data.battleReports || []).filter(
+      (r) => r.baseId === railYard.id && r.type === 'base_neutralized'
+    ).length;
+    assert.strictEqual(
+      reportsAfterNeutralize - reportsBeforeNeutralize,
+      1,
+      'Neutralization event and battle report must trigger exactly once'
+    );
+    assert.strictEqual(distantTank.targetBaseId, null, 'Attacking tank must clear targetBaseId once base is neutralized');
+    assert.strictEqual(distantTank.command, 'idle', 'Attacking tank must return to idle once base is neutralized');
+
+    // Run additional check to confirm neutralization does not re-trigger and health stays 0
+    const repeatNeutralize = gameSimulation.neutralizeOrdinaryBase(railYard, distantTank, Date.now());
+    assert.strictEqual(repeatNeutralize, false, 'neutralizeOrdinaryBase must be idempotent on an already neutralized base');
+
+    // 18. Verify non-conquest units cannot capture a neutralized base
+    dominatorUnit.x = 2; // Move Dominator far away temporarily
+    dominatorUnit.y = 2;
+    railYard.captureProgress = 0;
+    gameSimulation.tick(false);
+    assert.strictEqual(railYard.captureProgress, 0, 'Non-conquest units must not advance capture progress');
+
+    // 17 & 20. Move Dominator into capture radius and complete conquest of the neutralized base
+    dominatorUnit.x = railYard.x + 1;
+    dominatorUnit.y = railYard.y + 1;
+    for (let i = 0; i < 25 && railYard.ownerId === 'neutral'; i++) {
+      gameSimulation.tick(false);
+    }
+    assert.strictEqual(railYard.ownerId, commanderId, 'Dominator must capture the neutralized base once progress reaches 100%');
+    assert.strictEqual(railYard.lifecycleState, 'active', 'Captured base must transition back to active lifecycleState');
+    assert.ok(railYard.health > 0, 'Captured base must have restored structural health');
+
+    // 19. Verify all specialized base types (tank, air, helicopter, rail, train, harbor) can receive combat damage and be neutralized
+    const specializedTypes = ['tank', 'air', 'helicopter', 'rail', 'train', 'harbor'] as const;
+    for (const bType of specializedTypes) {
+      const targetBase = sector1Bases.find((b) => b.type === bType)!;
+      assert.ok(targetBase, `Must find base of type ${bType}`);
+      targetBase.ownerId = 'neutral';
+      targetBase.lifecycleState = 'active';
+      targetBase.isProtected = false;
+      targetBase.newcomerProtectionUntil = 0;
+      targetBase.rebuildProtectionUntil = 0;
+      targetBase.defenseShield = 0;
+      targetBase.health = 50;
+      for (const bld of targetBase.buildings) {
+        if (
+          bld.type === 'vulcan_turret' ||
+          bld.type === 'sam_launcher' ||
+          bld.type === 'artillery_post' ||
+          bld.type === 'coastal_battery' ||
+          bld.type === 'fortified_bunker'
+        ) {
+          bld.health = 0;
+        }
+      }
+
+      distantTank.x = targetBase.x + 1;
+      distantTank.y = targetBase.y;
+      distantTank.path = [];
+      distantTank.lastAttackTime = 0;
+
+      const cmdRes = gameSimulation.commandUnits(
+        commanderId,
+        [distantTankId],
+        'attack',
+        targetBase.x,
+        targetBase.y,
+        undefined,
+        targetBase.id
+      );
+      assert.strictEqual(cmdRes.success, true, `Must accept attack command against neutral ${bType} base`);
+
+      for (let tickIdx = 0; tickIdx < 5 && targetBase.health > 0; tickIdx++) {
+        distantTank.lastAttackTime = 0;
+        gameSimulation.tick(false);
+      }
+      assert.strictEqual(targetBase.health, 0, `Neutral ${bType} base health must reach 0 under attack`);
+      assert.strictEqual(
+        targetBase.lifecycleState,
+        'neutralized',
+        `Neutral ${bType} base must transition to neutralized lifecycleState`
+      );
+    }
+  } finally {
+    data.units = originalUnits;
+    for (const { base, snapshot } of baseSnapshots) {
+      Object.assign(base, snapshot);
+    }
+    gameStore.saveData();
+  }
+});
+
+
 

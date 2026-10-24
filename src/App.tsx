@@ -1152,7 +1152,7 @@ export default function App() {
             selectedUnitIds.size > 0 &&
             picked.base.ownerId !== currentUserId
           ) {
-            if (picked.base.lifecycleState === 'neutralized' || picked.base.ownerId === 'neutral') {
+            if (picked.base.lifecycleState === 'neutralized' || picked.base.health <= 0) {
               issueUnitCommand('move', picked.base.x, picked.base.y);
             } else {
               issueUnitCommand('attack', undefined, undefined, undefined, picked.base.id);
@@ -1210,7 +1210,7 @@ export default function App() {
     }
 
     if (picked && picked.kind === 'base' && picked.base.ownerId !== currentUserId) {
-      if (picked.base.lifecycleState === 'neutralized' || picked.base.ownerId === 'neutral') {
+      if (picked.base.lifecycleState === 'neutralized' || picked.base.health <= 0) {
         issueUnitCommand('move', picked.base.x, picked.base.y);
       } else {
         issueUnitCommand('attack', undefined, undefined, undefined, picked.base.id);

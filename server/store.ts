@@ -892,11 +892,21 @@ export class GameStore {
         });
       }
 
-      // Explicit lifecycleState
-      if (!b.lifecycleState) {
-        if (b.isProtected) b.lifecycleState = 'protected';
-        else if (b.ownerId === 'neutral') b.lifecycleState = 'ownerless';
-        else b.lifecycleState = 'active';
+      // Explicit lifecycleState: distinguish active fortified bases (including neutral garrisons) from neutralized bases
+      if (b.health <= 0) {
+        b.health = 0;
+        b.defenseShield = 0;
+        b.activeTurretsCount = 0;
+        b.defensesIntact = false;
+        if (b.lifecycleState !== 'destroyed') {
+          b.lifecycleState = 'neutralized';
+        }
+      } else {
+        if (b.isProtected) {
+          b.lifecycleState = 'protected';
+        } else if (!b.lifecycleState || b.lifecycleState === 'ownerless' || b.lifecycleState === 'neutralized') {
+          b.lifecycleState = 'active';
+        }
       }
     }
 
@@ -952,7 +962,7 @@ export class GameStore {
             mapId: mapCfg.id,
             name: `${sectorLabel} ${b.name}`,
             isHomeBase: false,
-            lifecycleState: b.ownerId === 'neutral' ? 'ownerless' : 'active',
+            lifecycleState: b.health <= 0 ? 'neutralized' : 'active',
           };
           if (idx === 0) {
             clone.ownerId = 'player_default';
@@ -1143,7 +1153,7 @@ export class GameStore {
                   x: candX,
                   y: candY,
                   isHomeBase: false,
-                  lifecycleState: template.ownerId === 'neutral' ? 'ownerless' : 'active',
+                  lifecycleState: template.health <= 0 ? 'neutralized' : 'active',
                 });
               }
             }

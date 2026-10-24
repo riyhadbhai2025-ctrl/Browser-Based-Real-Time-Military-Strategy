@@ -316,6 +316,49 @@ export class GameSimulation {
     );
   }
 
+  public isBaseNeutralizedOrDestroyed(base: Base): boolean {
+    return (
+      base.lifecycleState === 'neutralized' ||
+      base.lifecycleState === 'destroyed' ||
+      base.health <= 0
+    );
+  }
+
+  public findApproachPointForBase(
+    terrain: TerrainType[][],
+    unitX: number,
+    unitY: number,
+    base: Base,
+    category: 'ground' | 'air' | 'naval' | 'rail',
+    attackRange: number
+  ): { x: number; y: number } {
+    if (category === 'air' || isCellPassable(terrain, Math.round(base.x), Math.round(base.y), category)) {
+      return { x: base.x, y: base.y };
+    }
+    const maxStandOff = Math.max(1, Math.floor(attackRange + (base.radius || 4) - 0.5));
+    let bestX = base.x;
+    let bestY = base.y;
+    let bestScore = Infinity;
+
+    for (let dy = -maxStandOff; dy <= maxStandOff; dy++) {
+      for (let dx = -maxStandOff; dx <= maxStandOff; dx++) {
+        const distToBase = Math.hypot(dx, dy);
+        if (distToBase > attackRange + (base.radius || 4) - 0.25) continue;
+        const cx = Math.max(1, Math.min(98, Math.round(base.x + dx)));
+        const cy = Math.max(1, Math.min(73, Math.round(base.y + dy)));
+        if (!isCellPassable(terrain, cx, cy, category)) continue;
+        const distFromUnit = Math.hypot(cx - unitX, cy - unitY);
+        const score = distFromUnit + distToBase * 0.25;
+        if (score < bestScore) {
+          bestScore = score;
+          bestX = cx;
+          bestY = cy;
+        }
+      }
+    }
+    return { x: bestX, y: bestY };
+  }
+
   public computeBasePower(base: Base): { powerUsed: number; powerCapacity: number } {
     let capacity = 25;
     let used = 0;
@@ -611,7 +654,7 @@ export class GameSimulation {
             unit.targetBaseId = null;
             unit.path = [];
             unit.command = 'idle';
-          } else if (tBase.lifecycleState === 'neutralized' || tBase.ownerId === 'neutral') {
+          } else if (this.isBaseNeutralizedOrDestroyed(tBase)) {
             if (def.canCaptureBase) {
               unit.targetBaseId = null;
               unit.command = 'move';
@@ -625,6 +668,20 @@ export class GameSimulation {
             if (distToBase <= def.attackRange + tBase.radius - 0.25) {
               if (unit.path && unit.path.length > 0) {
                 unit.path = [];
+                hasStateChange = true;
+              }
+            } else if (!unit.path || unit.path.length === 0) {
+              const approach = this.findApproachPointForBase(
+                terrain,
+                unit.x,
+                unit.y,
+                tBase,
+                def.category,
+                def.attackRange
+              );
+              const newPath = findPath(terrain, unit.x, unit.y, approach.x, approach.y, def.category);
+              if (newPath.length > 0) {
+                unit.path = newPath;
                 hasStateChange = true;
               }
             }
@@ -656,7 +713,7 @@ export class GameSimulation {
           def.targets.includes('ground') &&
           data.bases.some((base) => {
             if ((base.mapId || 'map_riverfront_assault') !== unitMapId) return false;
-            if (base.ownerId === unit.ownerId || base.ownerId === 'neutral' || base.lifecycleState === 'neutralized') {
+            if (base.ownerId === unit.ownerId || this.isBaseNeutralizedOrDestroyed(base)) {
               return false;
             }
             if (unit.allianceId && base.allianceId && unit.allianceId === base.allianceId) return false;
@@ -857,21 +914,29 @@ export class GameSimulation {
       }
 
       // Base attacking (with Phase 4 protection & turret siege damage)
-      if (!targetUnit && unit.command !== 'retreat' && def.targets.includes('ground')) {
+      if (
+        !targetUnit &&
+        unit.command !== 'move' &&
+        unit.command !== 'retreat' &&
+        unit.command !== 'stop' &&
+        def.targets.includes('ground')
+      ) {
         const candidateBases = unit.targetBaseId
-          ? [
-              ...data.bases.filter((b) => b.id === unit.targetBaseId),
-              ...data.bases.filter((b) => b.id !== unit.targetBaseId),
-            ]
-          : data.bases;
+          ? data.bases.filter((b) => b.id === unit.targetBaseId)
+          : data.bases.filter(
+              (b) =>
+                b.ownerId !== 'neutral' ||
+                unit.command === 'attack_move' ||
+                unit.command === 'patrol'
+            );
 
         for (const base of candidateBases) {
           if ((base.mapId || 'map_riverfront_assault') !== unitMapId) continue;
           if (base.ownerId === unit.ownerId) continue;
           if (unit.allianceId && base.allianceId && unit.allianceId === base.allianceId) continue;
           if (this.isBaseProtectedNow(base, now)) continue;
-          // Neutralized bases cannot be attacked by weapons
-          if (base.lifecycleState === 'neutralized' || base.ownerId === 'neutral') continue;
+          // Neutralized or already destroyed bases cannot be attacked by weapons
+          if (this.isBaseNeutralizedOrDestroyed(base)) continue;
 
           const dist = Math.hypot(base.x - unit.x, base.y - unit.y);
           if (dist <= def.attackRange + base.radius) {
@@ -879,7 +944,7 @@ export class GameSimulation {
             unit.lastAttackTime = now;
             hasStateChange = true;
 
-            // Attacking an enemy base forfeits attacker's beginner protection
+            // Attacking an enemy or fortified base forfeits attacker's beginner protection
             const attackerProfile = data.users[unit.ownerId]?.profile;
             if (attackerProfile && attackerProfile.beginnerProtectionUntil > now) {
               attackerProfile.beginnerProtectionUntil = 0;
@@ -918,6 +983,12 @@ export class GameSimulation {
               }
             }
 
+            const remainingTurrets = (base.buildings || []).filter(
+              (b) => DEFENSIVE_TURRET_TYPES.includes(b.type) && !b.isConstructing && b.health > 0
+            );
+            base.activeTurretsCount = remainingTurrets.length;
+            base.defensesIntact = base.defenseShield > 0 || remainingTurrets.length > 0;
+
             combatEvents.push({
               id: `cb_base_${now}_${Math.random().toString(36).substring(2, 7)}`,
               mapId: unitMapId,
@@ -931,6 +1002,7 @@ export class GameSimulation {
               damage,
               x: base.x,
               y: base.y,
+              isFatal: base.health <= 0,
               timestamp: now,
             });
             break;
@@ -939,14 +1011,9 @@ export class GameSimulation {
       }
     }
 
-    // 3. Base Turrets Auto-Firing at Hostile Units on the same map
+    // 3. Base Turrets Auto-Firing at Hostile Units on the same map (including fortified neutral bases)
     for (const base of data.bases) {
-      if (
-        base.lifecycleState === 'neutralized' ||
-        base.lifecycleState === 'destroyed' ||
-        base.ownerId === 'neutral' ||
-        base.health <= 0
-      ) {
+      if (this.isBaseNeutralizedOrDestroyed(base)) {
         continue;
       }
       const baseMapId = base.mapId || 'map_riverfront_assault';
@@ -1069,16 +1136,29 @@ export class GameSimulation {
         continue;
       }
 
-      // 2. Only neutralized (ownerless/neutral) bases can be conquered
-      if (base.lifecycleState !== 'neutralized' && base.ownerId !== 'neutral') {
+      // 2. Only neutralized bases (where health <= 0 and defenses are eliminated) can be conquered
+      if (!this.isBaseNeutralizedOrDestroyed(base)) {
         if (base.captureProgress > 0) {
           base.captureProgress = 0;
           base.capturingPlayerId = null;
           base.captureContested = false;
           hasStateChange = true;
         }
-        base.captureBlockedReason = 'Base defenses must be completely eliminated before conquest capture';
+        if (base.defenseShield > 0 && activeTurrets.length > 0) {
+          base.captureBlockedReason = 'Base defensive shield and all defensive turrets must be destroyed first';
+        } else if (base.defenseShield > 0) {
+          base.captureBlockedReason = 'Defense shield active — deplete shield before structural siege';
+        } else if (activeTurrets.length > 0) {
+          base.captureBlockedReason = 'Destroy defensive turrets first before structural siege';
+        } else {
+          base.captureBlockedReason = 'Structural integrity exposed — reduce base health to 0 to neutralize';
+        }
         continue;
+      }
+
+      // Ensure neutralized base fields stay consistent
+      if (base.lifecycleState !== 'neutralized' && base.lifecycleState !== 'destroyed') {
+        base.lifecycleState = 'neutralized';
       }
 
       // 3. Find designated conquest units in range
@@ -1681,7 +1761,7 @@ export class GameSimulation {
   public neutralizeOrdinaryBase(base: Base, attackerUnit: Unit, now: number) {
     const lockRes = gameStore.withLock(`base_neutralize_${base.id}`, () => {
       // Idempotency: if already neutralized, do not repeat destruction or event broadcasting
-      if (base.lifecycleState === 'neutralized' && base.ownerId === 'neutral') {
+      if (base.lifecycleState === 'neutralized') {
         return false;
       }
 
@@ -1718,6 +1798,9 @@ export class GameSimulation {
         'barracks',
         'vehicle_factory',
         'aviation_hangar',
+        'helicopter_hangar',
+        'naval_dockyard',
+        'rail_depot',
         'power_station',
       ];
       const eligible = (base.buildings || []).filter((b) => eligibleTypes.includes(b.type));
@@ -1814,8 +1897,8 @@ export class GameSimulation {
       if (base.isHomeBase || base.type === 'home') {
         return false;
       }
-      // Active, protected, or rebuilding bases cannot be captured without neutralization
-      if (base.lifecycleState !== 'neutralized' && base.lifecycleState !== 'ownerless') {
+      // Active, protected, or rebuilding bases with remaining structural integrity cannot be captured without neutralization
+      if (!this.isBaseNeutralizedOrDestroyed(base) || base.defenseShield > 0 || this.hasActiveDefensiveTurrets(base)) {
         return false;
       }
 
@@ -2408,9 +2491,53 @@ export class GameSimulation {
       }
     }
 
+    const primaryMapId = authorizedUnits[0].mapId || 'map_riverfront_assault';
+    if (targetBaseId) {
+      const targetBaseOnMap = data.bases.find(
+        (b) => b.id === targetBaseId && (b.mapId || 'map_riverfront_assault') === primaryMapId
+      );
+      if (!targetBaseOnMap) {
+        return { success: false, commandedCount: 0, message: 'Target base not found in current sector' };
+      }
+      if (command === 'attack') {
+        if (
+          targetBaseOnMap.ownerId === userId ||
+          (authorizedUnits[0].allianceId &&
+            targetBaseOnMap.allianceId &&
+            authorizedUnits[0].allianceId === targetBaseOnMap.allianceId)
+        ) {
+          return { success: false, commandedCount: 0, message: 'Cannot attack a friendly or allied base' };
+        }
+        if (this.isBaseProtectedNow(targetBaseOnMap)) {
+          return {
+            success: false,
+            commandedCount: 0,
+            message: 'Target base is shielded by active command protection',
+          };
+        }
+      }
+    }
+
+    if (targetUnitId && command === 'attack') {
+      const targetUnitOnMap = data.units.find(
+        (u) => u.id === targetUnitId && (u.mapId || 'map_riverfront_assault') === primaryMapId
+      );
+      if (!targetUnitOnMap) {
+        return { success: false, commandedCount: 0, message: 'Target unit not found in current sector' };
+      }
+      if (
+        targetUnitOnMap.ownerId === userId ||
+        (authorizedUnits[0].allianceId &&
+          targetUnitOnMap.allianceId &&
+          authorizedUnits[0].allianceId === targetUnitOnMap.allianceId)
+      ) {
+        return { success: false, commandedCount: 0, message: 'Cannot attack a friendly or allied unit' };
+      }
+    }
+
     gameStore.recordMeaningfulPlayerActivity(userId);
 
-    // If issuing an offensive attack against another player's assets, forfeit beginner protection
+    // If issuing an offensive attack against another player's or garrison's assets, forfeit beginner protection
     if (command === 'attack' && (targetUnitId || targetBaseId)) {
       const attackerProfile = data.users[userId]?.profile;
       if (attackerProfile && attackerProfile.beginnerProtectionUntil > Date.now()) {
@@ -2466,36 +2593,63 @@ export class GameSimulation {
         let effectiveTargetUnitId = targetUnitId || null;
         let effectiveTargetBaseId = targetBaseId || null;
 
-        // If targeting a neutralized or neutral base, units should move to it for capture instead of attacking
+        let rawDestX = targetX ?? unit.x;
+        let rawDestY = targetY ?? unit.y;
+
         if (effectiveTargetBaseId) {
           const tBase = data.bases.find(
             (b) => b.id === effectiveTargetBaseId && (b.mapId || 'map_riverfront_assault') === unitMapId
           );
-          if (tBase && (tBase.lifecycleState === 'neutralized' || tBase.ownerId === 'neutral')) {
-            effectiveTargetBaseId = null;
-            effectiveCommand = 'move';
+          if (!tBase) {
+            lastRejectionReason = 'Target base not found in current sector';
+            return;
           }
-        }
-
-        let rawDestX = targetX ?? unit.x;
-        let rawDestY = targetY ?? unit.y;
-
-        if (effectiveTargetUnitId) {
+          if (this.isBaseNeutralizedOrDestroyed(tBase)) {
+            if (def?.canCaptureBase) {
+              effectiveTargetBaseId = null;
+              effectiveCommand = 'move';
+              rawDestX = tBase.x;
+              rawDestY = tBase.y;
+            } else if (command === 'attack') {
+              lastRejectionReason = 'Base is already neutralized — deploy a Dominator Command Vehicle to capture it';
+              return;
+            } else {
+              effectiveTargetBaseId = null;
+              effectiveCommand = 'move';
+              rawDestX = tBase.x;
+              rawDestY = tBase.y;
+            }
+          } else {
+            if (command === 'attack' && !def?.targets.includes('ground')) {
+              lastRejectionReason = `${def?.name || unit.type} weapons cannot target surface installations`;
+              return;
+            }
+            const approach = this.findApproachPointForBase(
+              terrain,
+              unit.x,
+              unit.y,
+              tBase,
+              category,
+              def?.attackRange || 5
+            );
+            rawDestX = approach.x;
+            rawDestY = approach.y;
+          }
+        } else if (effectiveTargetUnitId) {
           const tUnit = data.units.find(
             (u) => u.id === effectiveTargetUnitId && (u.mapId || 'map_riverfront_assault') === unitMapId
           );
-          if (tUnit) {
-            rawDestX = tUnit.x;
-            rawDestY = tUnit.y;
+          if (!tUnit) {
+            lastRejectionReason = 'Target unit not found in current sector';
+            return;
           }
-        } else if (effectiveTargetBaseId) {
-          const tBase = data.bases.find(
-            (b) => b.id === effectiveTargetBaseId && (b.mapId || 'map_riverfront_assault') === unitMapId
-          );
-          if (tBase) {
-            rawDestX = tBase.x;
-            rawDestY = tBase.y;
+          const tDef = gameStore.getEffectiveUnitDef(tUnit.type as UnitType);
+          if (command === 'attack' && tDef && !def?.targets.includes(tDef.category)) {
+            lastRejectionReason = `${def?.name || unit.type} weapons cannot engage ${tDef.category.toUpperCase()} targets`;
+            return;
           }
+          rawDestX = tUnit.x;
+          rawDestY = tUnit.y;
         }
 
         // Validate direct terrain destination passability for non-AI coordinate orders
@@ -2520,10 +2674,24 @@ export class GameSimulation {
         let destY = rawDestY;
 
         if (category === 'rail') {
-          const path = findPath(terrain, unit.x, unit.y, destX, destY, 'rail');
-          if (path.length === 0 && Math.hypot(destX - unit.x, destY - unit.y) >= 0.5) {
-            lastRejectionReason = 'Destination is not on a connected railway track network.';
-            return;
+          let path: Array<{ x: number; y: number }> = [];
+          if (effectiveTargetBaseId) {
+            const tBase = data.bases.find((b) => b.id === effectiveTargetBaseId);
+            const inRange =
+              tBase && Math.hypot(tBase.x - unit.x, tBase.y - unit.y) <= (def?.attackRange || 10) + (tBase.radius || 4);
+            if (!inRange) {
+              path = findPath(terrain, unit.x, unit.y, destX, destY, 'rail');
+              if (path.length === 0 && Math.hypot(destX - unit.x, destY - unit.y) >= 0.5) {
+                lastRejectionReason = 'Target base is out of range of connected railway tracks.';
+                return;
+              }
+            }
+          } else {
+            path = findPath(terrain, unit.x, unit.y, destX, destY, 'rail');
+            if (path.length === 0 && Math.hypot(destX - unit.x, destY - unit.y) >= 0.5) {
+              lastRejectionReason = 'Destination is not on a connected railway track network.';
+              return;
+            }
           }
           unit.command = effectiveCommand;
           unit.targetUnitId = effectiveTargetUnitId;
@@ -2537,7 +2705,7 @@ export class GameSimulation {
           }
           commandedCount++;
         } else {
-          if (total > 1 && !effectiveTargetUnitId) {
+          if (total > 1 && !effectiveTargetUnitId && !effectiveTargetBaseId) {
             const row = Math.floor(idx / cols);
             const col = idx % cols;
             const spacing = 1.35;
@@ -2550,10 +2718,21 @@ export class GameSimulation {
               destY = candidateY;
             }
           }
-          const path = findPath(terrain, unit.x, unit.y, destX, destY, category);
-          if (path.length === 0 && Math.hypot(destX - unit.x, destY - unit.y) >= 1.0 && !effectiveTargetUnitId && !effectiveTargetBaseId) {
-            lastRejectionReason = 'No passable route to target coordinates.';
-            return;
+          let path: Array<{ x: number; y: number }> = [];
+          if (effectiveTargetBaseId) {
+            const tBase = data.bases.find((b) => b.id === effectiveTargetBaseId);
+            const inRange =
+              tBase &&
+              Math.hypot(tBase.x - unit.x, tBase.y - unit.y) <= (def?.attackRange || 5) + (tBase.radius || 4) - 0.25;
+            if (!inRange) {
+              path = findPath(terrain, unit.x, unit.y, destX, destY, category);
+            }
+          } else {
+            path = findPath(terrain, unit.x, unit.y, destX, destY, category);
+            if (path.length === 0 && Math.hypot(destX - unit.x, destY - unit.y) >= 1.0 && !effectiveTargetUnitId) {
+              lastRejectionReason = 'No passable route to target coordinates.';
+              return;
+            }
           }
           unit.command = effectiveCommand;
           unit.targetUnitId = effectiveTargetUnitId;
@@ -2595,6 +2774,9 @@ export class GameSimulation {
       const econ = gameStore.getEconomyConfig();
       const base = data.bases.find((b) => b.id === baseId && b.ownerId === userId);
       if (!base) return { success: false, message: 'Base not found or unauthorized' };
+      if (this.isBaseNeutralizedOrDestroyed(base)) {
+        return { success: false, message: 'Base is neutralized and cannot construct facilities' };
+      }
 
       const bDef = gameStore.getEffectiveBuildingDef(buildingType);
       if (!bDef) return { success: false, message: 'Invalid building type' };
@@ -2769,6 +2951,9 @@ export class GameSimulation {
       const econ = gameStore.getEconomyConfig();
       const base = data.bases.find((b) => b.id === baseId && b.ownerId === userId);
       if (!base) return { success: false, message: 'Base not found or unauthorized' };
+      if (this.isBaseNeutralizedOrDestroyed(base)) {
+        return { success: false, message: 'Base is neutralized and cannot produce units' };
+      }
 
       const baseMapId = base.mapId || 'map_riverfront_assault';
       const mapCfg = gameStore.getMapConfig(baseMapId);
