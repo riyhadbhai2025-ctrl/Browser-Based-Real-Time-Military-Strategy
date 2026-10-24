@@ -48,6 +48,125 @@ export class GameSimulation {
     this.initAllMapTerrains();
   }
 
+  private ensureMapBaseInfrastructureTerrain(mapId: string, terrain: TerrainType[][]) {
+    if (!terrain || terrain.length === 0) return;
+    const height = terrain.length;
+    const width = terrain[0]?.length || 100;
+    const railY = Math.floor(height * 0.48);
+    const data = gameStore.getData();
+    const mapBases = (data.bases || []).filter((b) => (b.mapId || 'map_riverfront_assault') === mapId);
+
+    for (const base of mapBases) {
+      const bx = Math.round(base.x);
+      const by = Math.round(base.y);
+      if (bx < 1 || bx >= width - 1 || by < 1 || by >= height - 1) continue;
+
+      if (base.type === 'air') {
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -5; dx <= 5; dx++) {
+            const nx = bx + dx;
+            const ny = by + dy;
+            if (nx >= 1 && nx < width - 1 && ny >= 1 && ny < height - 1) {
+              if (terrain[ny][nx] === 'water' || terrain[ny][nx] === 'deep_water' || terrain[ny][nx] === 'mountain' || terrain[ny][nx] === 'snow') {
+                terrain[ny][nx] = dy === 0 ? 'road' : 'plains';
+              }
+            }
+          }
+        }
+      } else if (base.type === 'helicopter') {
+        for (let dy = -3; dy <= 3; dy++) {
+          for (let dx = -3; dx <= 3; dx++) {
+            const nx = bx + dx;
+            const ny = by + dy;
+            if (nx >= 1 && nx < width - 1 && ny >= 1 && ny < height - 1) {
+              if (terrain[ny][nx] === 'water' || terrain[ny][nx] === 'deep_water' || terrain[ny][nx] === 'mountain' || terrain[ny][nx] === 'snow') {
+                terrain[ny][nx] = 'plains';
+              }
+            }
+          }
+        }
+      } else if (base.type === 'harbor') {
+        for (let dy = -2; dy <= 2; dy++) {
+          for (let dx = -2; dx <= 0; dx++) {
+            const nx = bx + dx;
+            const ny = by + dy;
+            if (nx >= 1 && nx < width - 1 && ny >= 1 && ny < height - 1) {
+              terrain[ny][nx] = 'sand';
+            }
+          }
+          for (let dx = 1; dx <= 5; dx++) {
+            const nx = bx + dx;
+            const ny = by + dy;
+            if (nx >= 1 && nx < width - 1 && ny >= 1 && ny < height - 1) {
+              terrain[ny][nx] = dx >= 4 ? 'deep_water' : 'water';
+            }
+          }
+        }
+      } else if (base.type === 'train' || base.type === 'rail') {
+        for (let dx = -3; dx <= 3; dx++) {
+          const nx = bx + dx;
+          if (nx >= 1 && nx < width - 1) {
+            terrain[by][nx] = 'railway';
+          }
+        }
+        const minY = Math.min(railY, by);
+        const maxY = Math.max(railY, by);
+        for (let y = minY; y <= maxY; y++) {
+          if (y >= 1 && y < height - 1) {
+            terrain[y][bx] = 'railway';
+          }
+        }
+      }
+    }
+  }
+
+  public hasValidRunwaySpace(terrain: TerrainType[][], base: Base): boolean {
+    if (!terrain || terrain.length === 0) return false;
+    const bx = Math.round(base.x);
+    const by = Math.round(base.y);
+    let passableRunwayTiles = 0;
+    for (let dx = -4; dx <= 4; dx++) {
+      if (isCellPassable(terrain, bx + dx, by, 'ground')) {
+        passableRunwayTiles++;
+      }
+    }
+    return passableRunwayTiles >= 5;
+  }
+
+  public hasValidHelipadSpace(terrain: TerrainType[][], base: Base): boolean {
+    if (!terrain || terrain.length === 0) return false;
+    const bx = Math.round(base.x);
+    const by = Math.round(base.y);
+    let passablePads = 0;
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        if (isCellPassable(terrain, bx + dx, by + dy, 'ground')) {
+          passablePads++;
+        }
+      }
+    }
+    return passablePads >= 9;
+  }
+
+  public hasNavigableWaterAccess(terrain: TerrainType[][], base: Base): boolean {
+    if (!terrain || terrain.length === 0) return false;
+    const bx = Math.round(base.x);
+    const by = Math.round(base.y);
+    const maxR = Math.ceil(base.radius || 4) + 3;
+    for (let dy = -maxR; dy <= maxR; dy++) {
+      for (let dx = -maxR; dx <= maxR; dx++) {
+        if (isCellPassable(terrain, bx + dx, by + dy, 'naval')) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  public getConnectedRailwayCellsForBase(terrain: TerrainType[][], base: Base): string[] {
+    return Array.from(getConnectedRailwayCellsForBase(terrain, base));
+  }
+
   private initAllMapTerrains() {
     const data = gameStore.getData();
     for (const m of data.maps || []) {
@@ -57,10 +176,12 @@ export class GameSimulation {
         tileSize: m.tileSize || 40,
         seed: m.seed || 202610,
       });
+      this.ensureMapBaseInfrastructureTerrain(m.id, gen.terrain);
       this.terrainsByMap[m.id] = gen.terrain;
     }
     if (!this.terrainsByMap['map_riverfront_assault']) {
       const gen = generateWorld(this.worldConfig);
+      this.ensureMapBaseInfrastructureTerrain('map_riverfront_assault', gen.terrain);
       this.terrainsByMap['map_riverfront_assault'] = gen.terrain;
     }
   }
@@ -78,6 +199,7 @@ export class GameSimulation {
         tileSize: cfg.tileSize,
         seed: cfg.seed,
       });
+      this.ensureMapBaseInfrastructureTerrain(mapId, gen.terrain);
       this.terrainsByMap[mapId] = gen.terrain;
     }
     return this.terrainsByMap[mapId];
@@ -426,7 +548,7 @@ export class GameSimulation {
   }
 
   // Authoritative tick across all active sector maps
-  private tick() {
+  public tick(forceEconomyTick = false) {
     const tickStart = performance.now();
     const now = Date.now();
     const dt = Math.min((now - this.lastTickMs) / 1000, 0.5);
@@ -1054,8 +1176,8 @@ export class GameSimulation {
     }
 
     // 5. Economy, Power, Repair Depots, and Queue processing (Every 1 second)
-    if (now - this.lastEconomyTickMs >= 1000) {
-      const elapsedSec = (now - this.lastEconomyTickMs) / 1000;
+    if (forceEconomyTick || now - this.lastEconomyTickMs >= 1000) {
+      const elapsedSec = Math.max(0.1, (now - this.lastEconomyTickMs) / 1000);
       this.lastEconomyTickMs = now;
       const globalMult = econ.resourceGenerationMultiplier || 1.0;
 
@@ -1121,16 +1243,30 @@ export class GameSimulation {
           ownerProfile.totalResourcesHarvested += Math.round((concRate + steelRate + alumRate + fuelRate) * elapsedSec);
         }
 
-        // Auto-heal friendly units near bases with a repair_depot on the same map
+        // Auto-heal / service friendly units near bases with a repair_depot or specialized servicing facilities
         const hasRepairDepot = base.buildings.some((b) => b.type === 'repair_depot' && !b.isConstructing && b.health > 0);
-        if (hasRepairDepot) {
+        const hasNavalDock = base.type === 'harbor' && base.buildings.some((b) => b.type === 'naval_dockyard' && !b.isConstructing && b.health > 0);
+        const hasRailService = (base.type === 'rail' || base.type === 'train') && base.buildings.some((b) => (b.type === 'repair_depot' || b.type === 'rail_depot' || b.type === 'logistics_center') && !b.isConstructing && b.health > 0);
+        const hasAirService = base.type === 'air' && base.buildings.some((b) => b.type === 'aviation_hangar' && !b.isConstructing && b.health > 0);
+        const hasHeliService = base.type === 'helicopter' && base.buildings.some((b) => b.type === 'helicopter_hangar' && !b.isConstructing && b.health > 0);
+
+        if (hasRepairDepot || hasNavalDock || hasRailService || hasAirService || hasHeliService) {
           for (const u of data.units) {
             if ((u.mapId || 'map_riverfront_assault') !== baseMapId) continue;
             if (u.ownerId === base.ownerId && u.health < u.maxHealth) {
               const d = Math.hypot(u.x - base.x, u.y - base.y);
-              if (d <= base.radius + 2.5) {
-                u.health = Math.min(u.maxHealth, Math.round(u.health + u.maxHealth * 0.04));
-                hasStateChange = true;
+              if (d <= base.radius + 3.0) {
+                const uDef = gameStore.getEffectiveUnitDef(u.type);
+                const canService =
+                  hasRepairDepot ||
+                  (hasNavalDock && uDef?.category === 'naval') ||
+                  (hasRailService && uDef?.category === 'rail') ||
+                  (hasAirService && (u.type === 'stormbringer_jet' || u.type === 'thunderbolt_bomber')) ||
+                  (hasHeliService && (u.type === 'hawk_scout_heli' || u.type === 'cobra_gunship'));
+                if (canService) {
+                  u.health = Math.min(u.maxHealth, Math.round(u.health + u.maxHealth * 0.04));
+                  hasStateChange = true;
+                }
               }
             }
           }
@@ -1192,8 +1328,7 @@ export class GameSimulation {
               let foundSpot = false;
 
               if (uDef.category === 'rail') {
-                if (base.type !== 'rail') {
-                  // Cannot deploy rail unit at non-rail base; skip
+                if (base.type !== 'train' && base.type !== 'rail') {
                   continue;
                 }
                 const connected = getConnectedRailwayCellsForBase(terrain, base);
@@ -1221,6 +1356,35 @@ export class GameSimulation {
                     ...prod,
                     status: 'WAITING FOR RAIL ACCESS',
                     blockedReason: 'Track exit or nearby railway cells are occupied or obstructed',
+                    finishTime: now + 2000,
+                  });
+                  continue;
+                }
+              } else if (uDef.category === 'naval') {
+                if (base.type !== 'harbor') {
+                  continue;
+                }
+                for (let r = 1; r <= base.radius + 4 && !foundSpot; r++) {
+                  for (let dy = -r; dy <= r && !foundSpot; dy++) {
+                    for (let dx = -r; dx <= r && !foundSpot; dx++) {
+                      const tx = Math.round(base.x + dx);
+                      const ty = Math.round(base.y + dy);
+                      if (isCellPassable(terrain, tx, ty, 'naval')) {
+                        const occupied = data.units.some((u) => Math.hypot(u.x - tx, u.y - ty) < 0.75);
+                        if (!occupied) {
+                          spawnX = tx;
+                          spawnY = ty;
+                          foundSpot = true;
+                        }
+                      }
+                    }
+                  }
+                }
+                if (!foundSpot) {
+                  base.productionQueue.push({
+                    ...prod,
+                    status: 'WAITING FOR BERTH',
+                    blockedReason: 'Harbor naval berth water cells are occupied or obstructed',
                     finishTime: now + 2000,
                   });
                   continue;
@@ -2056,6 +2220,9 @@ export class GameSimulation {
         const desiredBuildings: BuildingType[] = [
           'vehicle_factory',
           'aviation_hangar',
+          'helicopter_hangar',
+          'naval_dockyard',
+          'rail_depot',
           'concrete_works',
           'steel_foundry',
           'fuel_refinery',
@@ -2086,6 +2253,11 @@ export class GameSimulation {
           'skyguard_aa',
           'hawk_scout_heli',
           'cobra_gunship',
+          'stormbringer_jet',
+          'thunderbolt_bomber',
+          'wavecutter_corvette',
+          'trident_destroyer',
+          'iron_dreadnought',
           'dominator_conquest',
         ];
         const validUnits = candidateUnits.filter((uType) => {
@@ -2093,7 +2265,7 @@ export class GameSimulation {
           return (
             uDef &&
             uDef.enabled !== false &&
-            base.buildings.some((b) => b.type === uDef.requiredBuilding && !b.isConstructing)
+            base.buildings.some((b) => b.type === uDef.requiredBuilding && !b.isConstructing && b.health > 0)
           );
         });
         if (validUnits.length > 0) {
@@ -2639,22 +2811,78 @@ export class GameSimulation {
         return { success: false, message: `Sector population capacity reached (${currentOwnerPop}/${maxOwnerPop})` };
       }
 
-      if (uDef.category === 'rail') {
-        if (base.type !== 'rail') {
-          return { success: false, message: 'Rail units can only be produced at Armored Rail Bases.' };
+      const terrain = this.getTerrain(baseMapId);
+
+      // Specialized Base Type & Infrastructure Validation
+      if (unitType === 'stormbringer_jet' || unitType === 'thunderbolt_bomber') {
+        if (base.type !== 'air') {
+          return {
+            success: false,
+            message: 'Fixed-wing aircraft (Stormbringer / Thunderbolt) can only be produced at a specialized Air Base.',
+          };
         }
-        const terrain = this.getTerrain(baseMapId);
+        if (!this.hasValidRunwaySpace(terrain, base)) {
+          return {
+            success: false,
+            message: 'Air Base runway deployment corridor is obstructed or lacks sufficient runway clearance.',
+          };
+        }
+      } else if (unitType === 'hawk_scout_heli' || unitType === 'cobra_gunship') {
+        if (base.type !== 'helicopter') {
+          return {
+            success: false,
+            message: 'Rotorcraft (Hawk Scout / Cobra Gunship) can only be produced at a specialized Helicopter Base.',
+          };
+        }
+        if (!this.hasValidHelipadSpace(terrain, base)) {
+          return {
+            success: false,
+            message: 'Helicopter Base helipad deployment apron is obstructed.',
+          };
+        }
+      } else if (uDef.category === 'naval') {
+        if (base.type !== 'harbor') {
+          return {
+            success: false,
+            message: 'Naval vessels can only be produced at a coastal Harbor Base.',
+          };
+        }
+        if (!this.hasNavigableWaterAccess(terrain, base)) {
+          return {
+            success: false,
+            message: 'Harbor Base has no navigable coastal water access for launching vessels.',
+          };
+        }
+      } else if (uDef.category === 'rail') {
+        if (base.type !== 'train' && base.type !== 'rail') {
+          return {
+            success: false,
+            message: 'Armored rail units can only be produced at a Train Station Base or Armored Rail Base.',
+          };
+        }
         const connected = getConnectedRailwayCellsForBase(terrain, base);
         if (connected.size === 0) {
-          return { success: false, message: 'Rail Base has no connected railway track network.' };
+          return {
+            success: false,
+            message: 'Station has no connected railway track network for deploying armored trains.',
+          };
+        }
+      } else if (uDef.requiredBuilding === 'vehicle_factory') {
+        if (base.type !== 'tank' && base.type !== 'home') {
+          return {
+            success: false,
+            message: 'Armored ground vehicles can only be produced at a Tank Base or Home Base Motor Pool.',
+          };
         }
       }
 
-      const reqBuilding = base.buildings.find((b: BuildingInstance) => b.type === uDef.requiredBuilding && b.level > 0);
+      const reqBuilding = base.buildings.find(
+        (b: BuildingInstance) => b.type === uDef.requiredBuilding && !b.isConstructing && b.health > 0 && b.level > 0
+      );
       if (!reqBuilding) {
         return {
           success: false,
-          message: `Requires ${gameStore.getEffectiveBuildingDef(uDef.requiredBuilding)?.name || 'appropriate facility'}`,
+          message: `Requires operational ${gameStore.getEffectiveBuildingDef(uDef.requiredBuilding)?.name || 'facility'}`,
         };
       }
 

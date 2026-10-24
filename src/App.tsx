@@ -1608,6 +1608,12 @@ export default function App() {
               rendererRef.current?.setAtmospherePreset(p);
             }}
             onJumpToCoords={jumpToCoords}
+            onSelectBase={(baseId, x, y) => {
+              jumpToCoords(x, y);
+              setSelectedBaseId(baseId);
+              setSelectedUnitIds(new Set());
+              soundEngine.playCommandAck();
+            }}
             onLogout={handleLogout}
             compactHud={settings.compactHud}
             showSubHeader={settings.showSubHeader}

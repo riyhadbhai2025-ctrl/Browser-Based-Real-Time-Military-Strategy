@@ -7,7 +7,7 @@ export interface Resources {
   fuel: number;
 }
 
-export type BaseType = 'home' | 'tank' | 'air' | 'harbor' | 'rail';
+export type BaseType = 'home' | 'tank' | 'air' | 'helicopter' | 'harbor' | 'rail' | 'train';
 
 export type UnitCategory = 'ground' | 'air' | 'naval' | 'rail';
 
@@ -45,6 +45,7 @@ export type BuildingType =
   | 'barracks'
   | 'vehicle_factory'
   | 'aviation_hangar'
+  | 'helicopter_hangar'
   | 'naval_dockyard'
   | 'rail_depot'
   // Economy & Support
@@ -142,7 +143,7 @@ export interface UnitProductionOrder {
   startTime: number;
   finishTime: number;
   cost: Resources;
-  status?: 'queued' | 'in_progress' | 'WAITING FOR RAIL ACCESS' | 'RAIL SPAWN BLOCKED';
+  status?: 'queued' | 'in_progress' | 'WAITING FOR RAIL ACCESS' | 'RAIL SPAWN BLOCKED' | 'WAITING FOR BERTH';
   blockedReason?: string;
 }
 

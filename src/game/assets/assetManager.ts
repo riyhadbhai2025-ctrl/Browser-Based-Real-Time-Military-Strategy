@@ -34,6 +34,7 @@ export class AssetManager {
       { key: 'barracks', file: 'building-f' },
       { key: 'vehicle_factory', file: 'building-g' },
       { key: 'aviation_hangar', file: 'building-h' },
+      { key: 'helicopter_hangar', file: 'building-h' },
       { key: 'naval_dockyard', file: 'building-i' },
       { key: 'rail_depot', file: 'building-j' },
       { key: 'concrete_works', file: 'building-k' },
@@ -1286,6 +1287,27 @@ export class AssetManager {
       // Hazard markings
       ctx.fillStyle = '#eab308';
       ctx.fillRect(5, 75, 90, 3);
+    }));
+
+    // H2. Helicopter Rotorcraft Hangar & Helipad Bay
+    this.spriteCanvases.set('helicopter_hangar', this.createTile(100, 80, (ctx) => {
+      // Twin Rotorcraft Maintenance Hangars
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(8, 22, 38, 38);
+      ctx.fillRect(54, 22, 38, 38);
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(14, 34, 26, 26);
+      ctx.fillRect(60, 34, 26, 26);
+      // Helipad Circle & H Marking in Foreground
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(50, 66, 11, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#facc15';
+      ctx.fillRect(46, 61, 2, 10);
+      ctx.fillRect(52, 61, 2, 10);
+      ctx.fillRect(46, 65, 8, 2);
     }));
 
     // I. Naval Shipyard

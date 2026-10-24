@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "test": "NODE_ENV=test tsx --test tests/game.test.ts",
+    "test": "NODE_ENV=test tsx --test --test-force-exit tests/game.test.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

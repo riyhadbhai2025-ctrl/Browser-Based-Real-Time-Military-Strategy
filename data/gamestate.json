@@ -38,16 +38,60 @@
         "weeklyCapturesCount": 1,
         "homeBaseDestroyedCount": 0,
         "beginnerProtectionUntil": 0,
-        "totalResourcesHarvested": 157957,
+        "totalResourcesHarvested": 167826,
         "weeklyCaptureTimestamps": [
           1792764165823
         ],
         "highwayTransfersCompleted": 0
       }
+    },
+    "user_1792867542716_4b4d3441": {
+      "passwordHash": "$2b$08$/nq.HNfbrOqcoc3R2paaYujim5ScvI7NngGygjKg3D/qA7yIIQohW",
+      "profile": {
+        "id": "user_1792867542716_4b4d3441",
+        "username": "Recruit_3012",
+        "email": "recruit_3012@guest.frontline.mil",
+        "rank": "Major",
+        "score": 892,
+        "level": 6,
+        "avatar": "scout_operator",
+        "homeBaseId": "base_home_user_1792867542716_4b4d3441",
+        "homeMapId": "map_riverfront_assault",
+        "currentMapId": "map_riverfront_assault",
+        "totalBasesCaptured": 0,
+        "totalUnitsProduced": 8,
+        "totalUnitsDestroyed": 8,
+        "totalResourcesHarvested": 13624,
+        "highwayTransfersCompleted": 0,
+        "claimedRewardIds": [],
+        "joinedAt": 1792867542716,
+        "lastLoginAt": 1792867542716,
+        "lastActiveAt": 1792867725990,
+        "beginnerProtectionUntil": 1793040342716,
+        "isAdmin": false,
+        "adminRole": null,
+        "status": "active",
+        "suspendedUntil": null,
+        "banReason": null,
+        "moderationHistory": [],
+        "weeklyCapturesCount": 0,
+        "weeklyCaptureTimestamps": [],
+        "homeBaseDestroyedCount": 0,
+        "isInactiveRelocated": false,
+        "playerType": "human",
+        "accountId": "user_1792867542716_4b4d3441",
+        "botAgentId": null,
+        "controlSource": "human",
+        "verificationStatus": "verified",
+        "verifiedBy": "Auth Registration Service",
+        "verifiedAt": 1792867542716,
+        "lastMapActivityAt": 1792867725990
+      }
     }
   },
   "tokens": {
-    "token_user_1792763980046_dbb7efd8_0d0bbbaf0b511459f918856f71ae33da": "user_1792763980046_dbb7efd8"
+    "token_user_1792763980046_dbb7efd8_0d0bbbaf0b511459f918856f71ae33da": "user_1792763980046_dbb7efd8",
+    "token_user_1792867542716_4b4d3441_9464e99bf0f49a49e6c5dcb76f2a79d3": "user_1792867542716_4b4d3441"
   },
   "adminSessions": {},
   "bases": [
@@ -129,10 +173,10 @@
       "ownerName": "Kodiak PMC",
       "powerUsed": 132,
       "resources": {
-        "fuel": 6752.716764999997,
-        "steel": 11529.412324999885,
-        "aluminum": 787.8518250000378,
-        "concrete": 12000
+        "fuel": 7574.956909999999,
+        "steel": 12424.11302499985,
+        "aluminum": 14.334525000036248,
+        "concrete": 11498.88583
       },
       "allianceId": "alli_dominion",
       "isHomeBase": false,
@@ -161,10 +205,25 @@
         "aluminum": 0,
         "fuel": 4.15
       },
-      "constructionQueue": [],
+      "constructionQueue": [
+        {
+          "id": "order_1792867777472_zkm3",
+          "baseId": "base_tank_armory_s3",
+          "buildingType": "sam_launcher",
+          "targetLevel": 6,
+          "startTime": 1792867777472,
+          "finishTime": 1792867854472,
+          "cost": {
+            "concrete": 700,
+            "steel": 1225,
+            "aluminum": 1050,
+            "fuel": 525
+          }
+        }
+      ],
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "lifecycleState": "active"
     },
@@ -214,7 +273,7 @@
       "ownerName": "Independent Defense Corps",
       "powerUsed": 24,
       "resources": {
-        "fuel": 10454.2619999999,
+        "fuel": 11021.405999999895,
         "steel": 10000,
         "aluminum": 12000,
         "concrete": 10000
@@ -249,7 +308,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 1,
       "activeTurretsCount": 1,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
       "lifecycleState": "ownerless"
     },
@@ -293,9 +352,9 @@
       "powerUsed": 16,
       "resources": {
         "fuel": 10000,
-        "steel": 12367.82750000005,
-        "aluminum": 7240.6965000000755,
-        "concrete": 11567.827500000036
+        "steel": 13076.757500000043,
+        "aluminum": 7666.054500000073,
+        "concrete": 12000
       },
       "isHomeBase": false,
       "storageCap": {
@@ -327,7 +386,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 1,
       "activeTurretsCount": 1,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "captureBlockedReason": "Base is shielded by active command protection",
       "lifecycleState": "ownerless",
       "isNewcomerBase": true,
@@ -405,16 +464,23 @@
           "health": 1750,
           "maxHealth": 1750,
           "isConstructing": false
+        },
+        {
+          "id": "b_lc_mig_base_rail_fortress_s3",
+          "type": "logistics_center",
+          "level": 2,
+          "health": 850,
+          "maxHealth": 850
         }
       ],
       "maxHealth": 2900,
       "maxShield": 700,
       "ownerName": "Kodiak PMC",
-      "powerUsed": 140,
+      "powerUsed": 148,
       "resources": {
         "fuel": 9000,
-        "steel": 10165.405699999983,
-        "aluminum": 73.38260000004033,
+        "steel": 14128.324399999869,
+        "aluminum": 349.8653000000395,
         "concrete": 12000
       },
       "isHomeBase": false,
@@ -446,7 +512,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "lifecycleState": "active"
     },
@@ -547,7 +613,7 @@
       "resources": {
         "fuel": 10000,
         "steel": 12000,
-        "aluminum": 5133.64750000003,
+        "aluminum": 5559.0055000000275,
         "concrete": 15000
       },
       "allianceId": null,
@@ -580,7 +646,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "lifecycleState": "active",
       "previousOwnerId": "player_default",
@@ -692,10 +758,10 @@
       "ownerName": "Kodiak PMC",
       "powerUsed": 140,
       "resources": {
-        "fuel": 3142.738365000014,
-        "steel": 9165.706425000028,
-        "aluminum": 1006.9431250000466,
-        "concrete": 14013.358895000041
+        "fuel": 5265.27478500003,
+        "steel": 13128.625124999913,
+        "aluminum": 1283.4258250000446,
+        "concrete": 16000
       },
       "isHomeBase": false,
       "storageCap": {
@@ -726,7 +792,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "lifecycleState": "active"
     },
@@ -762,12 +828,19 @@
           "level": 1,
           "health": 350,
           "maxHealth": 350
+        },
+        {
+          "id": "b_vf_mig_base_southern_outpost_s3",
+          "type": "vehicle_factory",
+          "level": 1,
+          "health": 800,
+          "maxHealth": 800
         }
       ],
       "maxHealth": 2200,
       "maxShield": 500,
       "ownerName": "Neutral Frontier",
-      "powerUsed": 16,
+      "powerUsed": 20,
       "resources": {
         "fuel": 15000,
         "steel": 8000,
@@ -804,7 +877,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 1,
       "activeTurretsCount": 1,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
       "lifecycleState": "ownerless"
     },
@@ -905,7 +978,7 @@
       "resources": {
         "fuel": 10000,
         "steel": 12000,
-        "aluminum": 5639.5063000000655,
+        "aluminum": 6064.864300000063,
         "concrete": 15000
       },
       "allianceId": null,
@@ -966,7 +1039,7 @@
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
       "capturedAllianceId": null,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "capturedAllianceTag": null,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "capturedAllianceName": null,
@@ -1052,7 +1125,7 @@
       "resources": {
         "fuel": 12000,
         "steel": 16000,
-        "aluminum": 5665.696500000057,
+        "aluminum": 6091.054500000055,
         "concrete": 16000
       },
       "isHomeBase": false,
@@ -1084,7 +1157,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "lifecycleState": "active"
     },
@@ -1120,12 +1193,19 @@
           "level": 1,
           "health": 350,
           "maxHealth": 350
+        },
+        {
+          "id": "b_vf_mig_base_southern_outpost_s2",
+          "type": "vehicle_factory",
+          "level": 1,
+          "health": 800,
+          "maxHealth": 800
         }
       ],
       "maxHealth": 2200,
       "maxShield": 500,
       "ownerName": "Neutral Frontier",
-      "powerUsed": 16,
+      "powerUsed": 20,
       "resources": {
         "fuel": 15000,
         "steel": 8000,
@@ -1162,7 +1242,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 1,
       "activeTurretsCount": 1,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
       "lifecycleState": "ownerless"
     },
@@ -1271,12 +1351,12 @@
         "concrete": 0,
         "steel": 0,
         "aluminum": 0,
-        "fuel": 0.63
+        "fuel": 0
       },
       "constructionQueue": [],
       "totalTurretsCount": 1,
       "activeTurretsCount": 1,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "captureBlockedReason": "Home Bases are permanent command centers and cannot be conquered",
       "lastMeaningfulActivityAt": 1792764172487,
       "lastKnownValidCoords": {
@@ -1325,9 +1405,9 @@
       "powerUsed": 16,
       "resources": {
         "fuel": 10000,
-        "steel": 12367.82750000005,
-        "aluminum": 7240.6965000000755,
-        "concrete": 11567.827500000036
+        "steel": 13076.757500000043,
+        "aluminum": 7666.054500000073,
+        "concrete": 12000
       },
       "isHomeBase": false,
       "storageCap": {
@@ -1359,7 +1439,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 1,
       "activeTurretsCount": 1,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "captureBlockedReason": "Base is shielded by active command protection",
       "lifecycleState": "ownerless",
       "isNewcomerBase": true,
@@ -1445,7 +1525,7 @@
       "resources": {
         "fuel": 8000,
         "steel": 15000,
-        "aluminum": 5202.696500000052,
+        "aluminum": 5628.054500000049,
         "concrete": 12000
       },
       "allianceId": "alli_dominion",
@@ -1478,7 +1558,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "lifecycleState": "active"
     },
@@ -1528,7 +1608,7 @@
       "ownerName": "Independent Defense Corps",
       "powerUsed": 24,
       "resources": {
-        "fuel": 10454.2619999999,
+        "fuel": 11021.405999999895,
         "steel": 10000,
         "aluminum": 12000,
         "concrete": 10000
@@ -1563,7 +1643,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 1,
       "activeTurretsCount": 1,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
       "lifecycleState": "ownerless"
     },
@@ -1639,16 +1719,23 @@
           "health": 1000,
           "maxHealth": 1000,
           "isConstructing": false
+        },
+        {
+          "id": "b_lc_mig_base_rail_fortress_s2",
+          "type": "logistics_center",
+          "level": 2,
+          "health": 850,
+          "maxHealth": 850
         }
       ],
       "maxHealth": 2900,
       "maxShield": 700,
       "ownerName": "Kodiak PMC",
-      "powerUsed": 56,
+      "powerUsed": 64,
       "resources": {
         "fuel": 9000,
         "steel": 15000,
-        "aluminum": 5415.696500000055,
+        "aluminum": 5841.054500000052,
         "concrete": 12000
       },
       "isHomeBase": false,
@@ -1680,7 +1767,7 @@
       "constructionQueue": [],
       "totalTurretsCount": 2,
       "activeTurretsCount": 2,
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
       "lifecycleState": "active"
     },
@@ -1718,7 +1805,7 @@
         "aluminum": 6.4,
         "fuel": 8.3
       },
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -1834,9 +1921,9 @@
       "maxShield": 800,
       "captureProgress": 0,
       "resources": {
-        "concrete": 4884.672500000009,
+        "concrete": 5593.602500000041,
         "steel": 15000,
-        "aluminum": 2510.803500000016,
+        "aluminum": 2936.1615000000243,
         "fuel": 1600
       },
       "storageCap": {
@@ -1851,7 +1938,7 @@
         "aluminum": 1.5,
         "fuel": 2
       },
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -1918,10 +2005,10 @@
       "maxShield": 600,
       "captureProgress": 0,
       "resources": {
-        "concrete": 4184.672499999981,
-        "steel": 4184.672499999981,
-        "aluminum": 9372.761599999974,
-        "fuel": 4947.738000000026
+        "concrete": 4893.602500000013,
+        "steel": 4893.602500000013,
+        "aluminum": 11187.622399999897,
+        "fuel": 5514.882000000006
       },
       "storageCap": {
         "concrete": 10000,
@@ -1935,7 +2022,7 @@
         "aluminum": 6.4,
         "fuel": 2
       },
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -2003,10 +2090,10 @@
       "maxShield": 800,
       "captureProgress": 0,
       "resources": {
-        "concrete": 4684.6725,
-        "steel": 5484.672500000034,
-        "aluminum": 3110.803500000016,
-        "fuel": 4547.738000000049
+        "concrete": 5393.602500000032,
+        "steel": 6193.602500000066,
+        "aluminum": 3536.1615000000243,
+        "fuel": 5114.88200000003
       },
       "storageCap": {
         "concrete": 12000,
@@ -2020,7 +2107,7 @@
         "aluminum": 1.5,
         "fuel": 2
       },
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -2083,10 +2170,10 @@
       "maxShield": 700,
       "captureProgress": 0,
       "resources": {
-        "concrete": 5184.6725000000215,
-        "steel": 6284.672500000074,
-        "aluminum": 2810.8035000000145,
-        "fuel": 4147.738000000069
+        "concrete": 5893.602500000054,
+        "steel": 6993.602500000106,
+        "aluminum": 3236.161500000023,
+        "fuel": 4714.88200000005
       },
       "storageCap": {
         "concrete": 12000,
@@ -2100,7 +2187,7 @@
         "aluminum": 1.5,
         "fuel": 2
       },
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -2124,6 +2211,20 @@
           "level": 2,
           "health": 450,
           "maxHealth": 450
+        },
+        {
+          "id": "b_lc_mig_base_rail_fortress_s3",
+          "type": "logistics_center",
+          "level": 2,
+          "health": 850,
+          "maxHealth": 850
+        },
+        {
+          "id": "b_rep_mig_base_rail_fortress_s3",
+          "type": "repair_depot",
+          "level": 2,
+          "health": 800,
+          "maxHealth": 800
         }
       ],
       "mapId": "map_custom_1792748967438",
@@ -2133,7 +2234,7 @@
       "totalTurretsCount": 1,
       "defensesIntact": true,
       "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
-      "powerUsed": 16,
+      "powerUsed": 32,
       "powerCapacity": 65,
       "consumptionRates": {
         "concrete": 0,
@@ -2160,9 +2261,9 @@
       "maxShield": 1000,
       "captureProgress": 0,
       "resources": {
-        "concrete": 6684.672500000091,
-        "steel": 7184.672500000097,
-        "aluminum": 3610.8035000000123,
+        "concrete": 7393.602500000123,
+        "steel": 7893.602500000129,
+        "aluminum": 4036.1615000000206,
         "fuel": 3000
       },
       "storageCap": {
@@ -2177,7 +2278,7 @@
         "aluminum": 1.5,
         "fuel": 2
       },
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -2244,9 +2345,9 @@
       "maxShield": 500,
       "captureProgress": 0,
       "resources": {
-        "concrete": 3884.672499999982,
-        "steel": 4084.672499999977,
-        "aluminum": 2210.8035000000104,
+        "concrete": 4593.602499999999,
+        "steel": 4793.60250000001,
+        "aluminum": 2636.161500000019,
         "fuel": 15000
       },
       "storageCap": {
@@ -2261,7 +2362,7 @@
         "aluminum": 1.5,
         "fuel": 10.1
       },
-      "lastResourceUpdate": 1792860249946,
+      "lastResourceUpdate": 1792867789559,
       "constructionQueue": [],
       "productionQueue": [],
       "buildings": [
@@ -2285,6 +2386,13 @@
           "level": 1,
           "health": 350,
           "maxHealth": 350
+        },
+        {
+          "id": "b_vf_mig_base_southern_outpost_s3",
+          "type": "vehicle_factory",
+          "level": 1,
+          "health": 800,
+          "maxHealth": 800
         }
       ],
       "mapId": "map_custom_1792748967438",
@@ -2295,7 +2403,7 @@
       "defensesIntact": true,
       "captureContested": false,
       "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
-      "powerUsed": 16,
+      "powerUsed": 20,
       "powerCapacity": 45,
       "consumptionRates": {
         "concrete": 0,
@@ -2306,6 +2414,1061 @@
       "hqLevel": 1,
       "armorMultiplier": 1,
       "lifecycleState": "ownerless"
+    },
+    {
+      "id": "base_heli_valkyrie_s3",
+      "name": "Bastion Delta Valkyrie Rotorcraft Command",
+      "type": "helicopter",
+      "ownerId": "neutral",
+      "ownerName": "Airborne Rotorcraft Corps",
+      "x": 26,
+      "y": 40,
+      "radius": 4,
+      "health": 2550,
+      "maxHealth": 2550,
+      "defenseShield": 600,
+      "maxShield": 600,
+      "captureProgress": 0,
+      "resources": {
+        "concrete": 2308.929999999999,
+        "steel": 2508.9299999999944,
+        "aluminum": 2825.3580000000084,
+        "fuel": 4953.647600000001
+      },
+      "storageCap": {
+        "concrete": 10000,
+        "steel": 10000,
+        "aluminum": 12000,
+        "fuel": 12000
+      },
+      "productionRates": {
+        "concrete": 2.5,
+        "steel": 2.5,
+        "aluminum": 1.5,
+        "fuel": 8.3
+      },
+      "lastResourceUpdate": 1792867789559,
+      "constructionQueue": [],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_heli",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_hh_1",
+          "type": "helicopter_hangar",
+          "level": 2,
+          "health": 900,
+          "maxHealth": 900
+        },
+        {
+          "id": "b_fr_heli",
+          "type": "fuel_refinery",
+          "level": 2,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_rep_heli",
+          "type": "repair_depot",
+          "level": 1,
+          "health": 550,
+          "maxHealth": 550
+        },
+        {
+          "id": "b_vt_heli",
+          "type": "vulcan_turret",
+          "level": 2,
+          "health": 450,
+          "maxHealth": 450
+        },
+        {
+          "id": "b_gt_heli",
+          "type": "guard_tower",
+          "level": 2,
+          "health": 400,
+          "maxHealth": 400
+        }
+      ],
+      "mapId": "map_custom_1792748967438",
+      "isHomeBase": false,
+      "lifecycleState": "ownerless",
+      "isProtected": false,
+      "activeTurretsCount": 2,
+      "totalTurretsCount": 2,
+      "defensesIntact": true,
+      "captureContested": false,
+      "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
+      "powerUsed": 36,
+      "powerCapacity": 65,
+      "consumptionRates": {
+        "concrete": 0,
+        "steel": 0,
+        "aluminum": 0,
+        "fuel": 0
+      },
+      "hqLevel": 2,
+      "armorMultiplier": 1
+    },
+    {
+      "id": "base_train_terminal_s3",
+      "name": "Bastion Delta Ironclad Central Train Station",
+      "type": "train",
+      "ownerId": "neutral",
+      "ownerName": "Continental Rail Authority",
+      "x": 42,
+      "y": 36,
+      "radius": 4,
+      "health": 3000,
+      "maxHealth": 3000,
+      "defenseShield": 750,
+      "maxShield": 750,
+      "captureProgress": 0,
+      "resources": {
+        "concrete": 3308.929999999988,
+        "steel": 6493.933999999971,
+        "aluminum": 1825.3580000000027,
+        "fuel": 2767.1440000000252
+      },
+      "storageCap": {
+        "concrete": 12000,
+        "steel": 16000,
+        "aluminum": 8000,
+        "fuel": 10000
+      },
+      "productionRates": {
+        "concrete": 2.5,
+        "steel": 9.5,
+        "aluminum": 1.5,
+        "fuel": 2
+      },
+      "lastResourceUpdate": 1792867789559,
+      "constructionQueue": [],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_train",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_rd_train",
+          "type": "rail_depot",
+          "level": 2,
+          "health": 1100,
+          "maxHealth": 1100
+        },
+        {
+          "id": "b_sf_train",
+          "type": "steel_foundry",
+          "level": 2,
+          "health": 750,
+          "maxHealth": 750
+        },
+        {
+          "id": "b_sd_train",
+          "type": "storage_depot",
+          "level": 1,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_vt_train",
+          "type": "vulcan_turret",
+          "level": 2,
+          "health": 450,
+          "maxHealth": 450
+        }
+      ],
+      "mapId": "map_custom_1792748967438",
+      "isHomeBase": false,
+      "lifecycleState": "ownerless",
+      "isProtected": false,
+      "activeTurretsCount": 1,
+      "totalTurretsCount": 1,
+      "defensesIntact": true,
+      "captureContested": false,
+      "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
+      "powerUsed": 28,
+      "powerCapacity": 65,
+      "consumptionRates": {
+        "concrete": 0,
+        "steel": 0,
+        "aluminum": 0,
+        "fuel": 0
+      },
+      "hqLevel": 2,
+      "armorMultiplier": 1
+    },
+    {
+      "id": "base_tank_armory",
+      "name": "Iron Forge Tank Redoubt",
+      "type": "tank",
+      "ownerId": "player_default",
+      "ownerName": "Commander",
+      "allianceId": "alli_dominion",
+      "x": 18,
+      "y": 52,
+      "radius": 4,
+      "health": 2800,
+      "maxHealth": 2800,
+      "defenseShield": 800,
+      "maxShield": 800,
+      "captureProgress": 0,
+      "resources": {
+        "concrete": 2908.929999999988,
+        "steel": 6661.0780000000095,
+        "aluminum": 1325.3580000000015,
+        "fuel": 2167.144000000002
+      },
+      "storageCap": {
+        "concrete": 12000,
+        "steel": 15000,
+        "aluminum": 6000,
+        "fuel": 8000
+      },
+      "productionRates": {
+        "concrete": 2.5,
+        "steel": 11.5,
+        "aluminum": 1.5,
+        "fuel": 2
+      },
+      "lastResourceUpdate": 1792867789559,
+      "constructionQueue": [],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_2",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_sf_2",
+          "type": "steel_foundry",
+          "level": 3,
+          "health": 800,
+          "maxHealth": 800
+        },
+        {
+          "id": "b_vf_2",
+          "type": "vehicle_factory",
+          "level": 2,
+          "health": 900,
+          "maxHealth": 900
+        },
+        {
+          "id": "b_rd_tank",
+          "type": "repair_depot",
+          "level": 2,
+          "health": 650,
+          "maxHealth": 650
+        },
+        {
+          "id": "b_vt_2",
+          "type": "vulcan_turret",
+          "level": 2,
+          "health": 450,
+          "maxHealth": 450
+        }
+      ],
+      "mapId": "map_riverfront_assault",
+      "isHomeBase": false,
+      "lifecycleState": "active",
+      "isProtected": false,
+      "activeTurretsCount": 1,
+      "totalTurretsCount": 1,
+      "defensesIntact": true,
+      "captureBlockedReason": "Base defenses must be completely eliminated before conquest capture",
+      "powerUsed": 36,
+      "powerCapacity": 65,
+      "consumptionRates": {
+        "concrete": 0,
+        "steel": 0,
+        "aluminum": 0,
+        "fuel": 0
+      },
+      "hqLevel": 2,
+      "armorMultiplier": 1
+    },
+    {
+      "id": "base_air_eagle",
+      "name": "Eaglecrest Strategic Airfield",
+      "type": "air",
+      "ownerId": "neutral",
+      "ownerName": "Independent Defense Corps",
+      "x": 32,
+      "y": 16,
+      "radius": 4,
+      "health": 2600,
+      "maxHealth": 2600,
+      "defenseShield": 600,
+      "maxShield": 600,
+      "captureProgress": 0,
+      "resources": {
+        "concrete": 2208.93,
+        "steel": 2208.93,
+        "aluminum": 4314.860800000002,
+        "fuel": 5153.647600000005
+      },
+      "storageCap": {
+        "concrete": 10000,
+        "steel": 10000,
+        "aluminum": 12000,
+        "fuel": 12000
+      },
+      "productionRates": {
+        "concrete": 2.5,
+        "steel": 2.5,
+        "aluminum": 6.4,
+        "fuel": 8.3
+      },
+      "lastResourceUpdate": 1792867789559,
+      "constructionQueue": [],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_3",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_ah_2",
+          "type": "aviation_hangar",
+          "level": 2,
+          "health": 950,
+          "maxHealth": 950
+        },
+        {
+          "id": "b_as_2",
+          "type": "aluminum_smelter",
+          "level": 2,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_fr_air",
+          "type": "fuel_refinery",
+          "level": 2,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_rad_air",
+          "type": "radar_station",
+          "level": 2,
+          "health": 550,
+          "maxHealth": 550
+        },
+        {
+          "id": "b_sam_2",
+          "type": "sam_launcher",
+          "level": 2,
+          "health": 500,
+          "maxHealth": 500
+        }
+      ],
+      "mapId": "map_riverfront_assault",
+      "isHomeBase": false,
+      "lifecycleState": "ownerless",
+      "isProtected": false,
+      "activeTurretsCount": 1,
+      "totalTurretsCount": 1,
+      "defensesIntact": true,
+      "captureContested": false,
+      "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
+      "powerUsed": 40,
+      "powerCapacity": 65,
+      "consumptionRates": {
+        "concrete": 0,
+        "steel": 0,
+        "aluminum": 0,
+        "fuel": 0
+      },
+      "hqLevel": 2,
+      "armorMultiplier": 1
+    },
+    {
+      "id": "base_heli_valkyrie",
+      "name": "Valkyrie Rotorcraft Command",
+      "type": "helicopter",
+      "ownerId": "neutral",
+      "ownerName": "Airborne Rotorcraft Corps",
+      "x": 26,
+      "y": 40,
+      "radius": 4,
+      "health": 2550,
+      "maxHealth": 2550,
+      "defenseShield": 600,
+      "maxShield": 600,
+      "captureProgress": 0,
+      "resources": {
+        "concrete": 2308.929999999999,
+        "steel": 2508.9299999999944,
+        "aluminum": 2825.3580000000084,
+        "fuel": 4953.647600000001
+      },
+      "storageCap": {
+        "concrete": 10000,
+        "steel": 10000,
+        "aluminum": 12000,
+        "fuel": 12000
+      },
+      "productionRates": {
+        "concrete": 2.5,
+        "steel": 2.5,
+        "aluminum": 1.5,
+        "fuel": 8.3
+      },
+      "lastResourceUpdate": 1792867789559,
+      "constructionQueue": [],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_heli",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_hh_1",
+          "type": "helicopter_hangar",
+          "level": 2,
+          "health": 900,
+          "maxHealth": 900
+        },
+        {
+          "id": "b_fr_heli",
+          "type": "fuel_refinery",
+          "level": 2,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_rep_heli",
+          "type": "repair_depot",
+          "level": 1,
+          "health": 550,
+          "maxHealth": 550
+        },
+        {
+          "id": "b_vt_heli",
+          "type": "vulcan_turret",
+          "level": 2,
+          "health": 450,
+          "maxHealth": 450
+        },
+        {
+          "id": "b_gt_heli",
+          "type": "guard_tower",
+          "level": 2,
+          "health": 400,
+          "maxHealth": 400
+        }
+      ],
+      "mapId": "map_riverfront_assault",
+      "isHomeBase": false,
+      "lifecycleState": "ownerless",
+      "isProtected": false,
+      "activeTurretsCount": 2,
+      "totalTurretsCount": 2,
+      "defensesIntact": true,
+      "captureContested": false,
+      "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
+      "powerUsed": 36,
+      "powerCapacity": 65,
+      "consumptionRates": {
+        "concrete": 0,
+        "steel": 0,
+        "aluminum": 0,
+        "fuel": 0
+      },
+      "hqLevel": 2,
+      "armorMultiplier": 1
+    },
+    {
+      "id": "base_rail_fortress",
+      "name": "Garrison Iron-Spur Rail Yard",
+      "type": "rail",
+      "ownerId": "neutral",
+      "ownerName": "Railway Logistics Union",
+      "x": 62,
+      "y": 48,
+      "radius": 4,
+      "health": 2900,
+      "maxHealth": 2900,
+      "defenseShield": 700,
+      "maxShield": 700,
+      "captureProgress": 0,
+      "resources": {
+        "concrete": 3208.929999999988,
+        "steel": 4308.9299999999985,
+        "aluminum": 1625.3580000000027,
+        "fuel": 2567.1440000000225
+      },
+      "storageCap": {
+        "concrete": 12000,
+        "steel": 15000,
+        "aluminum": 7000,
+        "fuel": 9000
+      },
+      "productionRates": {
+        "concrete": 2.5,
+        "steel": 2.5,
+        "aluminum": 1.5,
+        "fuel": 2
+      },
+      "lastResourceUpdate": 1792867789559,
+      "constructionQueue": [],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_5",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_lc_rail",
+          "type": "logistics_center",
+          "level": 2,
+          "health": 850,
+          "maxHealth": 850
+        },
+        {
+          "id": "b_rep_rail",
+          "type": "repair_depot",
+          "level": 2,
+          "health": 800,
+          "maxHealth": 800
+        },
+        {
+          "id": "b_sd_rail",
+          "type": "storage_depot",
+          "level": 2,
+          "health": 750,
+          "maxHealth": 750
+        },
+        {
+          "id": "b_vt_3",
+          "type": "vulcan_turret",
+          "level": 2,
+          "health": 450,
+          "maxHealth": 450
+        }
+      ],
+      "mapId": "map_riverfront_assault",
+      "isHomeBase": false,
+      "lifecycleState": "ownerless",
+      "isProtected": false,
+      "activeTurretsCount": 1,
+      "totalTurretsCount": 1,
+      "defensesIntact": true,
+      "captureContested": false,
+      "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
+      "powerUsed": 32,
+      "powerCapacity": 65,
+      "consumptionRates": {
+        "concrete": 0,
+        "steel": 0,
+        "aluminum": 0,
+        "fuel": 0
+      },
+      "hqLevel": 2,
+      "armorMultiplier": 1
+    },
+    {
+      "id": "base_train_terminal",
+      "name": "Ironclad Central Train Station",
+      "type": "train",
+      "ownerId": "neutral",
+      "ownerName": "Continental Rail Authority",
+      "x": 14,
+      "y": 36,
+      "radius": 4,
+      "health": 3000,
+      "maxHealth": 3000,
+      "defenseShield": 750,
+      "maxShield": 750,
+      "captureProgress": 0,
+      "resources": {
+        "concrete": 3308.929999999988,
+        "steel": 6493.933999999971,
+        "aluminum": 1825.3580000000027,
+        "fuel": 2767.1440000000252
+      },
+      "storageCap": {
+        "concrete": 12000,
+        "steel": 16000,
+        "aluminum": 8000,
+        "fuel": 10000
+      },
+      "productionRates": {
+        "concrete": 2.5,
+        "steel": 9.5,
+        "aluminum": 1.5,
+        "fuel": 2
+      },
+      "lastResourceUpdate": 1792867789559,
+      "constructionQueue": [],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_train",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_rd_train",
+          "type": "rail_depot",
+          "level": 2,
+          "health": 1100,
+          "maxHealth": 1100
+        },
+        {
+          "id": "b_sf_train",
+          "type": "steel_foundry",
+          "level": 2,
+          "health": 750,
+          "maxHealth": 750
+        },
+        {
+          "id": "b_sd_train",
+          "type": "storage_depot",
+          "level": 1,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_vt_train",
+          "type": "vulcan_turret",
+          "level": 2,
+          "health": 450,
+          "maxHealth": 450
+        }
+      ],
+      "mapId": "map_riverfront_assault",
+      "isHomeBase": false,
+      "lifecycleState": "ownerless",
+      "isProtected": false,
+      "activeTurretsCount": 1,
+      "totalTurretsCount": 1,
+      "defensesIntact": true,
+      "captureContested": false,
+      "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
+      "powerUsed": 28,
+      "powerCapacity": 65,
+      "consumptionRates": {
+        "concrete": 0,
+        "steel": 0,
+        "aluminum": 0,
+        "fuel": 0
+      },
+      "hqLevel": 2,
+      "armorMultiplier": 1
+    },
+    {
+      "id": "base_harbor_trident",
+      "name": "Vanguard Deepwater Naval Port",
+      "type": "harbor",
+      "ownerId": "neutral",
+      "ownerName": "Maritime Patrol Force",
+      "x": 82,
+      "y": 35,
+      "radius": 4,
+      "health": 3000,
+      "maxHealth": 3000,
+      "defenseShield": 800,
+      "maxShield": 800,
+      "captureProgress": 0,
+      "resources": {
+        "concrete": 2708.92999999999,
+        "steel": 3508.929999999988,
+        "aluminum": 1925.3580000000027,
+        "fuel": 2967.1440000000252
+      },
+      "storageCap": {
+        "concrete": 12000,
+        "steel": 14000,
+        "aluminum": 8000,
+        "fuel": 10000
+      },
+      "productionRates": {
+        "concrete": 2.5,
+        "steel": 2.5,
+        "aluminum": 1.5,
+        "fuel": 2
+      },
+      "lastResourceUpdate": 1792867789559,
+      "constructionQueue": [],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_4",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_nd_1",
+          "type": "naval_dockyard",
+          "level": 2,
+          "health": 1100,
+          "maxHealth": 1100
+        },
+        {
+          "id": "b_sd_harbor",
+          "type": "storage_depot",
+          "level": 1,
+          "health": 650,
+          "maxHealth": 650
+        },
+        {
+          "id": "b_cb_1",
+          "type": "coastal_battery",
+          "level": 2,
+          "health": 650,
+          "maxHealth": 650
+        }
+      ],
+      "mapId": "map_riverfront_assault",
+      "isHomeBase": false,
+      "lifecycleState": "ownerless",
+      "isProtected": false,
+      "activeTurretsCount": 1,
+      "totalTurretsCount": 1,
+      "defensesIntact": true,
+      "captureContested": false,
+      "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
+      "powerUsed": 20,
+      "powerCapacity": 65,
+      "consumptionRates": {
+        "concrete": 0,
+        "steel": 0,
+        "aluminum": 0,
+        "fuel": 0
+      },
+      "hqLevel": 2,
+      "armorMultiplier": 1
+    },
+    {
+      "id": "base_heli_valkyrie_s2",
+      "name": "Iron Ridge Valkyrie Rotorcraft Command",
+      "type": "helicopter",
+      "ownerId": "neutral",
+      "ownerName": "Airborne Rotorcraft Corps",
+      "x": 26,
+      "y": 40,
+      "radius": 4,
+      "health": 2550,
+      "maxHealth": 2550,
+      "defenseShield": 600,
+      "maxShield": 600,
+      "captureProgress": 0,
+      "resources": {
+        "concrete": 2308.929999999999,
+        "steel": 2508.9299999999944,
+        "aluminum": 2825.3580000000084,
+        "fuel": 4953.647600000001
+      },
+      "storageCap": {
+        "concrete": 10000,
+        "steel": 10000,
+        "aluminum": 12000,
+        "fuel": 12000
+      },
+      "productionRates": {
+        "concrete": 2.5,
+        "steel": 2.5,
+        "aluminum": 1.5,
+        "fuel": 8.3
+      },
+      "lastResourceUpdate": 1792867789559,
+      "constructionQueue": [],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_heli",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_hh_1",
+          "type": "helicopter_hangar",
+          "level": 2,
+          "health": 900,
+          "maxHealth": 900
+        },
+        {
+          "id": "b_fr_heli",
+          "type": "fuel_refinery",
+          "level": 2,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_rep_heli",
+          "type": "repair_depot",
+          "level": 1,
+          "health": 550,
+          "maxHealth": 550
+        },
+        {
+          "id": "b_vt_heli",
+          "type": "vulcan_turret",
+          "level": 2,
+          "health": 450,
+          "maxHealth": 450
+        },
+        {
+          "id": "b_gt_heli",
+          "type": "guard_tower",
+          "level": 2,
+          "health": 400,
+          "maxHealth": 400
+        }
+      ],
+      "mapId": "map_iron_ridge_corridor",
+      "isHomeBase": false,
+      "lifecycleState": "ownerless",
+      "isProtected": false,
+      "activeTurretsCount": 2,
+      "totalTurretsCount": 2,
+      "defensesIntact": true,
+      "captureContested": false,
+      "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
+      "powerUsed": 36,
+      "powerCapacity": 65,
+      "consumptionRates": {
+        "concrete": 0,
+        "steel": 0,
+        "aluminum": 0,
+        "fuel": 0
+      },
+      "hqLevel": 2,
+      "armorMultiplier": 1
+    },
+    {
+      "id": "base_train_terminal_s2",
+      "name": "Iron Ridge Ironclad Central Train Station",
+      "type": "train",
+      "ownerId": "neutral",
+      "ownerName": "Continental Rail Authority",
+      "x": 42,
+      "y": 36,
+      "radius": 4,
+      "health": 3000,
+      "maxHealth": 3000,
+      "defenseShield": 750,
+      "maxShield": 750,
+      "captureProgress": 0,
+      "resources": {
+        "concrete": 3308.929999999988,
+        "steel": 6493.933999999971,
+        "aluminum": 1825.3580000000027,
+        "fuel": 2767.1440000000252
+      },
+      "storageCap": {
+        "concrete": 12000,
+        "steel": 16000,
+        "aluminum": 8000,
+        "fuel": 10000
+      },
+      "productionRates": {
+        "concrete": 2.5,
+        "steel": 9.5,
+        "aluminum": 1.5,
+        "fuel": 2
+      },
+      "lastResourceUpdate": 1792867789559,
+      "constructionQueue": [],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_train",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_rd_train",
+          "type": "rail_depot",
+          "level": 2,
+          "health": 1100,
+          "maxHealth": 1100
+        },
+        {
+          "id": "b_sf_train",
+          "type": "steel_foundry",
+          "level": 2,
+          "health": 750,
+          "maxHealth": 750
+        },
+        {
+          "id": "b_sd_train",
+          "type": "storage_depot",
+          "level": 1,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_vt_train",
+          "type": "vulcan_turret",
+          "level": 2,
+          "health": 450,
+          "maxHealth": 450
+        }
+      ],
+      "mapId": "map_iron_ridge_corridor",
+      "isHomeBase": false,
+      "lifecycleState": "ownerless",
+      "isProtected": false,
+      "activeTurretsCount": 1,
+      "totalTurretsCount": 1,
+      "defensesIntact": true,
+      "captureContested": false,
+      "captureBlockedReason": "Base defensive shield and all defensive turrets must be destroyed first",
+      "powerUsed": 28,
+      "powerCapacity": 65,
+      "consumptionRates": {
+        "concrete": 0,
+        "steel": 0,
+        "aluminum": 0,
+        "fuel": 0
+      },
+      "hqLevel": 2,
+      "armorMultiplier": 1
+    },
+    {
+      "id": "base_home_user_1792867542716_4b4d3441",
+      "mapId": "map_riverfront_assault",
+      "name": "Recruit_3012's Forward Redoubt",
+      "type": "home",
+      "ownerId": "user_1792867542716_4b4d3441",
+      "ownerName": "Recruit_3012",
+      "allianceId": null,
+      "x": 60,
+      "y": 23,
+      "radius": 4,
+      "health": 3500,
+      "maxHealth": 3500,
+      "defenseShield": 1200,
+      "maxShield": 1200,
+      "captureProgress": 0,
+      "isProtected": true,
+      "isHomeBase": true,
+      "lifecycleState": "protected",
+      "resources": {
+        "fuel": 1754.6727199999991,
+        "steel": 1504.4419999999982,
+        "aluminum": 1536.150399999999,
+        "concrete": 4051.4123999999842
+      },
+      "storageCap": {
+        "fuel": 6000,
+        "steel": 8000,
+        "aluminum": 5000,
+        "concrete": 10000
+      },
+      "productionRates": {
+        "concrete": 10.9,
+        "steel": 9.5,
+        "aluminum": 6.4,
+        "fuel": 8.3
+      },
+      "lastResourceUpdate": 1792867789559,
+      "constructionQueue": [],
+      "productionQueue": [],
+      "buildings": [
+        {
+          "id": "b_cc_user_1792867542716_4b4d3441",
+          "type": "command_center",
+          "level": 2,
+          "health": 1200,
+          "maxHealth": 1200
+        },
+        {
+          "id": "b_cw_user_1792867542716_4b4d3441",
+          "type": "concrete_works",
+          "level": 2,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_sf_user_1792867542716_4b4d3441",
+          "type": "steel_foundry",
+          "level": 2,
+          "health": 650,
+          "maxHealth": 650
+        },
+        {
+          "id": "b_as_user_1792867542716_4b4d3441",
+          "type": "aluminum_smelter",
+          "level": 2,
+          "health": 500,
+          "maxHealth": 500
+        },
+        {
+          "id": "b_fr_user_1792867542716_4b4d3441",
+          "type": "fuel_refinery",
+          "level": 2,
+          "health": 550,
+          "maxHealth": 550
+        },
+        {
+          "id": "b_br_user_1792867542716_4b4d3441",
+          "type": "barracks",
+          "level": 1,
+          "health": 600,
+          "maxHealth": 600
+        },
+        {
+          "id": "b_vf_user_1792867542716_4b4d3441",
+          "type": "vehicle_factory",
+          "level": 2,
+          "health": 900,
+          "maxHealth": 900
+        },
+        {
+          "id": "b_vt_user_1792867542716_4b4d3441",
+          "type": "vulcan_turret",
+          "level": 2,
+          "health": 450,
+          "maxHealth": 450
+        }
+      ],
+      "activeTurretsCount": 1,
+      "totalTurretsCount": 1,
+      "defensesIntact": true,
+      "captureBlockedReason": "Home Bases are permanent command centers and cannot be conquered",
+      "powerUsed": 52,
+      "powerCapacity": 65,
+      "consumptionRates": {
+        "concrete": 0,
+        "steel": 0,
+        "aluminum": 0,
+        "fuel": 0.63
+      },
+      "hqLevel": 2,
+      "armorMultiplier": 3,
+      "lastMeaningfulActivityAt": 1792867725990
     }
   ],
   "units": [
@@ -2377,44 +3540,6 @@
       "ownerName": "Kodiak PMC",
       "homeBaseId": "base_enemy_stronghold_s3",
       "lastAttackTime": 0
-    },
-    {
-      "x": 58,
-      "y": 42,
-      "id": "unit_scout_1792763980046_7b8f10",
-      "path": [],
-      "type": "vanguard_scout",
-      "kills": 0,
-      "mapId": "map_riverfront_assault",
-      "health": 280,
-      "command": "idle",
-      "ownerId": "user_1792763980046_dbb7efd8",
-      "rotation": -1.5707963267948966,
-      "maxHealth": 280,
-      "ownerName": "Recruit_E7C2",
-      "homeBaseId": "base_home_user_1792763980046_dbb7efd8",
-      "targetBaseId": null,
-      "targetUnitId": null,
-      "lastAttackTime": 1792764118502
-    },
-    {
-      "x": 60,
-      "y": 42,
-      "id": "unit_inf_1792763980046_12ba48",
-      "path": [],
-      "type": "rifle_infantry",
-      "kills": 0,
-      "mapId": "map_riverfront_assault",
-      "health": 340,
-      "command": "idle",
-      "ownerId": "user_1792763980046_dbb7efd8",
-      "rotation": -1.5707963267948966,
-      "maxHealth": 340,
-      "ownerName": "Recruit_E7C2",
-      "homeBaseId": "base_home_user_1792763980046_dbb7efd8",
-      "targetBaseId": null,
-      "targetUnitId": null,
-      "lastAttackTime": 1792764117697
     },
     {
       "x": 73,
@@ -2982,26 +4107,6 @@
       "lastAttackTime": 0
     },
     {
-      "x": 59.99960670307447,
-      "y": 45.0007118407557,
-      "id": "unit_1792764152332_l0cx",
-      "path": [],
-      "type": "dominator_conquest",
-      "kills": 0,
-      "mapId": "map_riverfront_assault",
-      "health": 900,
-      "command": "idle",
-      "ownerId": "user_1792763980046_dbb7efd8",
-      "rotation": -2.356194490192345,
-      "maxHealth": 900,
-      "ownerName": "Recruit_E7C2",
-      "allianceId": null,
-      "homeBaseId": "base_home_user_1792763980046_dbb7efd8",
-      "targetBaseId": null,
-      "targetUnitId": null,
-      "lastAttackTime": 0
-    },
-    {
       "x": 21,
       "y": 52,
       "id": "unit_1792764226838_ciud",
@@ -3145,106 +4250,6 @@
       "allianceId": "alli_dominion",
       "homeBaseId": "base_tank_armory_s3",
       "lastAttackTime": 0
-    },
-    {
-      "x": 61,
-      "y": 42,
-      "id": "unit_1792764076795_9w6p",
-      "path": [],
-      "type": "titan_mbt",
-      "kills": 0,
-      "mapId": "map_riverfront_assault",
-      "health": 1100,
-      "command": "idle",
-      "ownerId": "user_1792763980046_dbb7efd8",
-      "rotation": -1.5707963267948966,
-      "maxHealth": 1100,
-      "ownerName": "Recruit_E7C2",
-      "allianceId": null,
-      "homeBaseId": "base_home_user_1792763980046_dbb7efd8",
-      "targetBaseId": null,
-      "targetUnitId": null,
-      "lastAttackTime": 1792764116692
-    },
-    {
-      "x": 58,
-      "y": 44,
-      "id": "unit_1792764076795_laze",
-      "path": [],
-      "type": "titan_mbt",
-      "kills": 0,
-      "mapId": "map_riverfront_assault",
-      "health": 1100,
-      "command": "idle",
-      "ownerId": "user_1792763980046_dbb7efd8",
-      "rotation": -2.360793293638186,
-      "maxHealth": 1100,
-      "ownerName": "Recruit_E7C2",
-      "allianceId": null,
-      "homeBaseId": "base_home_user_1792763980046_dbb7efd8",
-      "targetBaseId": null,
-      "targetUnitId": null,
-      "lastAttackTime": 1792764116792
-    },
-    {
-      "x": 60,
-      "y": 44,
-      "id": "unit_1792764077803_nlb7",
-      "path": [],
-      "type": "titan_mbt",
-      "kills": 0,
-      "mapId": "map_riverfront_assault",
-      "health": 1100,
-      "command": "idle",
-      "ownerId": "user_1792763980046_dbb7efd8",
-      "rotation": -2.361912211500538,
-      "maxHealth": 1100,
-      "ownerName": "Recruit_E7C2",
-      "allianceId": null,
-      "homeBaseId": "base_home_user_1792763980046_dbb7efd8",
-      "targetBaseId": null,
-      "targetUnitId": null,
-      "lastAttackTime": 1792764117998
-    },
-    {
-      "x": 61,
-      "y": 44,
-      "id": "unit_1792764077803_u2pb",
-      "path": [],
-      "type": "titan_mbt",
-      "kills": 0,
-      "mapId": "map_riverfront_assault",
-      "health": 1100,
-      "command": "idle",
-      "ownerId": "user_1792763980046_dbb7efd8",
-      "rotation": -1.5707963267948966,
-      "maxHealth": 1100,
-      "ownerName": "Recruit_E7C2",
-      "allianceId": null,
-      "homeBaseId": "base_home_user_1792763980046_dbb7efd8",
-      "targetBaseId": null,
-      "targetUnitId": null,
-      "lastAttackTime": 1792764118301
-    },
-    {
-      "x": 57.997799188437526,
-      "y": 45.00229811376822,
-      "id": "unit_1792764077803_7mip",
-      "path": [],
-      "type": "titan_mbt",
-      "kills": 0,
-      "mapId": "map_riverfront_assault",
-      "health": 596,
-      "command": "idle",
-      "ownerId": "user_1792763980046_dbb7efd8",
-      "rotation": -2.356194490192345,
-      "maxHealth": 1100,
-      "ownerName": "Recruit_E7C2",
-      "allianceId": null,
-      "homeBaseId": "base_home_user_1792763980046_dbb7efd8",
-      "targetBaseId": null,
-      "targetUnitId": null,
-      "lastAttackTime": 1792764117596
     },
     {
       "x": 21,
@@ -5601,6 +6606,164 @@
       "lastAttackTime": 1792766781284,
       "kills": 0,
       "homeBaseId": "base_enemy_stronghold_s3",
+      "targetUnitId": null,
+      "targetBaseId": null
+    },
+    {
+      "id": "unit_scout_1792867542716_1de8bb",
+      "mapId": "map_riverfront_assault",
+      "type": "vanguard_scout",
+      "ownerId": "user_1792867542716_4b4d3441",
+      "ownerName": "Recruit_3012",
+      "x": 61,
+      "y": 47,
+      "rotation": 2.356194490192345,
+      "health": 280,
+      "maxHealth": 280,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 1792867667901,
+      "kills": 0,
+      "homeBaseId": "base_home_user_1792867542716_4b4d3441",
+      "targetUnitId": null,
+      "targetBaseId": null
+    },
+    {
+      "id": "unit_inf_1792867542716_8c6d31",
+      "mapId": "map_riverfront_assault",
+      "type": "rifle_infantry",
+      "ownerId": "user_1792867542716_4b4d3441",
+      "ownerName": "Recruit_3012",
+      "x": 62.01173504538603,
+      "y": 46.98561176905772,
+      "rotation": 1.6097205990605867,
+      "health": 340,
+      "maxHealth": 340,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 1792867668304,
+      "kills": 0,
+      "homeBaseId": "base_home_user_1792867542716_4b4d3441",
+      "targetUnitId": null,
+      "targetBaseId": null
+    },
+    {
+      "id": "unit_1792867606163_218g",
+      "mapId": "map_riverfront_assault",
+      "type": "titan_mbt",
+      "ownerId": "user_1792867542716_4b4d3441",
+      "ownerName": "Recruit_3012",
+      "allianceId": null,
+      "x": 62.997799188437526,
+      "y": 46.99770188623178,
+      "rotation": 2.356194490192345,
+      "health": 1100,
+      "maxHealth": 1100,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 1792867667195,
+      "kills": 1,
+      "homeBaseId": "base_home_user_1792867542716_4b4d3441",
+      "targetUnitId": null,
+      "targetBaseId": null
+    },
+    {
+      "id": "unit_1792867606164_wm0k",
+      "mapId": "map_riverfront_assault",
+      "type": "titan_mbt",
+      "ownerId": "user_1792867542716_4b4d3441",
+      "ownerName": "Recruit_3012",
+      "allianceId": null,
+      "x": 61,
+      "y": 48,
+      "rotation": 2.4450641394120227,
+      "health": 1100,
+      "maxHealth": 1100,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 1792867673847,
+      "kills": 0,
+      "homeBaseId": "base_home_user_1792867542716_4b4d3441",
+      "targetUnitId": null,
+      "targetBaseId": null
+    },
+    {
+      "id": "unit_1792867606164_lbvk",
+      "mapId": "map_riverfront_assault",
+      "type": "titan_mbt",
+      "ownerId": "user_1792867542716_4b4d3441",
+      "ownerName": "Recruit_3012",
+      "allianceId": null,
+      "x": 62,
+      "y": 48,
+      "rotation": 2.810140384517702,
+      "health": 1100,
+      "maxHealth": 1100,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 1792867673747,
+      "kills": 0,
+      "homeBaseId": "base_home_user_1792867542716_4b4d3441",
+      "targetUnitId": null,
+      "targetBaseId": null
+    },
+    {
+      "id": "unit_1792867606164_m7wm",
+      "mapId": "map_riverfront_assault",
+      "type": "titan_mbt",
+      "ownerId": "user_1792867542716_4b4d3441",
+      "ownerName": "Recruit_3012",
+      "allianceId": null,
+      "x": 62.722087910016874,
+      "y": 48.44113094814668,
+      "rotation": 2.356194490192345,
+      "health": 1100,
+      "maxHealth": 1100,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 1792867674753,
+      "kills": 2,
+      "homeBaseId": "base_home_user_1792867542716_4b4d3441",
+      "targetUnitId": null,
+      "targetBaseId": null
+    },
+    {
+      "id": "unit_1792867606164_2bqu",
+      "mapId": "map_riverfront_assault",
+      "type": "titan_mbt",
+      "ownerId": "user_1792867542716_4b4d3441",
+      "ownerName": "Recruit_3012",
+      "allianceId": null,
+      "x": 61,
+      "y": 49,
+      "rotation": 3.141592653589793,
+      "health": 1100,
+      "maxHealth": 1100,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 1792867674249,
+      "kills": 5,
+      "homeBaseId": "base_home_user_1792867542716_4b4d3441",
+      "targetUnitId": null,
+      "targetBaseId": null
+    },
+    {
+      "id": "unit_1792867718975_puw1",
+      "mapId": "map_riverfront_assault",
+      "type": "dominator_conquest",
+      "ownerId": "user_1792867542716_4b4d3441",
+      "ownerName": "Recruit_3012",
+      "allianceId": null,
+      "x": 62,
+      "y": 46,
+      "rotation": 1.5707963267948966,
+      "health": 900,
+      "maxHealth": 900,
+      "command": "idle",
+      "path": [],
+      "lastAttackTime": 0,
+      "kills": 0,
+      "homeBaseId": "base_home_user_1792867542716_4b4d3441",
       "targetUnitId": null,
       "targetBaseId": null
     }
@@ -15532,7 +16695,7 @@
         "enemy_insurgent"
       ],
       "terminationReason": null,
-      "totalUnitsSpawned": 6,
+      "totalUnitsSpawned": 12,
       "totalBasesCaptured": 2
     },
     {
@@ -16406,6 +17569,14 @@
         23,
         81,
         67
+      ]
+    },
+    "user_1792867542716_4b4d3441": {
+      "map_riverfront_assault": [
+        41,
+        4,
+        93,
+        62
       ]
     }
   },
@@ -52460,7 +53631,7 @@
       "creationSource": "server_simulation_engine",
       "state": "active",
       "createdAt": 1791537541620,
-      "lastDecisionAt": 1792860247611
+      "lastDecisionAt": 1792867788035
     }
   },
   "systemEntities": {
@@ -52473,13 +53644,14 @@
       "activeMapIds": [
         "map_archipelago_bastion",
         "map_iron_ridge_corridor",
-        "map_custom_1792748967438"
+        "map_custom_1792748967438",
+        "map_riverfront_assault"
       ],
       "controlSource": "system",
       "creationSource": "world_generator",
       "state": "active",
       "createdAt": 1791537541620,
-      "lastUpdatedAt": 1792860088883
+      "lastUpdatedAt": 1792867505934
     }
   },
   "accountsPurged": true

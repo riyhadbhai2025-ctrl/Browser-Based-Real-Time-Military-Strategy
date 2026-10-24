@@ -109,12 +109,84 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
     return true;
   });
 
-  // Home Base specializes in ground infantry & vehicle production; captured Air/Harbor bases unlock Air/Naval
+  // Specialized base production rules matching authoritative simulation
   const availableUnits = Object.values(UNIT_CATALOG).filter((u) => {
     if (isHomeBase && u.category !== 'ground') return false;
+    if (base.type === 'tank' && u.category !== 'ground') return false;
+    if (base.type === 'air' && !(u.category === 'air' && u.requiredBuilding === 'aviation_hangar')) {
+      if (u.category !== 'ground') return false;
+    }
+    if (base.type === 'helicopter' && !(u.category === 'air' && u.requiredBuilding === 'helicopter_hangar')) {
+      if (u.category !== 'ground') return false;
+    }
+    if (base.type === 'harbor' && u.category !== 'naval' && u.category !== 'ground') return false;
+    if ((base.type === 'train' || base.type === 'rail') && u.category !== 'rail' && u.category !== 'ground') return false;
     const hasFacility = base.buildings.some((b) => b.type === u.requiredBuilding && !b.isConstructing);
     return hasFacility;
   });
+
+  const SPECIALIZED_BASE_META: Record<
+    string,
+    { badge: string; title: string; infraLabel: string; infraStatus: string; unitDoctrine: string; colorClass: string }
+  > = {
+    home: {
+      badge: '★ COMMAND HQ',
+      title: 'Strategic Command Headquarters',
+      infraLabel: 'HQ PERIMETER & MOTOR POOL',
+      infraStatus: 'REINFORCED 3.0X ARMOR · CAPTURE IMMUNE',
+      unitDoctrine: 'Ground Infantry & Armored Motor Pool',
+      colorClass: 'text-purple-300 border-purple-500/50 bg-purple-950/60',
+    },
+    tank: {
+      badge: '⛨ TANK BASE',
+      title: 'Armored Vehicle Production Complex',
+      infraLabel: 'HEAVY ARMOR ASSEMBLY BAYS',
+      infraStatus: 'TANK GARAGES & MARSHALING YARD ONLINE',
+      unitDoctrine: 'Main Battle Tanks, APCs, Howitzers & Conquest Vehicles',
+      colorClass: 'text-amber-300 border-amber-500/50 bg-amber-950/60',
+    },
+    air: {
+      badge: '✈ AIR BASE',
+      title: 'Tactical Fixed-Wing Airfield',
+      infraLabel: 'PAVED RUNWAY & ATC RADAR',
+      infraStatus: 'RUNWAY 09/27 CLEAR · HANGARS PRESSURIZED',
+      unitDoctrine: 'Stormbringer Strike Fighters & Strategic Bombers',
+      colorClass: 'text-sky-300 border-sky-500/50 bg-sky-950/60',
+    },
+    helicopter: {
+      badge: '✦ HELICOPTER BASE',
+      title: 'Forward Rotorcraft Operations Base',
+      infraLabel: 'TRIPLE HELIPAD APRON & ROTOR BAYS',
+      infraStatus: '3 HELIPADS CLEAR · AVIONICS & FUEL READY',
+      unitDoctrine: 'Hawk Recon Helicopters & Cobra Heavy Gunships',
+      colorClass: 'text-teal-300 border-teal-500/50 bg-teal-950/60',
+    },
+    rail: {
+      badge: '⇄ RAILWAY BASE',
+      title: 'Railway Logistics & Servicing Hub',
+      infraLabel: 'MAINLINE SWITCHING & GANTRY YARD',
+      infraStatus: 'CONNECTED RAIL TRACKS · REPAIR & REARM ACTIVE',
+      unitDoctrine: 'Rail Network Logistics, Train Servicing & Escort',
+      colorClass: 'text-orange-300 border-orange-500/50 bg-orange-950/60',
+    },
+    train: {
+      badge: '🚆 TRAIN STATION BASE',
+      title: 'Armored Train Production Terminal',
+      infraLabel: '3-TRACK TERMINAL & LOCOMOTIVE DEPOT',
+      infraStatus: 'MAINLINE RAIL CORRIDOR VERIFIED · DEPOT READY',
+      unitDoctrine: 'Iron Dreadnought Armored Artillery Trains',
+      colorClass: 'text-yellow-300 border-yellow-500/50 bg-yellow-950/60',
+    },
+    harbor: {
+      badge: '⚓ HARBOR BASE',
+      title: 'Deepwater Naval Shipyard & Fleet Quay',
+      infraLabel: 'DEEPWATER BERTHS & SHIPYARD CRANES',
+      infraStatus: '2 NAVIGABLE WATER PIERS & DRYDOCK CLEAR',
+      unitDoctrine: 'Wavecutter Corvettes & Trident Guided-Missile Destroyers',
+      colorClass: 'text-blue-300 border-blue-500/50 bg-blue-950/60',
+    },
+  };
+  const specMeta = SPECIALIZED_BASE_META[base.type] || SPECIALIZED_BASE_META.tank;
 
   const defenseBuildings = base.buildings.filter((b) => {
     const def = BUILDING_CATALOG[b.type];
@@ -180,8 +252,8 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
               )}
             </div>
             <div className="flex items-center gap-1.5 text-[10px] text-slate-400 truncate flex-wrap mt-0.5">
-              <span className="uppercase text-cyan-400 font-semibold">
-                {isHomeBase ? 'HQ' : `${base.type.toUpperCase()}`}
+              <span className={`px-1.5 py-0.2 rounded border text-[9px] font-mono font-bold ${specMeta.colorClass}`}>
+                {specMeta.badge}
               </span>
               <span>•</span>
               <span className="font-mono">
@@ -230,11 +302,11 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
       <div className="relative h-20 overflow-hidden border-b border-slate-800 bg-slate-900 shrink-0">
         <img
           src={
-            base.type === 'air'
+            base.type === 'air' || base.type === 'helicopter'
               ? '/assets/aistudio/7kxgVxTj12aaGQnz6Di07mv5tlqjfNQXjYBNzUd-UvDem-SyyNXis7yU3Du970X-dKtQWAnOnsbfXX40lRwqhdezZdYLDS-Qe6Yn7HNpL5ok7Yyj2tY9qpVa-fZzZweKvmdvGD0lRBLwe080CIaqBxVwiV5JA05gslWLYZg8fi-0SjlUyxWpoIHos2VzZ9Gi_24db5c9a.jfif'
               : base.type === 'harbor'
               ? '/assets/aistudio/fCepRZYn_2xfC_oeZGl3DbmG6Jc3nbWZ2vPUo8iLMCzWT-HmucP9eU-1_Y4dqPOIvQRHPLPTb42TH8O_8chE27y_sw1grBsWTmRM1UcPI7nW9c1gW1xQvyHfwnDyXkMWCrRBXFKrwiA5dB-2N-K3lLvgHtQ3catcXnSHnmDlVj8a3f16gpHddgBpOzWBMvnH_6e199dd8.jfif'
-              : base.type === 'rail'
+              : base.type === 'rail' || base.type === 'train'
               ? '/assets/aistudio/tXNaVJSFm6tq5eH0LOMsca9t3UCFb09TGtuIxw9HSBmOYvkcBdJoO9pvGRot5OpMjRuJSuLuEHZ2csSAgz7tSu-f27vNq-s-H1C2EdeolyCYJQCYO6UAxjBplGDIKi3LSqJmwJDiAD8mJP88GFYJiAhdMNkaBeep4lDDUfkg2tbJZW4kt6Mtu35w5FPPkT1n_6230bc6d.jfif'
               : isHomeBase
               ? '/assets/aistudio/cI6wQTlzfGZXAIf5dpnk13jWyN3OpURvwt1DEq8v-GpgYo0AvbfjJTLBjh5eR1snAYDAeq8I12dkh3SAJq5b_9EwyPg2qWOpknxasVnVhIJqCEmBfKSLTY6WT9ySYLCR-8EWn7XhUJ1O2pKlXWraXQtH-GB3TkZzNgO947NAXicxEipj__DbRwcLlqghOmsX_04e15e49.jfif'
@@ -441,10 +513,21 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
               <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
                 <span className="text-[11px] font-bold text-slate-100 uppercase flex items-center gap-1.5">
                   <Award className="w-3.5 h-3.5 text-purple-400" />
-                  <span>{isHomeBase ? 'Strategic Command Headquarters' : 'Forward Installation Overview'}</span>
+                  <span>{specMeta.title}</span>
                 </span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300">
                   CMD LVL {hqLevel}
+                </span>
+              </div>
+
+              <div className="p-2 rounded bg-slate-950 border border-slate-800/90 flex items-center justify-between text-[10px]">
+                <div>
+                  <div className="text-slate-500 font-bold text-[9px]">{specMeta.infraLabel}</div>
+                  <div className="text-emerald-400 font-bold">{specMeta.infraStatus}</div>
+                  <div className="text-slate-400 text-[9px] mt-0.5">Doctrine: {specMeta.unitDoctrine}</div>
+                </div>
+                <span className={`px-1.5 py-0.5 rounded border text-[9px] font-bold shrink-0 ${specMeta.colorClass}`}>
+                  {specMeta.badge}
                 </span>
               </div>
 
@@ -963,19 +1046,17 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
            =================================================================== */}
         {activeTab === 'units' && (
           <div className="space-y-2.5">
-            {isHomeBase && (
-              <div className="p-2 rounded bg-slate-900 border border-slate-800 flex items-center justify-between text-[10px]">
-                <div>
-                  <div className="font-bold text-cyan-300 uppercase">HQ Ground Motor Pool Specialization</div>
-                  <div className="text-slate-400">
-                    Spawn Coordinates: [{base.x + 2}, {base.y + 2}] · Queue: {base.productionQueue.length} / 5
-                  </div>
+            <div className="p-2 rounded bg-slate-900 border border-slate-800 flex items-center justify-between text-[10px]">
+              <div>
+                <div className="font-bold text-cyan-300 uppercase">{specMeta.title}</div>
+                <div className="text-slate-400">
+                  {specMeta.unitDoctrine} · Queue: {base.productionQueue.length} / 5
                 </div>
-                <span className="px-1.5 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-600/40 font-bold">
-                  GROUND VEHICLES
-                </span>
               </div>
-            )}
+              <span className={`px-1.5 py-0.5 rounded border font-bold shrink-0 ${specMeta.colorClass}`}>
+                {specMeta.badge}
+              </span>
+            </div>
 
             {/* Active Production Queue with Progress & Cancel */}
             {base.productionQueue.length > 0 && (
@@ -989,7 +1070,10 @@ export const BaseDrawer: React.FC<BaseDrawerProps> = ({
                   const elapsed = Math.max(0, now - prod.startTime);
                   const pct = Math.min(100, Math.max(0, (elapsed / total) * 100));
                   const remainSec = Math.max(0, Math.round((prod.finishTime - now) / 1000));
-                  const isBlocked = prod.status === 'WAITING FOR RAIL ACCESS' || prod.status === 'RAIL SPAWN BLOCKED';
+                  const isBlocked =
+                    prod.status === 'WAITING FOR RAIL ACCESS' ||
+                    prod.status === 'RAIL SPAWN BLOCKED' ||
+                    prod.status === 'WAITING FOR BERTH';
 
                   return (
                     <div key={prod.id} className={`p-1.5 rounded border ${isBlocked ? 'bg-amber-950/40 border-amber-500/60' : 'bg-slate-950 border-slate-800'}`}>

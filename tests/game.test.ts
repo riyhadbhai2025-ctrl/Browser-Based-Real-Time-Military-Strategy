@@ -2993,3 +2993,222 @@ test('31. Alliance Chat Privacy Isolation & Socket.IO Unit Command Acknowledgeme
   }
 });
 
+test('32. Specialized Military Bases (Tank, Air, Helicopter, Railway, Train Station, Harbor) — Full Authoritative Verification', async () => {
+  const data = gameStore.getData();
+  const mapIds = ['map_riverfront_assault', 'map_iron_ridge_corridor', 'map_archipelago_bastion'];
+  const requiredSpecializedTypes = ['tank', 'air', 'helicopter', 'rail', 'train', 'harbor'] as const;
+
+  // 1 & 2. All six specialized base types exist in every sector with valid terrain and non-overlapping coordinates
+  for (const mapId of mapIds) {
+    const sectorBases = data.bases.filter((b) => (b.mapId || 'map_riverfront_assault') === mapId);
+    for (const reqType of requiredSpecializedTypes) {
+      const found = sectorBases.find((b) => b.type === reqType);
+      assert.ok(found, `Sector ${mapId} must contain specialized base type '${reqType}'`);
+    }
+
+    // Check non-overlapping coordinates within sector
+    for (let i = 0; i < sectorBases.length; i++) {
+      for (let j = i + 1; j < sectorBases.length; j++) {
+        const a = sectorBases[i];
+        const b = sectorBases[j];
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        assert.ok(
+          dist >= 10,
+          `Bases ${a.id} (${a.type}) and ${b.id} (${b.type}) in ${mapId} must not overlap (dist=${dist.toFixed(2)})`
+        );
+      }
+    }
+  }
+
+  const commanderId = 'player_default';
+  const sector1Bases = data.bases.filter((b) => (b.mapId || 'map_riverfront_assault') === 'map_riverfront_assault');
+  const tankBase = sector1Bases.find((b) => b.type === 'tank')!;
+  const airBase = sector1Bases.find((b) => b.type === 'air')!;
+  const heliBase = sector1Bases.find((b) => b.type === 'helicopter')!;
+  const railBase = sector1Bases.find((b) => b.type === 'rail')!;
+  const trainBase = sector1Bases.find((b) => b.type === 'train')!;
+  const harborBase = sector1Bases.find((b) => b.type === 'harbor')!;
+
+  // Temporarily assign ownership and ample resources to test production, spawning, and cross-type rejection
+  const testBases = [tankBase, airBase, heliBase, railBase, trainBase, harborBase];
+  const savedState = testBases.map((b) => ({
+    base: b,
+    ownerId: b.ownerId,
+    ownerName: b.ownerName,
+    lifecycleState: b.lifecycleState,
+    resources: { ...b.resources },
+    productionQueue: [...b.productionQueue],
+  }));
+
+  try {
+    for (const b of testBases) {
+      b.ownerId = commanderId;
+      b.ownerName = 'HighCommander_One';
+      b.lifecycleState = 'active';
+      b.resources = { concrete: 15000, steel: 15000, aluminum: 15000, fuel: 15000 };
+      b.storageCap = { concrete: 20000, steel: 20000, aluminum: 20000, fuel: 20000 };
+      b.productionQueue = [];
+    }
+
+    // Ensure population headroom for test spawns
+    const originalUnits = [...data.units];
+    const terrain = gameSimulation.getTerrain('map_riverfront_assault');
+
+    // 3. Tank Base produces ground vehicles (Titan MBT & Dominator Conquest) and rejects air/naval/rail
+    const tankProd = gameSimulation.produceUnit(commanderId, tankBase.id, 'titan_mbt');
+    assert.strictEqual(tankProd.success, true, `Tank Base must produce titan_mbt: ${tankProd.message}`);
+    const tankConquestProd = gameSimulation.produceUnit(commanderId, tankBase.id, 'dominator_conquest');
+    assert.strictEqual(tankConquestProd.success, true, `Tank Base must produce dominator_conquest: ${tankConquestProd.message}`);
+
+    const tankRejectJet = gameSimulation.produceUnit(commanderId, tankBase.id, 'stormbringer_jet');
+    assert.strictEqual(tankRejectJet.success, false, 'Tank Base must reject fixed-wing aircraft');
+    const tankRejectShip = gameSimulation.produceUnit(commanderId, tankBase.id, 'wavecutter_corvette');
+    assert.strictEqual(tankRejectShip.success, false, 'Tank Base must reject naval vessels');
+
+    // 4. Air Base validates runway & aviation_hangar, produces fixed-wing aircraft, and rejects helicopters/tanks/ships
+    assert.strictEqual(
+      gameSimulation.hasValidRunwaySpace(terrain, airBase),
+      true,
+      'Air Base must have valid flat runway space'
+    );
+    const jetProd = gameSimulation.produceUnit(commanderId, airBase.id, 'stormbringer_jet');
+    assert.strictEqual(jetProd.success, true, `Air Base must produce stormbringer_jet: ${jetProd.message}`);
+    const bomberProd = gameSimulation.produceUnit(commanderId, airBase.id, 'thunderbolt_bomber');
+    assert.strictEqual(bomberProd.success, true, `Air Base must produce thunderbolt_bomber: ${bomberProd.message}`);
+
+    const airRejectHeli = gameSimulation.produceUnit(commanderId, airBase.id, 'hawk_scout_heli');
+    assert.strictEqual(airRejectHeli.success, false, 'Air Base must reject rotorcraft (requires Helicopter Base)');
+    const airRejectTank = gameSimulation.produceUnit(commanderId, airBase.id, 'titan_mbt');
+    assert.strictEqual(airRejectTank.success, false, 'Air Base must reject heavy tanks');
+
+    // 5. Helicopter Base validates helipad apron & helicopter_hangar, produces rotorcraft, and rejects fixed-wing jets
+    assert.strictEqual(
+      gameSimulation.hasValidHelipadSpace(terrain, heliBase),
+      true,
+      'Helicopter Base must have valid helipad apron clearance'
+    );
+    assert.ok(
+      heliBase.buildings.some((b) => b.type === 'helicopter_hangar' && !b.isConstructing),
+      'Helicopter Base must include an operational helicopter_hangar'
+    );
+    const scoutHeliProd = gameSimulation.produceUnit(commanderId, heliBase.id, 'hawk_scout_heli');
+    assert.strictEqual(scoutHeliProd.success, true, `Helicopter Base must produce hawk_scout_heli: ${scoutHeliProd.message}`);
+    const cobraProd = gameSimulation.produceUnit(commanderId, heliBase.id, 'cobra_gunship');
+    assert.strictEqual(cobraProd.success, true, `Helicopter Base must produce cobra_gunship: ${cobraProd.message}`);
+
+    const heliRejectJet = gameSimulation.produceUnit(commanderId, heliBase.id, 'stormbringer_jet');
+    assert.strictEqual(heliRejectJet.success, false, 'Helicopter Base must reject fixed-wing jets');
+
+    // 6. Railway Base validates connected railway network and services friendly rail units
+    const railConnectedCells = gameSimulation.getConnectedRailwayCellsForBase(terrain, railBase);
+    assert.ok(
+      railConnectedCells.length >= 6,
+      `Railway Base must be connected to at least 6 continuous railway tiles (found ${railConnectedCells.length})`
+    );
+
+    // 7. Train Station Base validates connected railway network & rail_depot and produces iron_dreadnought
+    const trainConnectedCells = gameSimulation.getConnectedRailwayCellsForBase(terrain, trainBase);
+    assert.ok(
+      trainConnectedCells.length >= 6,
+      `Train Station Base must be connected to at least 6 continuous railway tiles (found ${trainConnectedCells.length})`
+    );
+    assert.ok(
+      trainBase.buildings.some((b) => b.type === 'rail_depot' && !b.isConstructing),
+      'Train Station Base must include an operational rail_depot'
+    );
+    const trainProd = gameSimulation.produceUnit(commanderId, trainBase.id, 'iron_dreadnought');
+    assert.strictEqual(trainProd.success, true, `Train Station Base must produce iron_dreadnought: ${trainProd.message}`);
+
+    const trainRejectShip = gameSimulation.produceUnit(commanderId, trainBase.id, 'trident_destroyer');
+    assert.strictEqual(trainRejectShip.success, false, 'Train Station Base must reject naval vessels');
+
+    // 8. Harbor Base validates navigable water access & naval_dockyard and produces corvettes & destroyers
+    assert.strictEqual(
+      gameSimulation.hasNavigableWaterAccess(terrain, harborBase),
+      true,
+      'Harbor Base must have navigable water access'
+    );
+    assert.ok(
+      harborBase.buildings.some((b) => b.type === 'naval_dockyard' && !b.isConstructing),
+      'Harbor Base must include an operational naval_dockyard'
+    );
+    const corvetteProd = gameSimulation.produceUnit(commanderId, harborBase.id, 'wavecutter_corvette');
+    assert.strictEqual(corvetteProd.success, true, `Harbor Base must produce wavecutter_corvette: ${corvetteProd.message}`);
+    const destroyerProd = gameSimulation.produceUnit(commanderId, harborBase.id, 'trident_destroyer');
+    assert.strictEqual(destroyerProd.success, true, `Harbor Base must produce trident_destroyer: ${destroyerProd.message}`);
+
+    const harborRejectTrain = gameSimulation.produceUnit(commanderId, harborBase.id, 'iron_dreadnought');
+    assert.strictEqual(harborRejectTrain.success, false, 'Harbor Base must reject armored trains');
+
+    // 9 & 10. Advance production queues to completion and verify units spawn onto valid domain tiles and accept commands
+    const now = Date.now();
+    for (const b of testBases) {
+      for (const order of b.productionQueue) {
+        order.finishTime = now - 100;
+      }
+    }
+    gameSimulation.tick(true);
+
+    const newlySpawned = data.units.filter((u) => !originalUnits.some((orig) => orig.id === u.id));
+    assert.ok(newlySpawned.some((u) => u.type === 'titan_mbt'), 'Tank Base must spawn titan_mbt');
+    assert.ok(newlySpawned.some((u) => u.type === 'stormbringer_jet'), 'Air Base must spawn stormbringer_jet');
+    assert.ok(newlySpawned.some((u) => u.type === 'hawk_scout_heli'), 'Helicopter Base must spawn hawk_scout_heli');
+    assert.ok(newlySpawned.some((u) => u.type === 'cobra_gunship'), 'Helicopter Base must spawn cobra_gunship');
+
+    const spawnedTrain = newlySpawned.find((u) => u.type === 'iron_dreadnought');
+    assert.ok(spawnedTrain, 'Train Station Base must spawn iron_dreadnought onto connected railway');
+    const trainCell = terrain[Math.round(spawnedTrain.y)]?.[Math.round(spawnedTrain.x)];
+    assert.ok(
+      trainCell === 'railway' || trainCell === 'bridge_rail',
+      `Spawned iron_dreadnought must be on railway tile, found '${trainCell}' at (${spawnedTrain.x}, ${spawnedTrain.y})`
+    );
+
+    const spawnedShip = newlySpawned.find((u) => u.type === 'wavecutter_corvette');
+    assert.ok(spawnedShip, 'Harbor Base must spawn wavecutter_corvette into navigable water');
+    const shipCell = terrain[Math.round(spawnedShip.y)]?.[Math.round(spawnedShip.x)];
+    assert.ok(
+      shipCell === 'water' || shipCell === 'deep_water',
+      `Spawned wavecutter_corvette must be on navigable water tile, found '${shipCell}' at (${spawnedShip.x}, ${spawnedShip.y})`
+    );
+
+    // Issue movement orders to spawned units across domains
+    const spawnedHeli = newlySpawned.find((u) => u.type === 'hawk_scout_heli')!;
+    const heliMove = gameSimulation.commandUnits(commanderId, [spawnedHeli.id], 'move', heliBase.x + 6, heliBase.y - 4);
+    assert.strictEqual(heliMove.success, true, 'Spawned helicopter must accept aerial movement command');
+
+    // 11. Specialized base neutralization & capture reassigns ownership cleanly
+    const dummyAttacker = {
+      id: 'spec_attacker_unit',
+      mapId: 'map_riverfront_assault',
+      type: 'titan_mbt' as const,
+      ownerId: 'enemy_insurgent',
+      ownerName: 'Kodiak Armored Division (AI)',
+      x: heliBase.x + 1,
+      y: heliBase.y + 1,
+      rotation: 0,
+      health: 600,
+      maxHealth: 600,
+      command: 'attack' as const,
+      path: [],
+      lastAttackTime: 0,
+      kills: 0,
+      homeBaseId: 'base_enemy_kodiak',
+    };
+    gameSimulation.neutralizeOrdinaryBase(heliBase, dummyAttacker, Date.now());
+    assert.strictEqual(heliBase.ownerId, 'neutral', 'Neutralized Helicopter Base must become neutral');
+    assert.strictEqual(heliBase.lifecycleState, 'neutralized');
+
+    // Clean up test spawned units
+    data.units = originalUnits;
+  } finally {
+    for (const s of savedState) {
+      s.base.ownerId = s.ownerId;
+      s.base.ownerName = s.ownerName;
+      s.base.lifecycleState = s.lifecycleState;
+      s.base.resources = s.resources;
+      s.base.productionQueue = s.productionQueue;
+    }
+  }
+});
+
+

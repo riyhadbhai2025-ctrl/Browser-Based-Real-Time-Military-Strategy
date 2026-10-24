@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { BuildingType, EnvironmentObject, TerrainType, UnitType } from '../types/game';
+import { BaseType, BuildingType, EnvironmentObject, TerrainType, UnitType } from '../types/game';
 import { Terrain3DSystem } from './terrain3d';
 
 const BUILDING_GLB_MAP: Partial<Record<BuildingType, string>> = {
@@ -12,6 +12,7 @@ const BUILDING_GLB_MAP: Partial<Record<BuildingType, string>> = {
   barracks: 'building-f',
   vehicle_factory: 'building-g',
   aviation_hangar: 'building-h',
+  helicopter_hangar: 'building-s',
   naval_dockyard: 'building-i',
   rail_depot: 'building-j',
   concrete_works: 'building-k',
@@ -857,10 +858,460 @@ export class Models3DRegistry {
 
       group.add(turretGroup);
     } else if (type === 'aviation_hangar') {
-      const helipad = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.03, 20), this.hazardMat);
-      helipad.position.set(0, 0.09, 0);
-      group.add(helipad);
+      const archRoof = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.42, 0.42, 0.88, 12, 1, false, 0, Math.PI),
+        this.gunMetalMat
+      );
+      archRoof.rotation.z = Math.PI / 2;
+      archRoof.position.set(0, 0.52, 0);
+      group.add(archRoof);
+    } else if (type === 'helicopter_hangar') {
+      const helipad = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.44, 0.05, 20), this.darkConcreteMat);
+      helipad.position.set(0, 0.1, 0);
+      const ring = new THREE.Mesh(new THREE.RingGeometry(0.32, 0.38, 20), this.hazardMat);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(0, 0.13, 0);
+      const hLeft = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.02, 0.34), this.hazardMat);
+      hLeft.position.set(-0.1, 0.13, 0);
+      const hRight = hLeft.clone();
+      hRight.position.set(0.1, 0.13, 0);
+      const hBar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.02, 0.06), this.hazardMat);
+      hBar.position.set(0, 0.13, 0);
+      group.add(helipad, ring, hLeft, hRight, hBar);
+    } else if (type === 'naval_dockyard') {
+      const craneMast = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.95, 0.12), this.hazardMat);
+      craneMast.position.set(0.26, 0.52, 0);
+      const craneBoom = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.09, 0.1), this.hazardMat);
+      craneBoom.position.set(0.05, 0.96, 0);
+      group.add(craneMast, craneBoom);
+    } else if (type === 'rail_depot') {
+      const gantry = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.65, 0.56), this.gunMetalMat);
+      gantry.position.set(0, 0.38, 0);
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.08, 0.58), this.hazardMat);
+      stripe.position.set(0, 0.64, 0);
+      group.add(gantry, stripe);
     }
+  }
+
+  /**
+   * Builds a distinct, multi-part 3D military installation compound for each of the 6 specialized base types:
+   * - 'tank': Armored vehicle assembly bays, motor pool parade tarmac, tank garages, industrial stacks, fortified bunkers.
+   * - 'air': Long paved asphalt runway with white dashed centerline & threshold markings, taxiway, arched jet hangars, control tower, fuel farm.
+   * - 'helicopter': Fortified rotorcraft complex with 3 visible circular helipads ("H" markings), rotorcraft maintenance hangars, fuel tanks, watchtowers.
+   * - 'rail': Railway logistics & servicing yard with dual connected tracks, maintenance shed, overhead gantry crane, cargo containers & signals.
+   * - 'train': Major armored train production station terminal with canopy platform, 3 parallel tracks, heavy train assembly depot & loading cranes.
+   * - 'harbor': Coastal naval port with concrete quay wall, 2 ship piers/berths extending into water, shipyard cranes, warehouses & coastal battery.
+   */
+  public createSpecializedBaseCompound(
+    baseType: BaseType,
+    padRadius: number,
+    teamColorHex: number
+  ): THREE.Group {
+    const compound = new THREE.Group();
+    compound.name = `specialized_compound_${baseType}`;
+
+    const teamMat = new THREE.MeshStandardMaterial({
+      color: teamColorHex,
+      metalness: 0.45,
+      roughness: 0.4,
+    });
+    const whitePaintMat = new THREE.MeshStandardMaterial({
+      color: 0xf8fafc,
+      roughness: 0.5,
+      metalness: 0.05,
+    });
+    const asphaltMat = new THREE.MeshStandardMaterial({
+      color: 0x1e2530,
+      roughness: 0.85,
+      metalness: 0.08,
+    });
+    const ballastMat = new THREE.MeshStandardMaterial({
+      color: 0x475569,
+      roughness: 0.94,
+      metalness: 0.05,
+    });
+
+    const addPerimeterWalls = (rx: number, rz: number, openEastWater = false) => {
+      const postPositions: [number, number][] = [
+        [-rx, -rz],
+        [rx, -rz],
+        [rx, rz],
+        [-rx, rz],
+      ];
+      postPositions.forEach(([px, pz]) => {
+        if (openEastWater && px > 0) return;
+        const tower = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.28, 0.62, 8), this.concreteMat);
+        tower.position.set(px, 0.31, pz);
+        tower.castShadow = true;
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.24, 0.1, 8), teamMat);
+        cap.position.set(px, 0.65, pz);
+        compound.add(tower, cap);
+      });
+
+      // North & South walls
+      const nWall = new THREE.Mesh(new THREE.BoxGeometry(rx * 1.85, 0.34, 0.18), this.darkConcreteMat);
+      nWall.position.set(0, 0.17, -rz);
+      nWall.castShadow = true;
+      const sWall = nWall.clone();
+      sWall.position.set(0, 0.17, rz);
+      compound.add(nWall, sWall);
+
+      // West wall with security gate opening
+      const wWall1 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.34, rz * 0.7), this.darkConcreteMat);
+      wWall1.position.set(-rx, 0.17, -rz * 0.55);
+      const wWall2 = wWall1.clone();
+      wWall2.position.set(-rx, 0.17, rz * 0.55);
+      const gateArch = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.14, 1.3), teamMat);
+      gateArch.position.set(-rx, 0.48, 0);
+      compound.add(wWall1, wWall2, gateArch);
+
+      if (!openEastWater) {
+        const eWall1 = wWall1.clone();
+        eWall1.position.set(rx, 0.17, -rz * 0.55);
+        const eWall2 = wWall2.clone();
+        eWall2.position.set(rx, 0.17, rz * 0.55);
+        compound.add(eWall1, eWall2);
+      }
+    };
+
+    const addHelipadDisc = (cx: number, cz: number, radius = 0.82) => {
+      const pad = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius * 1.06, 0.08, 24), asphaltMat);
+      pad.position.set(cx, 0.06, cz);
+      pad.receiveShadow = true;
+      compound.add(pad);
+
+      const outerRing = new THREE.Mesh(new THREE.RingGeometry(radius * 0.76, radius * 0.86, 24), this.hazardMat);
+      outerRing.rotation.x = -Math.PI / 2;
+      outerRing.position.set(cx, 0.105, cz);
+      compound.add(outerRing);
+
+      const hBarW = radius * 0.14;
+      const hBarH = radius * 0.72;
+      const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(hBarW, 0.02, hBarH), whitePaintMat);
+      leftLeg.position.set(cx - radius * 0.24, 0.108, cz);
+      const rightLeg = leftLeg.clone();
+      rightLeg.position.set(cx + radius * 0.24, 0.108, cz);
+      const crossBar = new THREE.Mesh(new THREE.BoxGeometry(radius * 0.52, 0.02, hBarW), whitePaintMat);
+      crossBar.position.set(cx, 0.108, cz);
+      compound.add(leftLeg, rightLeg, crossBar);
+
+      for (let i = 0; i < 6; i++) {
+        const ang = (i / 6) * Math.PI * 2;
+        const light = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), this.glowCyanMat);
+        light.position.set(cx + Math.cos(ang) * (radius * 0.92), 0.11, cz + Math.sin(ang) * (radius * 0.92));
+        compound.add(light);
+      }
+    };
+
+    const addRailTrackStrip = (cz: number, length: number) => {
+      const bed = new THREE.Mesh(new THREE.BoxGeometry(length, 0.06, 0.72), ballastMat);
+      bed.position.set(0, 0.04, cz);
+      bed.receiveShadow = true;
+      compound.add(bed);
+
+      const rail1 = new THREE.Mesh(new THREE.BoxGeometry(length, 0.05, 0.05), this.gunMetalMat);
+      rail1.position.set(0, 0.085, cz - 0.18);
+      const rail2 = rail1.clone();
+      rail2.position.set(0, 0.085, cz + 0.18);
+      compound.add(rail1, rail2);
+
+      const sleeperCount = Math.floor(length * 2.2);
+      for (let i = 0; i < sleeperCount; i++) {
+        const sx = -length / 2 + (i + 0.5) * (length / sleeperCount);
+        const sleeper = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.03, 0.56), this.trackMat);
+        sleeper.position.set(sx, 0.072, cz);
+        compound.add(sleeper);
+      }
+    };
+
+    switch (baseType) {
+      case 'air': {
+        // Long paved airfield foundation + runway strip + markings + arched hangars + radar tower
+        const apron = new THREE.Mesh(new THREE.BoxGeometry(padRadius * 2.1, 0.06, padRadius * 1.7), this.darkConcreteMat);
+        apron.position.set(0, 0.03, 0);
+        apron.receiveShadow = true;
+        compound.add(apron);
+
+        const runwayLen = padRadius * 2.35;
+        const runwayW = 1.65;
+        const runway = new THREE.Mesh(new THREE.BoxGeometry(runwayLen, 0.08, runwayW), asphaltMat);
+        runway.position.set(0, 0.05, 1.15);
+        runway.receiveShadow = true;
+        compound.add(runway);
+
+        // White dashed centerline markings along the runway
+        const dashCount = 9;
+        for (let i = 0; i < dashCount; i++) {
+          const dx = -runwayLen * 0.42 + (i / (dashCount - 1)) * (runwayLen * 0.84);
+          const dash = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.02, 0.09), whitePaintMat);
+          dash.position.set(dx, 0.095, 1.15);
+          compound.add(dash);
+        }
+
+        // Threshold piano-key bars at both ends of runway
+        [-runwayLen * 0.46, runwayLen * 0.46].forEach((endX) => {
+          for (let k = -2; k <= 2; k++) {
+            const bar = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.02, 0.08), whitePaintMat);
+            bar.position.set(endX, 0.095, 1.15 + k * 0.24);
+            compound.add(bar);
+          }
+        });
+
+        // Twin arched aircraft hangars north of the runway
+        [-1.85, 0.0].forEach((hx) => {
+          const hBase = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.42, 1.45), this.concreteMat);
+          hBase.position.set(hx, 0.24, -1.35);
+          hBase.castShadow = true;
+          const hArch = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.66, 0.66, 1.45, 14, 1, false, 0, Math.PI),
+            this.gunMetalMat
+          );
+          hArch.rotation.x = Math.PI / 2;
+          hArch.position.set(hx, 0.45, -1.35);
+          hArch.castShadow = true;
+          const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.38, 0.08, 1.48), teamMat);
+          stripe.position.set(hx, 0.42, -1.35);
+          compound.add(hBase, hArch, stripe);
+        });
+
+        // Air Traffic Control Tower & Radar
+        const atcShaft = new THREE.Mesh(new THREE.BoxGeometry(0.55, 1.25, 0.55), this.concreteMat);
+        atcShaft.position.set(1.95, 0.65, -1.45);
+        atcShaft.castShadow = true;
+        const atcCab = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.36, 0.34, 8), this.glassMat);
+        atcCab.position.set(1.95, 1.42, -1.45);
+        const atcRoof = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.08, 8), teamMat);
+        atcRoof.position.set(1.95, 1.62, -1.45);
+        compound.add(atcShaft, atcCab, atcRoof);
+
+        // Aviation Fuel Tanks
+        [-2.6, -2.0].forEach((fx) => {
+          const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.46, 14), whitePaintMat);
+          tank.position.set(fx, 0.26, -0.15);
+          tank.castShadow = true;
+          compound.add(tank);
+        });
+
+        addPerimeterWalls(padRadius * 1.02, padRadius * 0.84);
+        break;
+      }
+
+      case 'helicopter': {
+        // Fortified Rotorcraft Operations Base with 3 visible helipads ("H" markings), hangars & fuel tanks
+        const tarmac = new THREE.Mesh(
+          new THREE.CylinderGeometry(padRadius * 0.98, padRadius * 1.04, 0.07, 16),
+          this.darkConcreteMat
+        );
+        tarmac.position.y = 0.035;
+        tarmac.receiveShadow = true;
+        compound.add(tarmac);
+
+        // 3 Distinct Helipads with "H" markings and approach lights
+        addHelipadDisc(-1.45, 1.05, 0.82);
+        addHelipadDisc(0.2, 1.35, 0.82);
+        addHelipadDisc(1.65, 0.85, 0.82);
+
+        // Dedicated Helicopter Maintenance Hangars with wide rotorcraft doors
+        [-1.35, 1.15].forEach((hx) => {
+          const hangar = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.56, 1.15), this.concreteMat);
+          hangar.position.set(hx, 0.31, -1.25);
+          hangar.castShadow = true;
+          const roof = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.1, 1.25), teamMat);
+          roof.position.set(hx, 0.62, -1.25);
+          const door = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.42, 0.06), this.darkMetalMat);
+          door.position.set(hx, 0.24, -0.66);
+          compound.add(hangar, roof, door);
+        });
+
+        // Rotorcraft Fuel Tanks & Service Gantry
+        [-2.35, -2.35].forEach((fx, idx) => {
+          const fTank = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.52, 14), this.hazardMat);
+          fTank.position.set(fx, 0.29, -0.4 + idx * 0.72);
+          fTank.castShadow = true;
+          compound.add(fTank);
+        });
+
+        addPerimeterWalls(padRadius * 0.88, padRadius * 0.88);
+        break;
+      }
+
+      case 'rail': {
+        // Railway Logistics & Infrastructure Yard: Connected tracks, maintenance shed, overhead crane, fuel & cargo storage
+        const yardPad = new THREE.Mesh(new THREE.BoxGeometry(padRadius * 2.0, 0.06, padRadius * 1.75), this.darkConcreteMat);
+        yardPad.position.y = 0.03;
+        yardPad.receiveShadow = true;
+        compound.add(yardPad);
+
+        // Main through-track and parallel logistics siding track
+        addRailTrackStrip(0.0, padRadius * 2.25);
+        addRailTrackStrip(1.05, padRadius * 1.95);
+
+        // Railway Maintenance & Servicing Shed straddling siding
+        const shed = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.68, 1.1), this.concreteMat);
+        shed.position.set(-0.85, 0.37, -1.15);
+        shed.castShadow = true;
+        const shedRoof = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.1, 1.2), teamMat);
+        shedRoof.position.set(-0.85, 0.74, -1.15);
+        compound.add(shed, shedRoof);
+
+        // Overhead Yellow Trackside Freight Gantry Crane
+        [-0.4, 1.4].forEach((gx) => {
+          const leg1 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.05, 0.12), this.hazardMat);
+          leg1.position.set(gx, 0.55, 0.45);
+          const leg2 = leg1.clone();
+          leg2.position.set(gx, 0.55, 1.55);
+          const beam = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.14, 1.25), this.hazardMat);
+          beam.position.set(gx, 1.08, 1.0);
+          compound.add(leg1, leg2, beam);
+        });
+        const craneBridge = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.12, 0.14), this.gunMetalMat);
+        craneBridge.position.set(0.5, 1.15, 1.0);
+        compound.add(craneBridge);
+
+        // Railway Signal Mast
+        const sigPost = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 1.1, 8), this.darkMetalMat);
+        sigPost.position.set(2.45, 0.58, -0.55);
+        const sigLamp = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), this.glowCyanMat);
+        sigLamp.position.set(2.45, 1.12, -0.55);
+        compound.add(sigPost, sigLamp);
+
+        addPerimeterWalls(padRadius * 0.96, padRadius * 0.85);
+        break;
+      }
+
+      case 'train': {
+        // Major Armored Train Production Station Terminal: 3 parallel tracks, station canopy platform, armored train depot
+        const stationPad = new THREE.Mesh(
+          new THREE.BoxGeometry(padRadius * 2.15, 0.06, padRadius * 1.85),
+          this.darkConcreteMat
+        );
+        stationPad.position.y = 0.03;
+        stationPad.receiveShadow = true;
+        compound.add(stationPad);
+
+        // 3 Parallel Station Railway Tracks
+        addRailTrackStrip(-0.85, padRadius * 2.3);
+        addRailTrackStrip(0.0, padRadius * 2.35);
+        addRailTrackStrip(0.85, padRadius * 2.3);
+
+        // Elevated Concrete Station Platforms & Canopy Roof
+        const platform = new THREE.Mesh(new THREE.BoxGeometry(3.8, 0.18, 0.42), this.concreteMat);
+        platform.position.set(0, 0.12, -0.42);
+        const platform2 = platform.clone();
+        platform2.position.set(0, 0.12, 0.42);
+        const canopy = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.08, 1.35), teamMat);
+        canopy.position.set(-0.6, 0.96, -1.45);
+        canopy.castShadow = true;
+        const terminalHall = new THREE.Mesh(new THREE.BoxGeometry(3.1, 0.78, 1.1), this.concreteMat);
+        terminalHall.position.set(-0.6, 0.42, -1.55);
+        terminalHall.castShadow = true;
+        compound.add(platform, platform2, terminalHall, canopy);
+
+        // Heavy Armored Train Assembly Depot straddling the center track on the east side
+        const depotWallL = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.88, 0.22), this.gunMetalMat);
+        depotWallL.position.set(1.45, 0.46, -0.45);
+        depotWallL.castShadow = true;
+        const depotWallR = depotWallL.clone();
+        depotWallR.position.set(1.45, 0.46, 0.45);
+        const depotRoof = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.16, 1.16), this.hazardMat);
+        depotRoof.position.set(1.45, 0.94, 0.0);
+        depotRoof.castShadow = true;
+        compound.add(depotWallL, depotWallR, depotRoof);
+
+        addPerimeterWalls(padRadius * 1.04, padRadius * 0.88);
+        break;
+      }
+
+      case 'harbor': {
+        // Coastal Naval Port: Concrete seawall quay, 2 piers extending into eastern water, shipyard cranes, warehouses
+        const quay = new THREE.Mesh(new THREE.BoxGeometry(padRadius * 1.35, 0.18, padRadius * 1.85), this.concreteMat);
+        quay.position.set(-0.85, 0.06, 0);
+        quay.receiveShadow = true;
+        compound.add(quay);
+
+        // 2 Long Ship Berths / Piers extending eastward (+X) into navigable water
+        [-1.15, 1.15].forEach((pz) => {
+          const pier = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.16, 0.72), this.darkConcreteMat);
+          pier.position.set(1.85, 0.05, pz);
+          pier.receiveShadow = true;
+          pier.castShadow = true;
+          compound.add(pier);
+
+          // Mooring bollards & Hammerhead Shipyard Crane on each pier
+          const craneBase = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.42, 0.36), this.gunMetalMat);
+          craneBase.position.set(1.55, 0.32, pz);
+          const craneTower = new THREE.Mesh(new THREE.BoxGeometry(0.22, 1.35, 0.22), this.hazardMat);
+          craneTower.position.set(1.55, 0.98, pz);
+          craneTower.castShadow = true;
+          const craneJib = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.14, 0.18), this.hazardMat);
+          craneJib.position.set(1.95, 1.62, pz);
+          craneJib.castShadow = true;
+          compound.add(craneBase, craneTower, craneJib);
+        });
+
+        // Naval Drydock Slipway between the piers
+        const slipway = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.08, 1.25), this.gunMetalMat);
+        slipway.position.set(0.95, 0.02, 0);
+        compound.add(slipway);
+
+        // Port Warehouses & Container Stacks on the quay
+        [-1.25, 1.25].forEach((wz) => {
+          const wh = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.62, 1.05), this.concreteMat);
+          wh.position.set(-1.65, 0.38, wz);
+          wh.castShadow = true;
+          const whRoof = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.1, 1.12), teamMat);
+          whRoof.position.set(-1.65, 0.72, wz);
+          compound.add(wh, whRoof);
+        });
+
+        addPerimeterWalls(padRadius * 0.92, padRadius * 0.88, true);
+        break;
+      }
+
+      case 'tank':
+      default: {
+        // Fortified Tank Base: Armored vehicle garages, heavy assembly plant with smokestacks, motor pool bays
+        const motorPool = new THREE.Mesh(
+          new THREE.CylinderGeometry(padRadius * 0.98, padRadius * 1.04, 0.08, 12),
+          this.darkConcreteMat
+        );
+        motorPool.position.y = 0.04;
+        motorPool.receiveShadow = true;
+        compound.add(motorPool);
+
+        // Multi-Bay Armored Tank Garage on North side
+        const garage = new THREE.Mesh(new THREE.BoxGeometry(2.85, 0.62, 1.15), this.concreteMat);
+        garage.position.set(0, 0.35, -1.45);
+        garage.castShadow = true;
+        const garageRoof = new THREE.Mesh(new THREE.BoxGeometry(2.95, 0.1, 1.25), teamMat);
+        garageRoof.position.set(0, 0.7, -1.45);
+        compound.add(garage, garageRoof);
+
+        // 3 Armored Vehicle Bay Doors + Yellow Marshaling Stalls
+        [-0.9, 0, 0.9].forEach((bx) => {
+          const bayDoor = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.44, 0.06), this.darkMetalMat);
+          bayDoor.position.set(bx, 0.26, -0.86);
+          const stallMark = new THREE.Mesh(new THREE.RingGeometry(0.28, 0.34, 4), this.hazardMat);
+          stallMark.rotation.x = -Math.PI / 2;
+          stallMark.rotation.z = Math.PI / 4;
+          stallMark.position.set(bx, 0.09, -0.25);
+          compound.add(bayDoor, stallMark);
+        });
+
+        // Heavy Foundry Smokestacks
+        [-1.65, -1.25].forEach((sx) => {
+          const stack = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 1.25, 10), this.gunMetalMat);
+          stack.position.set(sx, 0.66, -1.55);
+          stack.castShadow = true;
+          compound.add(stack);
+        });
+
+        addPerimeterWalls(padRadius * 0.88, padRadius * 0.88);
+        break;
+      }
+    }
+
+    return compound;
   }
 
   // Build High-Density Multi-Tiered Instanced Forests, Bushes, Cliff Rocks & Fortifications

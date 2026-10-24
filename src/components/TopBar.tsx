@@ -52,6 +52,7 @@ interface TopBarProps {
   atmospherePreset?: AtmospherePreset;
   onChangeAtmospherePreset?: (p: AtmospherePreset) => void;
   onJumpToCoords?: (x: number, y: number) => void;
+  onSelectBase?: (baseId: string, x: number, y: number) => void;
   onLogout?: () => void;
   maps?: MapSectorConfig[];
   currentMapId?: string;
@@ -89,6 +90,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   atmospherePreset = 'daylight',
   onChangeAtmospherePreset,
   onJumpToCoords,
+  onSelectBase,
   onLogout,
   maps = [],
   currentMapId = 'map_riverfront_assault',
@@ -489,27 +491,50 @@ export const TopBar: React.FC<TopBarProps> = ({
             </span>
           </div>
 
-          {onJumpToCoords && (
-            <div className="hidden xl:flex items-center gap-1.5 text-[10px] shrink-0">
-              <span className="text-slate-500">HOTSPOTS:</span>
-              <button
-                onClick={() => onJumpToCoords(16.8, 28.2)}
-                className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 transition"
-              >
-                1. Allied HQ
-              </button>
-              <button
-                onClick={() => onJumpToCoords(50.0, 6.0)}
-                className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-amber-300 transition"
-              >
-                2. Highway Gate
-              </button>
-              <button
-                onClick={() => onJumpToCoords(70.0, 20.0)}
-                className="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-rose-300 transition"
-              >
-                3. Kodiak Stronghold
-              </button>
+          {(onSelectBase || onJumpToCoords) && (
+            <div className="hidden lg:flex items-center gap-1 text-[10px] shrink-0 overflow-x-auto">
+              <span className="text-slate-500 mr-0.5">BASES:</span>
+              {(['home', 'tank', 'air', 'helicopter', 'rail', 'train', 'harbor'] as const).map((bType) => {
+                const targetBase =
+                  bases.find((b) => b.type === bType && b.ownerId === profile.id) ||
+                  bases.find((b) => b.type === bType);
+                if (!targetBase) return null;
+                const isPlayerOwned = targetBase.ownerId === profile.id;
+                const isNeutral = targetBase.ownerId === 'neutral' || targetBase.lifecycleState === 'neutralized';
+                const labelMap: Record<string, string> = {
+                  home: '★ HQ',
+                  tank: '⛨ Tank',
+                  air: '✈ Airfield',
+                  helicopter: '✦ Heli Base',
+                  rail: '⇄ Rail Yard',
+                  train: '🚆 Train Stn',
+                  harbor: '⚓ Harbor',
+                };
+                return (
+                  <button
+                    key={targetBase.id}
+                    onClick={() => {
+                      if (onSelectBase) {
+                        onSelectBase(targetBase.id, targetBase.x, targetBase.y);
+                      } else if (onJumpToCoords) {
+                        onJumpToCoords(targetBase.x, targetBase.y);
+                      }
+                    }}
+                    className={`px-1.5 py-0.5 rounded border transition font-mono whitespace-nowrap ${
+                      isPlayerOwned
+                        ? 'bg-emerald-950/60 hover:bg-emerald-900/80 border-emerald-500/50 text-emerald-300'
+                        : isNeutral
+                        ? 'bg-slate-900 hover:bg-slate-800 border-amber-500/40 text-amber-300'
+                        : 'bg-rose-950/50 hover:bg-rose-900/70 border-rose-500/40 text-rose-300'
+                    }`}
+                    title={`${targetBase.name} [${targetBase.x}, ${targetBase.y}] (${
+                      isPlayerOwned ? 'Owned' : isNeutral ? 'Neutral' : targetBase.ownerName
+                    })`}
+                  >
+                    {labelMap[bType] || bType.toUpperCase()}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>

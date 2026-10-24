@@ -175,7 +175,7 @@ export const UNIT_CATALOG: Record<UnitType, UnitDefinition> = {
     targets: ['ground', 'air', 'rail'],
     visionRadius: 12,
     fuelBurnPerSec: 0.5,
-    requiredBuilding: 'aviation_hangar',
+    requiredBuilding: 'helicopter_hangar',
   },
   cobra_gunship: {
     type: 'cobra_gunship',
@@ -195,7 +195,7 @@ export const UNIT_CATALOG: Record<UnitType, UnitDefinition> = {
     targets: ['ground', 'naval', 'rail'],
     visionRadius: 8,
     fuelBurnPerSec: 0.65,
-    requiredBuilding: 'aviation_hangar',
+    requiredBuilding: 'helicopter_hangar',
   },
   stormbringer_jet: {
     type: 'stormbringer_jet',
@@ -309,7 +309,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 500, steel: 400, aluminum: 200, fuel: 200 },
     buildTimeSec: 30,
     maxLevel: 10,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
     storageBonus: { concrete: 2000, steel: 2000, aluminum: 1500, fuel: 1500 },
   },
   command_bunker: {
@@ -320,7 +320,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 800, steel: 600, aluminum: 300, fuel: 150 },
     buildTimeSec: 45,
     maxLevel: 5,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
     storageBonus: { concrete: 3000, steel: 3000, aluminum: 1000, fuel: 1000 },
   },
   operations_center: {
@@ -331,7 +331,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 400, steel: 500, aluminum: 600, fuel: 300 },
     buildTimeSec: 35,
     maxLevel: 5,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
   },
   comms_tower: {
     type: 'comms_tower',
@@ -341,7 +341,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 150, steel: 300, aluminum: 400, fuel: 100 },
     buildTimeSec: 20,
     maxLevel: 5,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
   },
   military_gate: {
     type: 'military_gate',
@@ -351,7 +351,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 250, steel: 150, aluminum: 50, fuel: 50 },
     buildTimeSec: 15,
     maxLevel: 3,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
   },
 
   // --- UNIT PRODUCTION ---
@@ -363,7 +363,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 300, steel: 200, aluminum: 100, fuel: 150 },
     buildTimeSec: 25,
     maxLevel: 5,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
   },
   vehicle_factory: {
     type: 'vehicle_factory',
@@ -377,13 +377,23 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
   },
   aviation_hangar: {
     type: 'aviation_hangar',
-    name: 'Aircraft Hangar & Revetments',
+    name: 'Fixed-Wing Aircraft Hangar & Runway',
     category: 'production',
-    description: 'Hardened shelters and service bays for rotary and fixed-wing strike aircraft. Exclusive to captured Air Bases.',
+    description: 'Hardened aircraft hangars and paved runway apron for fixed-wing jet interceptors and heavy bombers. Exclusive to Air Bases.',
     cost: { concrete: 450, steel: 400, aluminum: 500, fuel: 350 },
     buildTimeSec: 40,
     maxLevel: 5,
     baseTypesAllowed: ['air'],
+  },
+  helicopter_hangar: {
+    type: 'helicopter_hangar',
+    name: 'Rotorcraft Hangar & Helipads',
+    category: 'production',
+    description: 'Dedicated rotorcraft hangars, maintenance bays, and tactical helipad aprons for scout and attack helicopters. Exclusive to Helicopter Bases.',
+    cost: { concrete: 380, steel: 360, aluminum: 440, fuel: 300 },
+    buildTimeSec: 34,
+    maxLevel: 5,
+    baseTypesAllowed: ['helicopter'],
   },
   naval_dockyard: {
     type: 'naval_dockyard',
@@ -397,13 +407,13 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
   },
   rail_depot: {
     type: 'rail_depot',
-    name: 'Armored Rail Maintenance Depot',
+    name: 'Armored Train Assembly Depot',
     category: 'production',
-    description: 'Track maintenance and assembly works for the Iron Dreadnought rail-borne siege batteries.',
+    description: 'Heavy railway station assembly gantry and track works for constructing Iron Dreadnought siege trains.',
     cost: { concrete: 500, steel: 800, aluminum: 300, fuel: 450 },
     buildTimeSec: 45,
     maxLevel: 5,
-    baseTypesAllowed: ['rail'],
+    baseTypesAllowed: ['train', 'rail'],
   },
 
   // --- ECONOMY & SUPPORT ---
@@ -415,7 +425,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 100, steel: 120, aluminum: 30, fuel: 60 },
     buildTimeSec: 12,
     maxLevel: 8,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
     productionBonus: { concrete: 6 },
   },
   steel_foundry: {
@@ -426,7 +436,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 150, steel: 80, aluminum: 40, fuel: 100 },
     buildTimeSec: 15,
     maxLevel: 8,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
     productionBonus: { steel: 5 },
   },
   aluminum_smelter: {
@@ -437,7 +447,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 120, steel: 160, aluminum: 50, fuel: 120 },
     buildTimeSec: 18,
     maxLevel: 8,
-    baseTypesAllowed: ['home', 'air', 'tank', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'air', 'helicopter', 'tank', 'harbor', 'rail', 'train'],
     productionBonus: { aluminum: 3.5 },
   },
   fuel_refinery: {
@@ -448,7 +458,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 180, steel: 200, aluminum: 90, fuel: 50 },
     buildTimeSec: 20,
     maxLevel: 8,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
     productionBonus: { fuel: 4.5 },
   },
   storage_depot: {
@@ -459,7 +469,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 300, steel: 250, aluminum: 100, fuel: 100 },
     buildTimeSec: 25,
     maxLevel: 5,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
     storageBonus: { concrete: 5000, steel: 5000, aluminum: 3500, fuel: 4000 },
   },
   power_station: {
@@ -470,7 +480,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 350, steel: 400, aluminum: 200, fuel: 150 },
     buildTimeSec: 30,
     maxLevel: 5,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
   },
   repair_depot: {
     type: 'repair_depot',
@@ -480,7 +490,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 250, steel: 350, aluminum: 150, fuel: 100 },
     buildTimeSec: 20,
     maxLevel: 5,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
   },
   logistics_center: {
     type: 'logistics_center',
@@ -490,7 +500,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 200, steel: 200, aluminum: 150, fuel: 150 },
     buildTimeSec: 15,
     maxLevel: 5,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
   },
 
   // --- DEFENSE ---
@@ -502,7 +512,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 100, steel: 80, aluminum: 30, fuel: 20 },
     buildTimeSec: 10,
     maxLevel: 5,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
     defenseStats: { damage: 20, range: 7.0, rateOfFire: 1.0, targets: ['ground'] },
   },
   mg_turret: {
@@ -513,7 +523,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 150, steel: 120, aluminum: 40, fuel: 30 },
     buildTimeSec: 12,
     maxLevel: 5,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
     defenseStats: { damage: 35, range: 5.5, rateOfFire: 2.0, targets: ['ground'] },
   },
   vulcan_turret: {
@@ -524,7 +534,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 120, steel: 220, aluminum: 80, fuel: 60 },
     buildTimeSec: 15,
     maxLevel: 6,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
     defenseStats: { damage: 45, range: 6.5, rateOfFire: 1.5, targets: ['ground', 'air', 'rail'] },
   },
   sam_launcher: {
@@ -535,7 +545,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 200, steel: 350, aluminum: 300, fuel: 150 },
     buildTimeSec: 22,
     maxLevel: 6,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
     defenseStats: { damage: 180, range: 9.5, rateOfFire: 0.6, targets: ['air'] },
   },
   coastal_battery: {
@@ -557,7 +567,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 400, steel: 500, aluminum: 200, fuel: 300 },
     buildTimeSec: 30,
     maxLevel: 5,
-    baseTypesAllowed: ['home', 'tank', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'rail', 'train'],
     defenseStats: { damage: 200, range: 13.0, rateOfFire: 0.2, targets: ['ground', 'naval', 'rail'] },
   },
   fortified_bunker: {
@@ -568,7 +578,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 600, steel: 300, aluminum: 100, fuel: 50 },
     buildTimeSec: 25,
     maxLevel: 5,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
   },
   perimeter_wall: {
     type: 'perimeter_wall',
@@ -578,7 +588,7 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 100, steel: 50, aluminum: 0, fuel: 0 },
     buildTimeSec: 8,
     maxLevel: 10,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
   },
   radar_station: {
     type: 'radar_station',
@@ -588,6 +598,6 @@ export const BUILDING_CATALOG: Record<BuildingType, BuildingDefinition> = {
     cost: { concrete: 200, steel: 300, aluminum: 500, fuel: 100 },
     buildTimeSec: 25,
     maxLevel: 5,
-    baseTypesAllowed: ['home', 'tank', 'air', 'harbor', 'rail'],
+    baseTypesAllowed: ['home', 'tank', 'air', 'helicopter', 'harbor', 'rail', 'train'],
   },
 };

@@ -14,6 +14,7 @@ import {
   Announcement,
   AuditLogEntry,
   Base,
+  BaseType,
   BattleReport,
   BotAgentRecord,
   BuildingDefinition,
@@ -827,6 +828,70 @@ export class GameStore {
         b.hqLevel = cc ? cc.level : 1;
       }
 
+      // Normalize specialized base buildings safely without deleting bases or changing owners/resources
+      if (b.type === 'home') {
+        b.buildings = b.buildings.filter((bld: any) => bld.type !== 'aviation_hangar');
+      } else if (b.type === 'helicopter' && !b.buildings.some((bld: any) => bld.type === 'helicopter_hangar')) {
+        b.buildings.push({
+          id: `b_hh_mig_${b.id}`,
+          type: 'helicopter_hangar',
+          level: 2,
+          health: 900,
+          maxHealth: 900,
+        });
+      } else if (b.type === 'air' && !b.buildings.some((bld: any) => bld.type === 'aviation_hangar')) {
+        b.buildings.push({
+          id: `b_ah_mig_${b.id}`,
+          type: 'aviation_hangar',
+          level: 2,
+          health: 950,
+          maxHealth: 950,
+        });
+      } else if (b.type === 'train' && !b.buildings.some((bld: any) => bld.type === 'rail_depot')) {
+        b.buildings.push({
+          id: `b_rd_mig_${b.id}`,
+          type: 'rail_depot',
+          level: 2,
+          health: 1100,
+          maxHealth: 1100,
+        });
+      } else if (b.type === 'rail') {
+        if (!b.buildings.some((bld: any) => bld.type === 'logistics_center')) {
+          b.buildings.push({
+            id: `b_lc_mig_${b.id}`,
+            type: 'logistics_center',
+            level: 2,
+            health: 850,
+            maxHealth: 850,
+          });
+        }
+        if (!b.buildings.some((bld: any) => bld.type === 'repair_depot')) {
+          b.buildings.push({
+            id: `b_rep_mig_${b.id}`,
+            type: 'repair_depot',
+            level: 2,
+            health: 800,
+            maxHealth: 800,
+          });
+        }
+      } else if (b.type === 'harbor' && !b.buildings.some((bld: any) => bld.type === 'naval_dockyard')) {
+        b.buildings.push({
+          id: `b_nd_mig_${b.id}`,
+          type: 'naval_dockyard',
+          level: 2,
+          health: 1100,
+          maxHealth: 1100,
+        });
+      } else if (b.type === 'tank' && !b.buildings.some((bld: any) => bld.type === 'vehicle_factory')) {
+        b.buildings.push({
+          id: `b_vf_mig_${b.id}`,
+          type: 'vehicle_factory',
+          level: 1,
+          health: 800,
+          maxHealth: 800,
+        });
+      }
+
       // Explicit lifecycleState
       if (!b.lifecycleState) {
         if (b.isProtected) b.lifecycleState = 'protected';
@@ -863,7 +928,10 @@ export class GameStore {
       };
     }
 
-    // Generate bases, units, and envObjects for Sector 02 and Sector 03 if not yet populated
+    // Generate bases, units, and envObjects for Sector 02 and Sector 03 if not yet populated,
+    // and non-destructively ensure all 6 specialized base types exist on every sector map.
+    const requiredSpecializedTypes: BaseType[] = ['tank', 'air', 'helicopter', 'rail', 'train', 'harbor'];
+
     for (const mapCfg of parsed.maps) {
       const mapBases = parsed.bases.filter((b: any) => b.mapId === mapCfg.id);
       if (mapBases.length === 0) {
@@ -884,6 +952,7 @@ export class GameStore {
             mapId: mapCfg.id,
             name: `${sectorLabel} ${b.name}`,
             isHomeBase: false,
+            lifecycleState: b.ownerId === 'neutral' ? 'ownerless' : 'active',
           };
           if (idx === 0) {
             clone.ownerId = 'player_default';
@@ -891,11 +960,13 @@ export class GameStore {
             clone.allianceId = 'alliance_vanguard';
             clone.type = 'tank';
             clone.isHomeBase = false;
+            clone.lifecycleState = 'active';
             clone.name = `${sectorLabel} Forward Garrison`;
-          } else if (idx === 1 || idx === 4) {
+          } else if (idx === 1 || idx === 6) {
             clone.ownerId = 'enemy_insurgent';
             clone.ownerName = 'Kodiak PMC';
             clone.isHomeBase = false;
+            clone.lifecycleState = 'active';
             clone.name = `Kodiak ${sectorLabel} Garrison ${idx}`;
           }
           return clone;
@@ -989,17 +1060,95 @@ export class GameStore {
             }
           );
         }
-      } else if (!parsed.envObjectsByMap[mapCfg.id] || parsed.envObjectsByMap[mapCfg.id].length === 0) {
-        const generated = generateWorld({
-          width: mapCfg.width,
-          height: mapCfg.height,
-          tileSize: mapCfg.tileSize,
-          seed: mapCfg.seed,
-        });
-        parsed.envObjectsByMap[mapCfg.id] = generated.envObjects.map((eo) => ({
-          ...eo,
-          mapId: mapCfg.id,
-        }));
+      } else {
+        const missingTypes = requiredSpecializedTypes.filter(
+          (t) => !mapBases.some((b: any) => b.type === t)
+        );
+        const needEnv = !parsed.envObjectsByMap[mapCfg.id] || parsed.envObjectsByMap[mapCfg.id].length === 0;
+
+        if (missingTypes.length > 0 || needEnv) {
+          const generated = generateWorld({
+            width: mapCfg.width,
+            height: mapCfg.height,
+            tileSize: mapCfg.tileSize,
+            seed: mapCfg.seed,
+          });
+
+          if (needEnv) {
+            parsed.envObjectsByMap[mapCfg.id] = generated.envObjects.map((eo) => ({
+              ...eo,
+              mapId: mapCfg.id,
+            }));
+          }
+
+          if (missingTypes.length > 0) {
+            const sectorSuffix =
+              mapCfg.id === 'map_riverfront_assault'
+                ? ''
+                : mapCfg.id === 'map_iron_ridge_corridor'
+                ? '_s2'
+                : '_s3';
+            const sectorLabel =
+              mapCfg.id === 'map_riverfront_assault'
+                ? ''
+                : mapCfg.id === 'map_iron_ridge_corridor'
+                ? 'Iron Ridge '
+                : 'Bastion Delta ';
+            const railY = Math.floor(mapCfg.height * 0.48);
+
+            for (const missingType of missingTypes) {
+              const template = generated.bases.find((gb) => gb.type === missingType);
+              if (!template) continue;
+
+              let candX = template.x;
+              let candY = template.y;
+
+              const currentMapBases = parsed.bases.filter((b: any) => b.mapId === mapCfg.id);
+              const isOverlapping = (x: number, y: number) =>
+                currentMapBases.some((eb: any) => Math.hypot(eb.x - x, eb.y - y) < 12.2);
+
+              if (isOverlapping(candX, candY)) {
+                if (missingType === 'train' || missingType === 'rail') {
+                  for (let rx = 14; rx <= mapCfg.width - 22; rx += 2) {
+                    if (!isOverlapping(rx, railY)) {
+                      candX = rx;
+                      candY = railY;
+                      break;
+                    }
+                  }
+                } else {
+                  let foundNonOverlap = false;
+                  for (let r = 4; r <= 36 && !foundNonOverlap; r += 3) {
+                    for (let a = 0; a < 16 && !foundNonOverlap; a++) {
+                      const ang = (a / 16) * Math.PI * 2;
+                      const tx = Math.max(8, Math.min(mapCfg.width - 12, Math.round(template.x + Math.cos(ang) * r)));
+                      const ty = Math.max(8, Math.min(mapCfg.height - 10, Math.round(template.y + Math.sin(ang) * r)));
+                      if (!isOverlapping(tx, ty)) {
+                        candX = tx;
+                        candY = ty;
+                        foundNonOverlap = true;
+                      }
+                    }
+                  }
+                }
+              }
+
+              const newBaseId = `${template.id}${sectorSuffix}`;
+              if (!parsed.bases.some((b: any) => b.id === newBaseId)) {
+                parsed.bases.push({
+                  ...template,
+                  id: newBaseId,
+                  mapId: mapCfg.id,
+                  name: `${sectorLabel}${template.name}`,
+                  x: candX,
+                  y: candY,
+                  isHomeBase: false,
+                  lifecycleState: template.ownerId === 'neutral' ? 'ownerless' : 'active',
+                });
+              }
+            }
+          }
+        }
       }
     }
   }

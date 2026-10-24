@@ -1058,11 +1058,67 @@ export class TacticalRenderer {
     building: { type: BuildingType; offsetX?: number; offsetY?: number },
     idx: number
   ): { x: number; z: number } {
-    if (building.type === 'command_center') {
-      return { x: base.x, z: base.y };
-    }
     if (building.offsetX !== undefined && building.offsetY !== undefined) {
       return { x: base.x + building.offsetX, z: base.y + building.offsetY };
+    }
+
+    const isHome = Boolean(base.isHomeBase || base.type === 'home');
+    if (building.type === 'command_center') {
+      if (isHome) return { x: base.x, z: base.y };
+      if (base.type === 'air' || base.type === 'rail' || base.type === 'train') {
+        return { x: base.x + 0.6, z: base.y - 1.55 };
+      }
+      if (base.type === 'helicopter') {
+        return { x: base.x, z: base.y - 0.35 };
+      }
+      if (base.type === 'harbor') {
+        return { x: base.x - 1.45, z: base.y };
+      }
+      return { x: base.x, z: base.y };
+    }
+
+    if (!isHome) {
+      if (base.type === 'air' || base.type === 'rail' || base.type === 'train') {
+        const apronSlots: [number, number][] = [
+          [-2.2, -1.65],
+          [-0.9, -1.65],
+          [1.85, -1.65],
+          [-2.3, 2.15],
+          [-0.9, 2.15],
+          [0.5, 2.15],
+          [1.9, 2.15],
+          [-2.8, -0.35],
+          [2.8, -0.35],
+        ];
+        const slot = apronSlots[idx % apronSlots.length];
+        return { x: base.x + slot[0], z: base.y + slot[1] };
+      }
+      if (base.type === 'helicopter') {
+        const heliSlots: [number, number][] = [
+          [-2.15, -1.35],
+          [0.0, -1.65],
+          [2.15, -1.35],
+          [-2.45, 0.1],
+          [2.45, 0.1],
+          [-2.35, 1.65],
+          [2.35, 1.65],
+        ];
+        const slot = heliSlots[idx % heliSlots.length];
+        return { x: base.x + slot[0], z: base.y + slot[1] };
+      }
+      if (base.type === 'harbor') {
+        const harborSlots: [number, number][] = [
+          [-0.45, -1.55],
+          [-0.45, 1.55],
+          [-2.35, -1.55],
+          [-2.35, 0.0],
+          [-2.35, 1.55],
+          [0.55, -1.75],
+          [0.55, 1.75],
+        ];
+        const slot = harborSlots[idx % harborSlots.length];
+        return { x: base.x + slot[0], z: base.y + slot[1] };
+      }
     }
 
     let ring = 1;
@@ -1307,12 +1363,12 @@ export class TacticalRenderer {
           roughness: 0.8,
           metalness: 0.18,
         });
-        const padMesh = new THREE.Mesh(padGeom, padMat);
-        padMesh.position.y = 0.025;
-        padMesh.receiveShadow = true;
-        group.add(padMesh);
-
         if (isHome) {
+          const padMesh = new THREE.Mesh(padGeom, padMat);
+          padMesh.position.y = 0.025;
+          padMesh.receiveShadow = true;
+          group.add(padMesh);
+
           // Internal paved cross-roads & logistics apron for Home Base Headquarters
           const roadMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
           const roadStripeMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
@@ -1358,54 +1414,45 @@ export class TacticalRenderer {
             hqLight.position.set(0, 2.6, 0);
             group.add(hqLight);
           }
-        }
 
-        // 3D Perimeter Fortification Wall, Gatehouse Checkpoint & Corner Watchtowers
-        const wallSegments = isHome ? 24 : 16;
-        const wallMat = new THREE.MeshStandardMaterial({
-          color: isHome ? 0x334155 : 0x475569,
-          roughness: 0.72,
-          metalness: 0.22,
-        });
-        const accentMat = new THREE.MeshStandardMaterial({ color: teamHex, roughness: 0.38 });
-        const beaconMat = new THREE.MeshBasicMaterial({ color: isPlayer ? 0x38bdf8 : teamHex });
+          // 3D Perimeter Fortification Wall, Gatehouse Checkpoint & Corner Watchtowers for Home Base
+          const wallSegments = 24;
+          const wallMat = new THREE.MeshStandardMaterial({
+            color: 0x334155,
+            roughness: 0.72,
+            metalness: 0.22,
+          });
+          const accentMat = new THREE.MeshStandardMaterial({ color: teamHex, roughness: 0.38 });
+          const beaconMat = new THREE.MeshBasicMaterial({ color: isPlayer ? 0x38bdf8 : teamHex });
 
-        for (let i = 0; i < wallSegments; i++) {
-          const angle = (i / wallSegments) * Math.PI * 2;
-          // Leave East/South-East gate open for vehicle access
-          if (angle > -0.25 && angle < 0.75) continue;
+          for (let i = 0; i < wallSegments; i++) {
+            const angle = (i / wallSegments) * Math.PI * 2;
+            if (angle > -0.25 && angle < 0.75) continue;
 
-          const wx = Math.cos(angle) * padRadius;
-          const wz = Math.sin(angle) * padRadius;
+            const wx = Math.cos(angle) * padRadius;
+            const wz = Math.sin(angle) * padRadius;
 
-          const wallHeight = isHome ? 0.48 : 0.38;
-          const wall = new THREE.Mesh(new THREE.BoxGeometry(0.26, wallHeight, 1.15), wallMat);
-          wall.position.set(wx, wallHeight / 2, wz);
-          wall.rotation.y = -angle;
-          wall.castShadow = true;
-          wall.receiveShadow = true;
-          group.add(wall);
+            const wallHeight = 0.48;
+            const wall = new THREE.Mesh(new THREE.BoxGeometry(0.26, wallHeight, 1.15), wallMat);
+            wall.position.set(wx, wallHeight / 2, wz);
+            wall.rotation.y = -angle;
+            wall.castShadow = true;
+            wall.receiveShadow = true;
+            group.add(wall);
 
-          const towerStep = isHome ? 3 : 4;
-          if (i % towerStep === 0) {
-            const tH = isHome ? 0.96 : 0.76;
-            const tower = new THREE.Mesh(new THREE.BoxGeometry(0.5, tH, 0.5), wallMat);
-            tower.position.set(wx, tH / 2, wz);
-            tower.castShadow = true;
-            const roof = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.1, 0.58), accentMat);
-            roof.position.set(wx, tH + 0.04, wz);
-            group.add(tower, roof);
-
-            if (isHome) {
+            if (i % 3 === 0) {
+              const tH = 0.96;
+              const tower = new THREE.Mesh(new THREE.BoxGeometry(0.5, tH, 0.5), wallMat);
+              tower.position.set(wx, tH / 2, wz);
+              tower.castShadow = true;
+              const roof = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.1, 0.58), accentMat);
+              roof.position.set(wx, tH + 0.04, wz);
               const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), beaconMat);
               lantern.position.set(wx, tH + 0.14, wz);
-              group.add(lantern);
+              group.add(tower, roof, lantern);
             }
           }
-        }
 
-        // Dedicated Home Base Fortified Entrance Gate & Twin Guard Towers
-        if (isHome) {
           const gateAngles = [-0.28, 0.78];
           for (const gAngle of gateAngles) {
             const gx = Math.cos(gAngle) * padRadius;
@@ -1419,12 +1466,22 @@ export class TacticalRenderer {
             gBeacon.position.set(gx, 1.34, gz);
             group.add(gTower, gCap, gBeacon);
           }
+        } else {
+          // Specialized Military Base 3D Compound (Tank, Air, Helicopter, Rail Logistics, Train Station, Harbor)
+          const specializedCompound = this.modelsRegistry.createSpecializedBaseCompound(
+            base.type,
+            padRadius,
+            teamHex
+          );
+          group.add(specializedCompound);
         }
 
         const nonHqBuildings = base.buildings.filter((b) => b.type !== 'command_center');
         const hq = base.buildings.find((b) => b.type === 'command_center');
         if (hq) {
+          const hqPos = this.getBuildingWorldPosition(base, hq, 0);
           const hqMesh = this.modelsRegistry.createBuildingMesh('command_center', teamHex, hq.isConstructing);
+          hqMesh.position.set(hqPos.x - base.x, 0, hqPos.z - base.y);
           if (isHome) {
             hqMesh.scale.setScalar(1.18);
           }
@@ -1933,29 +1990,40 @@ export class TacticalRenderer {
 
       const hpPct = Math.max(0, base.health / base.maxHealth);
       const shieldPct = base.maxShield > 0 ? Math.max(0, base.defenseShield / base.maxShield) : 0;
-      const barW = isHome ? 124 : 106;
-      const boxH = 34;
+      const barW = isHome ? 136 : 126;
+      const boxH = 36;
+
+      const baseTypeTagMap: Record<string, string> = {
+        home: '★ HQ',
+        tank: '⛨ TANK',
+        air: '✈ AIRFIELD',
+        helicopter: '✦ HELI BASE',
+        rail: '⇄ RAIL YARD',
+        train: '🚆 TRAIN STN',
+        harbor: '⚓ HARBOR',
+      };
+      const typeTag = baseTypeTagMap[base.type] || base.type.toUpperCase();
 
       // Base Name & Ownership Identity Tag
       ctx.textAlign = 'center';
-      ctx.fillStyle = isHome ? 'rgba(8, 15, 32, 0.94)' : 'rgba(9, 14, 23, 0.90)';
-      ctx.fillRect(sp.x - barW / 2 - 6, sp.y - 30, barW + 12, boxH);
+      ctx.fillStyle = isHome ? 'rgba(8, 15, 32, 0.94)' : 'rgba(9, 14, 23, 0.92)';
+      ctx.fillRect(sp.x - barW / 2 - 6, sp.y - 32, barW + 12, boxH);
       ctx.strokeStyle = isNeutral ? '#f59e0b' : isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
-      ctx.lineWidth = isHome ? 1.6 : 1;
-      ctx.strokeRect(sp.x - barW / 2 - 6, sp.y - 30, barW + 12, boxH);
+      ctx.lineWidth = isHome ? 1.6 : 1.1;
+      ctx.strokeRect(sp.x - barW / 2 - 6, sp.y - 32, barW + 12, boxH);
 
-      // Line 1: Facility Title
-      ctx.font = isHome ? 'bold 11px "Chakra Petch", sans-serif' : 'bold 10.5px "Chakra Petch", sans-serif';
+      // Line 1: Specialized Facility Type Badge + Name
+      ctx.font = isHome ? 'bold 10.5px "Chakra Petch", sans-serif' : 'bold 10px "Chakra Petch", sans-serif';
       ctx.fillStyle = isNeutral ? '#fef3c7' : isPlayer ? '#38bdf8' : isAllied ? '#34d399' : isEnemy ? '#f87171' : '#fbbf24';
-      const displayLabel = isNeutral ? `[NEUTRAL] ${base.name}` : isHome ? `★ HQ · ${base.name}` : base.name;
-      ctx.fillText(displayLabel, sp.x, sp.y - 18);
+      const displayLabel = `${typeTag} · ${base.name}`;
+      ctx.fillText(displayLabel, sp.x, sp.y - 19);
 
       // Line 2: Authoritative Base Owner & Alliance Identity
       ctx.font = 'bold 8.5px "JetBrains Mono", monospace';
       if (isNeutral) {
         ctx.fillStyle = '#fde68a';
         ctx.fillText(
-          base.previousOwnerName ? `FORMER: ${base.previousOwnerName}` : 'NEUTRAL TERRITORY',
+          base.previousOwnerName ? `FORMER: ${base.previousOwnerName}` : 'NEUTRAL INSTALLATION',
           sp.x,
           sp.y - 7
         );

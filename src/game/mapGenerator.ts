@@ -261,19 +261,24 @@ export function generateWorld(config: WorldMapConfig = { width: 100, height: 75,
   }
 
   // Spur line going south to base_rail_fortress depot
-  for (let y = railY; y <= 52; y++) {
-    const rx = 62;
-    if (rx < width && terrain[y][rx] !== 'water' && terrain[y][rx] !== 'deep_water') {
+  for (let y = railY; y <= Math.min(height - 3, 52); y++) {
+    const rx = Math.min(width - 4, 62);
+    if (terrain[y][rx] === 'water' || terrain[y][rx] === 'deep_water') {
+      terrain[y][rx] = 'bridge_rail';
+    } else {
       terrain[y][rx] = 'railway';
     }
   }
 
-
-
-
-
-  // 7. Strategic Military Bases
+  // 7. Strategic Military Bases (Home + 6 Specialized Base Types: Tank, Air, Helicopter, Train Station, Railway Logistics, Harbor)
   const now = Date.now();
+  const trainBaseX = Math.min(width - 12, 42);
+  const trainBaseY = railY;
+  const railYardX = Math.min(width - 10, 62);
+  const railYardY = Math.min(height - 10, 48);
+  const harborX = Math.min(width - 10, 82);
+  const harborY = Math.min(height - 10, 35);
+
   const bases: Base[] = [
     {
       id: 'base_alpha_home',
@@ -305,7 +310,6 @@ export function generateWorld(config: WorldMapConfig = { width: 100, height: 75,
         { id: 'b_as_1', type: 'aluminum_smelter', level: 2, health: 500, maxHealth: 500 },
         { id: 'b_fr_1', type: 'fuel_refinery', level: 2, health: 550, maxHealth: 550 },
         { id: 'b_vf_1', type: 'vehicle_factory', level: 2, health: 900, maxHealth: 900 },
-        { id: 'b_ah_1', type: 'aviation_hangar', level: 1, health: 800, maxHealth: 800 },
         { id: 'b_rad_1', type: 'radar_station', level: 2, health: 500, maxHealth: 500 },
         { id: 'b_vt_1', type: 'vulcan_turret', level: 2, health: 450, maxHealth: 450 },
         { id: 'b_sam_1', type: 'sam_launcher', level: 1, health: 400, maxHealth: 400 },
@@ -336,12 +340,13 @@ export function generateWorld(config: WorldMapConfig = { width: 100, height: 75,
         { id: 'b_cc_2', type: 'command_center', level: 2, health: 1200, maxHealth: 1200 },
         { id: 'b_sf_2', type: 'steel_foundry', level: 3, health: 800, maxHealth: 800 },
         { id: 'b_vf_2', type: 'vehicle_factory', level: 2, health: 900, maxHealth: 900 },
+        { id: 'b_rd_tank', type: 'repair_depot', level: 2, health: 650, maxHealth: 650 },
         { id: 'b_vt_2', type: 'vulcan_turret', level: 2, health: 450, maxHealth: 450 },
       ],
     },
     {
       id: 'base_air_eagle',
-      name: 'Eaglecrest Air Wing Base',
+      name: 'Eaglecrest Strategic Airfield',
       type: 'air',
       ownerId: 'neutral',
       ownerName: 'Independent Defense Corps',
@@ -363,7 +368,66 @@ export function generateWorld(config: WorldMapConfig = { width: 100, height: 75,
         { id: 'b_cc_3', type: 'command_center', level: 2, health: 1200, maxHealth: 1200 },
         { id: 'b_ah_2', type: 'aviation_hangar', level: 2, health: 950, maxHealth: 950 },
         { id: 'b_as_2', type: 'aluminum_smelter', level: 2, health: 600, maxHealth: 600 },
+        { id: 'b_fr_air', type: 'fuel_refinery', level: 2, health: 600, maxHealth: 600 },
+        { id: 'b_rad_air', type: 'radar_station', level: 2, health: 550, maxHealth: 550 },
         { id: 'b_sam_2', type: 'sam_launcher', level: 2, health: 500, maxHealth: 500 },
+      ],
+    },
+    {
+      id: 'base_heli_valkyrie',
+      name: 'Valkyrie Rotorcraft Command',
+      type: 'helicopter',
+      ownerId: 'neutral',
+      ownerName: 'Airborne Rotorcraft Corps',
+      x: 26,
+      y: 40,
+      radius: 4,
+      health: 2550,
+      maxHealth: 2550,
+      defenseShield: 600,
+      maxShield: 600,
+      captureProgress: 0,
+      resources: { concrete: 1600, steel: 1800, aluminum: 2400, fuel: 2600 },
+      storageCap: { concrete: 10000, steel: 10000, aluminum: 12000, fuel: 12000 },
+      productionRates: { concrete: 6, steel: 6, aluminum: 11, fuel: 11 },
+      lastResourceUpdate: now,
+      constructionQueue: [],
+      productionQueue: [],
+      buildings: [
+        { id: 'b_cc_heli', type: 'command_center', level: 2, health: 1200, maxHealth: 1200 },
+        { id: 'b_hh_1', type: 'helicopter_hangar', level: 2, health: 900, maxHealth: 900 },
+        { id: 'b_fr_heli', type: 'fuel_refinery', level: 2, health: 600, maxHealth: 600 },
+        { id: 'b_rep_heli', type: 'repair_depot', level: 1, health: 550, maxHealth: 550 },
+        { id: 'b_vt_heli', type: 'vulcan_turret', level: 2, health: 450, maxHealth: 450 },
+        { id: 'b_gt_heli', type: 'guard_tower', level: 2, health: 400, maxHealth: 400 },
+      ],
+    },
+    {
+      id: 'base_train_terminal',
+      name: 'Ironclad Central Train Station',
+      type: 'train',
+      ownerId: 'neutral',
+      ownerName: 'Continental Rail Authority',
+      x: trainBaseX,
+      y: trainBaseY,
+      radius: 4,
+      health: 3000,
+      maxHealth: 3000,
+      defenseShield: 750,
+      maxShield: 750,
+      captureProgress: 0,
+      resources: { concrete: 2600, steel: 3800, aluminum: 1400, fuel: 2200 },
+      storageCap: { concrete: 12000, steel: 16000, aluminum: 8000, fuel: 10000 },
+      productionRates: { concrete: 8, steel: 15, aluminum: 5, fuel: 9 },
+      lastResourceUpdate: now,
+      constructionQueue: [],
+      productionQueue: [],
+      buildings: [
+        { id: 'b_cc_train', type: 'command_center', level: 2, health: 1200, maxHealth: 1200 },
+        { id: 'b_rd_train', type: 'rail_depot', level: 2, health: 1100, maxHealth: 1100 },
+        { id: 'b_sf_train', type: 'steel_foundry', level: 2, health: 750, maxHealth: 750 },
+        { id: 'b_sd_train', type: 'storage_depot', level: 1, health: 600, maxHealth: 600 },
+        { id: 'b_vt_train', type: 'vulcan_turret', level: 2, health: 450, maxHealth: 450 },
       ],
     },
     {
@@ -372,8 +436,8 @@ export function generateWorld(config: WorldMapConfig = { width: 100, height: 75,
       type: 'harbor',
       ownerId: 'neutral',
       ownerName: 'Maritime Patrol Force',
-      x: 82,
-      y: 35,
+      x: harborX,
+      y: harborY,
       radius: 4,
       health: 3000,
       maxHealth: 3000,
@@ -389,17 +453,18 @@ export function generateWorld(config: WorldMapConfig = { width: 100, height: 75,
       buildings: [
         { id: 'b_cc_4', type: 'command_center', level: 2, health: 1200, maxHealth: 1200 },
         { id: 'b_nd_1', type: 'naval_dockyard', level: 2, health: 1100, maxHealth: 1100 },
+        { id: 'b_sd_harbor', type: 'storage_depot', level: 1, health: 650, maxHealth: 650 },
         { id: 'b_cb_1', type: 'coastal_battery', level: 2, health: 650, maxHealth: 650 },
       ],
     },
     {
       id: 'base_rail_fortress',
-      name: 'Garrison Iron-Spur Rail Depot',
+      name: 'Garrison Iron-Spur Rail Yard',
       type: 'rail',
       ownerId: 'neutral',
       ownerName: 'Railway Logistics Union',
-      x: 62,
-      y: 48,
+      x: railYardX,
+      y: railYardY,
       radius: 4,
       health: 2900,
       maxHealth: 2900,
@@ -414,7 +479,9 @@ export function generateWorld(config: WorldMapConfig = { width: 100, height: 75,
       productionQueue: [],
       buildings: [
         { id: 'b_cc_5', type: 'command_center', level: 2, health: 1200, maxHealth: 1200 },
-        { id: 'b_rd_1', type: 'rail_depot', level: 2, health: 1100, maxHealth: 1100 },
+        { id: 'b_lc_rail', type: 'logistics_center', level: 2, health: 850, maxHealth: 850 },
+        { id: 'b_rep_rail', type: 'repair_depot', level: 2, health: 800, maxHealth: 800 },
+        { id: 'b_sd_rail', type: 'storage_depot', level: 2, health: 750, maxHealth: 750 },
         { id: 'b_vt_3', type: 'vulcan_turret', level: 2, health: 450, maxHealth: 450 },
       ],
     },
@@ -447,7 +514,7 @@ export function generateWorld(config: WorldMapConfig = { width: 100, height: 75,
     },
     {
       id: 'base_southern_outpost',
-      name: 'Delta Sector Oil Reserve',
+      name: 'Delta Sector Armor & Fuel Depot',
       type: 'tank',
       ownerId: 'neutral',
       ownerName: 'Neutral Frontier',
@@ -467,6 +534,7 @@ export function generateWorld(config: WorldMapConfig = { width: 100, height: 75,
       productionQueue: [],
       buildings: [
         { id: 'b_cc_7', type: 'command_center', level: 1, health: 1000, maxHealth: 1000 },
+        { id: 'b_vf_south', type: 'vehicle_factory', level: 1, health: 750, maxHealth: 750 },
         { id: 'b_fr_3', type: 'fuel_refinery', level: 3, health: 700, maxHealth: 700 },
         { id: 'b_vt_5', type: 'vulcan_turret', level: 1, health: 350, maxHealth: 350 },
       ],
@@ -480,9 +548,73 @@ export function generateWorld(config: WorldMapConfig = { width: 100, height: 75,
         const nx = base.x + dx;
         const ny = base.y + dy;
         if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-          if (terrain[ny][nx] === 'mountain' || terrain[ny][nx] === 'snow' || (terrain[ny][nx] === 'water' && base.type !== 'harbor')) {
+          if (
+            terrain[ny][nx] === 'mountain' ||
+            terrain[ny][nx] === 'snow' ||
+            ((terrain[ny][nx] === 'water' || terrain[ny][nx] === 'deep_water') && base.type !== 'harbor')
+          ) {
             terrain[ny][nx] = 'dirt';
           }
+        }
+      }
+    }
+
+    // Specialized Base Infrastructure & Terrain Guarantees:
+    if (base.type === 'air') {
+      // Clear flat runway strip along X-axis
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -5; dx <= 5; dx++) {
+          const nx = base.x + dx;
+          const ny = base.y + dy;
+          if (nx >= 1 && nx < width - 1 && ny >= 1 && ny < height - 1) {
+            terrain[ny][nx] = dy === 0 ? 'road' : 'plains';
+          }
+        }
+      }
+    } else if (base.type === 'helicopter') {
+      // Clear flat rotorcraft helipad apron
+      for (let dy = -3; dy <= 3; dy++) {
+        for (let dx = -3; dx <= 3; dx++) {
+          const nx = base.x + dx;
+          const ny = base.y + dy;
+          if (nx >= 1 && nx < width - 1 && ny >= 1 && ny < height - 1) {
+            if (terrain[ny][nx] !== 'road' && terrain[ny][nx] !== 'highway') {
+              terrain[ny][nx] = 'plains';
+            }
+          }
+        }
+      }
+    } else if (base.type === 'harbor') {
+      // Coastal quay on west side, navigable water berths on east/seaward side
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 0; dx++) {
+          const nx = base.x + dx;
+          const ny = base.y + dy;
+          if (nx >= 1 && nx < width - 1 && ny >= 1 && ny < height - 1) {
+            terrain[ny][nx] = 'sand';
+          }
+        }
+        for (let dx = 1; dx <= 5; dx++) {
+          const nx = base.x + dx;
+          const ny = base.y + dy;
+          if (nx >= 1 && nx < width - 1 && ny >= 1 && ny < height - 1) {
+            terrain[ny][nx] = dx >= 4 ? 'deep_water' : 'water';
+          }
+        }
+      }
+    } else if (base.type === 'train' || base.type === 'rail') {
+      // Ensure connected railway tracks run directly through the station / rail yard and connect to the main trunk
+      for (let dx = -3; dx <= 3; dx++) {
+        const nx = base.x + dx;
+        if (nx >= 1 && nx < width - 1 && base.y >= 1 && base.y < height - 1) {
+          terrain[base.y][nx] = 'railway';
+        }
+      }
+      const minY = Math.min(railY, base.y);
+      const maxY = Math.max(railY, base.y);
+      for (let y = minY; y <= maxY; y++) {
+        if (base.x >= 1 && base.x < width - 1 && y >= 1 && y < height - 1) {
+          terrain[y][base.x] = 'railway';
         }
       }
     }
